@@ -8,7 +8,7 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Pending increment: [native delegates and callbacks](delegates.md). Focused
+Latest committed increment: [native delegates and callbacks](delegates.md). Focused
 Debug/Release and DMG/CGB tests execute stored static, captured, instance and
 virtual callbacks, returned closures, reference arrays and wide/byref results.
 Malformed metadata, nominal signature mismatches and null binding/invocation
@@ -17,12 +17,14 @@ producing a131072-byte ROM. Existing emulator visual smoke checks reach the titl
 at600frames and the overworld after Start at600/release602 and900total frames;
 both processes exit0. These captures do not prove movement, collision, dialogue
 or game-state semantics; Rust-owned gameplay acceptance is outstanding. The
-callback increment is tracked separately from the pending final1193-case
-workspace/all-features regression; its focused evidence is in delegates.md.
-The first attempt terminated143 after414passes without a test-failure report or
-summary; its log is preserved. The identical command was restarted after checking
-that its processes had stopped and all44 frozen source hashes still matched.
-The51/565 completed-method ledger has not yet incorporated this increment.
+callback increment7b8a456 passes the final workspace/all-features regression:
+1,193/1,193 in2,764.108s, zero skipped, exit0. All44 frozen source hashes match.
+Separate rustdoc passes for four crates/zero doctests. The interrupted first
+attempt143 after414passes remains recorded separately; it is not a green run.
+The callback audit closes11 more methods:62/565 complete,503 partial/outstanding,
+zero physically retired. This checkpoint does not cover the separate isolated
+VRAM-write fix or expanded JRPG acceptance, which still need integration.
+
 
 Hosted native validation for pushed deab1b2 is now verified from completed job
 logs in workflow43833072527: Linux1120/1120 in1075.379s (job133182850276),

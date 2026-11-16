@@ -189,3 +189,104 @@ title/overworld descriptors, Hero fields and one Left move, independent16-bit
 PRNG transition/encounter-type oracle. NOT compiled/run/discoverable yet; do not
 count coverage. Review/fix before applying. Further collision/dialogue/battle/
 pixel acceptance still required; see jrpg-acceptance.md.
+
+Callback increment committed/pushed7b8a4569ff5d2958d8691a49a0181fc6f49a16d9.
+PR55 description updated/read back draft/unmerged; final regression pending.
+To avoid mutating frozen tests, committed snapshot exported to
+/tmp/koh-jrpg-acceptance-1mc04wdf (not another git worktree). Prepared JRPG test
+appended to its tests/sdk/game.rs only. Isolated cargo/.NET outputs under that
+export; focused native SDK test is LIVE session39544, log
+/tmp/koh-jrpg-acceptance-first.log. Original full run remains supervisor1106013.
+No test acceptance claimed until terminal. After test fixes, transfer only the
+new test to the real worktree once original regression is terminal, then verify
+against actual worktree. Do not lose outside-tree draft at session handoff.
+Isolated first run: Debug case PASS229.484s (fresh SDK native/emulator builds),
+Release case still running session39544. The Debug assertions include actual
+boot, ELF/link equality, CGB-only header, scene descriptors, exact Hero fields,
+one Left move, preserved identity and independent PRNG/encounter-type state.
+Do not claim full2-case success or full JRPG acceptance from this partial result.
+Initial isolated acceptance subsequently completed2/2 PASS360.652s,exit0:
+/tmp/koh-jrpg-acceptance-first.log. Next expanded dialogue run is RED2/2:
+/tmp/koh-jrpg-dialogue-acceptance.log,exit100,55.825s. Added test-harness-only
+script write action to seed existing Rng state2D2D, three Right steps, blocked
+NPC step and three dialogue pages/close callback; original sample unchanged.
+Zero mode3 violation assertion finds157Debug/239Release attemptedVRAM writes.
+Do not weaken zero assertion or declare sample accepted. Suspect existing
+MapWriter.WriteAttrVerified: WaitForVramAccess + store/readback intentionally
+retries dropped writes; live dialogue FillAttr reaches it. Need trace/confirm,
+then fix hardware-safe transaction rather than copying legacy retry semantics.
+Trace instrumentation only in export: GameHost prints first20 violations to
+stderr; Rust prints native function symbols and hoststderr. Debug-only trace
+LIVE session29701, log /tmp/koh-jrpg-dialogue-trace.log. No production fix yet.
+Trace now terminal RED1/1,exit100,28.267s. MapWriter.WriteAttrVerified native
+symbol starts20455/bank7; all first20 violations PC20583, attribute6 into39329+
+(dialogue window row13). Existing source explicitly retries stores dropped
+after WaitForVramAccess races. Root cause is unsafe live-attribute transaction,
+not a reason to accept the old library's behavior as specification. Next inspect
+existing backend timing/interrupt mechanisms and choose minimal safe transaction;
+retain exact zero-violation assertion. No fix has been attempted. Export contains
+expanded formatted test and changed GameHost; /tmp/koh-jrpg-sdk-test.rs is now
+the older initial draft, not the latest test. Preserve actual export files.
+
+## Latest isolated graphics fix checkpoint
+
+Prototype fix is now implemented ONLY in /tmp/koh-jrpg-acceptance-1mc04wdf.
+New metadata vramwrite staticvoid(byte*,byte), typed/effectful IR, remapping and
+SM83 guarded store. Operands loaded before DI; pointer-range guard8000..9fff;
+pollSTATbit1 untilmode0/1 then immediate byte store. Conservative44T from read
+through store; accessible following mode2 is80dots (PanDocs raw sources checked).
+Successful calls leave interrupts disabled, including LCD-off; no IME-preserve
+or reentrancy claim. Public Bg/Win attribute remarks now disclose restriction;
+DMG no-ops/empty fills do not execute operation. Existing C# library body is
+simple desktop store, no compiler fallback. Old racy retry loop removed.
+
+Completed isolated evidence (actual logs inspected):
+- /tmp/koh-jrpg-safe-attr-first.log: Debug red-to-green1/1,91.172s,exit0.
+- /tmp/koh-vramwrite-core.log: typed/effect/remap/address/largeframe6/6,6.162s,exit0.
+- /tmp/koh-jrpg-safe-dialogue-clean.log: cleaned Debug/Release2/2,178.562s,exit0,
+  three exact pages, NPC collision and retained callback return, zero mode3 writes.
+- /tmp/koh-vramwrite-phase.log:4/4,110.511s,exit0;9,856 probes across four methods,
+  twoLCDstates,154lines*twodots*fourconfigs. Exact wholeVRAM/bank/onewrite,
+  SP/SVBK/livevalues/IMEdisabled and duration; real extended SP offsets asserted.
+New tests driver/vram.rs, fixtureVramWrite, VBlankHost optionalLCDoff testaction;
+GameHost write action for deterministicRngseed. Trace instrumentation removed.
+Docs in export docs/rust-compiler/vram-write.md. Latest XML/comment-only edits
+after tests need formatting/checks. No build currently active in export.
+
+Main callback regression supervisor1106013 still LIVE, latest1013/1193.
+Only HANDOFF/frontend-audit docs modified in realworktree; production/tests
+still frozen at pushed7b8a456. Next: wait/verify full result/sourcehashes, then
+transfer scoped exportdiff, broaden focused regression (existing VBlankHost
+consumer, SDK2048 etc), review hardware timing/contract, update docs and commit
+one logical graphics/JRPG acceptance increment. Full battles/pixel acceptance,
+PDB/IRQ/testclosure/legacydeletion/perf/release still required. No merge.
+
+Read-only review unit: review guarded VRAM operation in isolated export against
+committed7b8a456, especially timing, DI contract, address validation, stack/register
+aliasing, metadata/IR side effects, phase-test coverage. Reviewer owns no files,
+runs no builds and must not alter either checkout. Parent owns all code/test
+changes and build directories. Verification: inspect export vram-write.md and
+new contracts/IR/lowering/emission/tests; report concrete correctness defects.
+Review /root/vram_write_review finished read-only: no blocking defect found.
+It confirms pointer/load_a push accounting, DE alias handling,4byteguard, timing
+and metadata/IR consistency. Coverage caveat:2dots/scanline and fixeddot252
+unscrolled/noOBJ oracle, not exhaustivePPUphases; documented in export contract.
+No review builds/tests performed. Parent completed evidence remains separate.
+Broad isolated regression LIVE session42962, /tmp/koh-vramwrite-broad.log:
+396selected across IR/SM83, existing bounded-copy4, SDK2048four and JRPGtwo.
+Do not run another export build until terminal. Maincallback1193 remainslive.
+
+## Callback verification terminal
+
+Supervisor1106013 completed; resultjson exit0, elapsed2764.626533s. Actual full
+nextest log:1193/1193 passed,0skipped,2slow,2764.108s. All44 frozen source hashes
+match. Separate rustdoc passes fourcrates/0cases,exit0; allfeature/alltarget
+workspacecheck succeeds13.04s,exit0 with existing cube-helper unused warning.
+Logs /tmp/koh-delegate-rustdoc.log and /tmp/koh-delegate-check-final.log inspected.
+Ledger now62/565 completed methods,503outstanding,0physicallyretired. Callback
+sourcegroups8+3 markedcomplete with exact traceability; no feature retirement.
+Main source freeze can end. Existing isolated graphics broadsession42962 still
+live and owns its exportbuilddirectory; do not mutate export fixtures mid-run.
+First record/push this documentation checkpoint and update PR55 (not merge),
+then transfer scoped graphics diff and verify actualworktree. Pending source
+changes in export are independent of the verified callback1193 snapshot.

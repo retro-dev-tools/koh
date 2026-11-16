@@ -31,19 +31,21 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: fifty-one legacy methods; zero physically retired.**
+**Native behavioral replacements: sixty-two legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining514 methods still have
+The remaining503 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
 
-## Callback replacement pending final regression
+## Callback replacements
 
-The following11 source methods have focused native behavioral replacements.
-They are not yet added to the completed-method total above: the final1193-case
-workspace regression is still running. All targets below are Rust rstest cases
+The following 11 source methods now have complete native behavioral replacements,
+included in the total above. The final workspace/all-features regression passed
+1,193/1,193 in 2,764.108s, zero skipped, exit 0; all 44 frozen source hashes still
+match. Separate rustdoc passes for four crates (zero doctests). All targets below
+are Rust rstest cases
 in `rust/koh-compile/tests/driver/delegates.rs`, discoverable by nextest, using
 real Roslyn DLLs in Debug/Release and the existing emulator on DMG/CGB.
 No source method is physically retired and no compiler behavior is deferred.

@@ -22,7 +22,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   bounded1024-byte DMA bursts; raw CPU copy has explicit ordered semantics.
   Full Linux Rust workspace/all-features passes924/924, plus separate rustdoc;
   actual SDK build/run checks pass. Final selected-bank probes pass4/4.
-  Fifty-one legacy methods have complete replacements;514 remain partial/
+  Sixty-two legacy methods have complete replacements;503 remain partial/
   outstanding, none deleted. Racing-beam now passes all four native configurations
   with actual SCX/scanline traces; the shared all256-phase CLR sweep now has
   Rust-owned assertions in Debug/Release and its redundant C# verifier is removed.
@@ -74,7 +74,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 
 ## PR #55 completion path
 
-Overall progress is roughly45%; 100% requires every acceptance gate, rather
+Overall progress is roughly50%; 100% requires every acceptance gate, rather
 than a test count or a working standalone compiler. All work stays in PR #55.
 
 1. Finish the language/runtime needs of existing games: wider string operations,

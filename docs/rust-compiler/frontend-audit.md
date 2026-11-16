@@ -53,24 +53,24 @@ A constructor string argument must survive field storage and later length/index 
 
 ### CilDelegateTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilDelegateTests.cs`. Future Rust test group: `cil_delegate`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilDelegateTests.cs`. Native Rust group: `driver::delegates`; see the linked disposition matrix.
 
 Captured/noncaptured callbacks, parameter passage and sealed virtual method
 groups must invoke the correct receiver and target in both Roslyn build modes.
 The legacy virtual-group diagnostic is replaced by valid virtual execution;
 open-instance adaptation remains an explicit unsupported shape. Direct calls
-and blob dispatch are optional mechanisms. All8 methods have focused native
-replacements [pending final regression](test-disposition.md#callback-replacement-pending-final-regression);
-they are not yet in the completed-method total.
+and blob dispatch are optional mechanisms. All 8 methods have completed native
+[replacements](test-disposition.md#callback-replacements), included in the
+completed-method total after the full 1,193-case regression passed.
 
-- **PORT** `NoCaptureLambda_VerifiesCleanAndInvokesResolvedTarget`.
-- **PORT** `NoCaptureLambda_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `CapturingLambda_VerifiesCleanAndInvokesResolvedTarget`.
-- **PORT** `CapturingLambda_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `DelegateThroughParameter_LowersViaBlobDispatch`.
-- **PORT** `CallvirtOnSealedDeclaringType_DevirtualizesToDirectCall`.
-- **PORT** `VirtualMethodGroupDelegate_IsDiagnosedNotSilentlyMisresolved`.
-- **PORT** `VirtualMethodGroupDelegate_ResolvesToSealedOverrideWhenTokenIsSealed`.
+- **PORT, complete** `NoCaptureLambda_VerifiesCleanAndInvokesResolvedTarget`.
+- **REPLACE, complete** `NoCaptureLambda_DebugAndReleaseProduceIdenticalObservableState`.
+- **PORT, complete** `CapturingLambda_VerifiesCleanAndInvokesResolvedTarget`.
+- **REPLACE, complete** `CapturingLambda_DebugAndReleaseProduceIdenticalObservableState`.
+- **REPLACE, complete** `DelegateThroughParameter_LowersViaBlobDispatch`.
+- **REPLACE, complete** `CallvirtOnSealedDeclaringType_DevirtualizesToDirectCall`.
+- **REPLACE, complete** `VirtualMethodGroupDelegate_IsDiagnosedNotSilentlyMisresolved`.
+- **PORT, complete** `VirtualMethodGroupDelegate_ResolvesToSealedOverrideWhenTokenIsSealed`.
 
 ### CilEndToEndTests.cs
 
@@ -294,6 +294,16 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilRecursionTests.cs`. Futu
 
 Direct/mutual/deep recursive calls must preserve caller locals, arguments, returns and bounded stack behavior. Fibonacci/parity results are independent oracles; exact stack placement is an ABI choice.
 
+Current native recursive-sum and mutual-call fixtures do not close this group.
+The real Roslyn Fib(10)=55 case requires two recursive calls with the first
+result live across the second. Preserve that explicit requirement in Debug and
+Release. The legacy Sum(500) case expects66 after byte truncation; compare its
+actual frame/capacity needs with the selected native ABI before replacement.
+A smaller successful depth or an overflow trap alone does not replace that
+legacy success assertion. Any intentional capacity change needs a visible
+hardware-cost rationale and bounded success/fault evidence, not silent omission.
+All6 methods remain outstanding in the completed-method ledger.
+
 - **PORT** `DirectRecursion_Fibonacci_ComputesExpectedValue`.
 - **PORT** `DirectRecursion_Fibonacci_DebugAndReleaseProduceIdenticalObservableState`.
 - **PORT** `MutualRecursion_IsEvenIsOdd_ComputesExpectedValues`.
@@ -377,18 +387,18 @@ Mutable fields persist across calls, array initialization retains content, const
 
 ### CilStoredDelegateTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStoredDelegateTests.cs`. Future Rust test group: `cil_stored_delegate`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStoredDelegateTests.cs`. Native Rust group: `driver::delegates`; see the linked disposition matrix.
 
 Callbacks stored through constructor/instance/static fields and parameters keep target/environment identity, merge return values and respect reassignment. Target IDs and three-byte blobs are internal ABI choices.
 
-All3 methods have focused native replacements
-[pending final regression](test-disposition.md#callback-replacement-pending-final-regression),
-without requiring the legacy blob or return-slot representation. They are not
-yet in the completed-method total.
+All 3 methods have completed native
+[replacements](test-disposition.md#callback-replacements), without requiring the
+legacy blob or return-slot representation. They are included in the completed
+total after the full 1,193-case regression passed.
 
-- **PORT** `ActionThroughCtorField_TwoTargetsOneField_DispatchPerBlob`.
-- **PORT** `FuncThroughParameter_ReturnValuesMergeThroughSlot`.
-- **PORT** `StaticDelegateField_ReassignmentSwitchesTarget`.
+- **REPLACE, complete** `ActionThroughCtorField_TwoTargetsOneField_DispatchPerBlob`.
+- **REPLACE, complete** `FuncThroughParameter_ReturnValuesMergeThroughSlot`.
+- **PORT, complete** `StaticDelegateField_ReassignmentSwitchesTarget`.
 
 ### CilStringLiteralTests.cs
 
