@@ -7,6 +7,9 @@ public static class Library
     public static T Constrained<T>(T value)
         where T : struct => Identity(value);
 
+    public static T Create<T>()
+        where T : new() => new T();
+
     public static float Unused() => 0.25f;
 }
 

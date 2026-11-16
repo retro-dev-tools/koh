@@ -1,6 +1,8 @@
 use crate::resolve::{Definition, ResolvedMethod, Resolver};
 use clrmeta::{MethodSig, TableId, TypeSig};
 mod constraints;
+mod construction;
+pub(crate) use construction::Construction;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Instance {

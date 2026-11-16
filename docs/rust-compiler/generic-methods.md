@@ -96,6 +96,10 @@ reported as green. Intermediate success is not whole-goal proof.
 
 ## Explicit remaining work
 
+Closed Roslyn `new T()` now uses the shared ordinary constructor path; see the
+[construction contract and acceptance](generic-construction.md). This does not
+complete constructed generic layouts or general reflection support.
+
 Constructed generic signatures containing foreign named arguments still require
 scoped layout binding; those shapes diagnose rather than reinterpreting tokens.
 Generic declaring types

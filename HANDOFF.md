@@ -968,3 +968,25 @@ Alllocalhandles terminal. DocsGenericConstraints contract coversexplicitremainin
 boundariesandfullvisibilityaudit. Ledger87/565unchanged,478partial/outstanding,
 zero physicallyretired. Nextsnapshot/commit/pushsamePR55/updatebody/vault;
 fullgoalactive. No otherbuildsoragentmutations. Reviewreportednoadditionalconfirmedblockers.
+
+Genericconstructionunitstartsfrom5b044a4. Red22835EXIT100 missingSystemRuntime at
+RoslynActivator.CreateInstance<T> inCreate<T>. First68451EXIT0 1/1pass7.638s:
+newclassdistinctobjects, implicitzerovalue, explicitstructctor42, objectrootallocation.
+Sharedconstruct() lowering nowusedbyordinarynewobj andclosedgenericactivation;
+existingIR/ABI unchanged. ExacttrustedActivatorMemberRef+MethodSpecsignatureonly,
+canonicalclosedarguments, publicparameterlessselectorreusedfromconstraintmodule,
+referenceLibraryconstructors andresourcecharges. Privatevaluectorvariantdiagnoses
+ratherthanzero fallback. Current68941live /tmp/koh-generic-construction-regression.log
+lib/IR/SM83 +generic/valuector/classvirtualdrivers. AddednewFakeOwner/BadSignature/
+InvalidActivation fixtures afterwards; mustrerunfinalgenericcases. Parentowns all
+mutations/builds. backend_audit read-onlyownsmetadata/helper/newobjregressionreview;
+no edits/builds. Goalstillfullmigration; ledger87unchanged, nofeature retirement.
+
+Construction final: /tmp/koh-generic-construction-final.log reports12/12pass89.200s
+including final fake-owner, invalid-signature, private-value-ctor and exactly-once
+side-effect probes. Previous broad572/572pass315.603s predates those additions.
+Workspace alltargets/allfeatures check EXIT0 9.00s (existing cubes unusedhelper
+warning), fmt EXIT0, compiler rustdoc EXIT0 zero cases. Construction contract in
+ docs/rust-compiler/generic-construction.md. Ledger87/565 unchanged. Constraints
+head5b hosted43939901009 still in_progress when checked; no success claimed.
+Next: broader compiler/runtime coverage; do not delete legacy before acceptance.

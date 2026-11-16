@@ -39,12 +39,19 @@ fn framework_ancestor(
     Err("Framework constraint ancestry exceeds64".into())
 }
 
-fn constructor(resolver: &Resolver<'_>, argument: &Argument) -> Result<bool, String> {
+pub(super) fn constructor(resolver: &Resolver<'_>, argument: &Argument) -> Result<bool, String> {
     if value(argument) || argument.ty == TypeSig::Primitive(ElementType::Object) {
         return Ok(true);
     }
-    let TypeSig::Class(encoded) = argument.ty else {
-        return Ok(false);
+    Ok(parameterless(resolver, argument)?.is_some())
+}
+
+pub(super) fn parameterless(
+    resolver: &Resolver<'_>,
+    argument: &Argument,
+) -> Result<Option<Definition>, String> {
+    let (TypeSig::Class(encoded) | TypeSig::ValueType(encoded)) = argument.ty else {
+        return Ok(None);
     };
     let definition = resolver.resolve_type(argument.assembly, type_token(encoded)?)?;
     let image = resolver.assembly(definition.assembly)?;
@@ -52,7 +59,7 @@ fn constructor(resolver: &Resolver<'_>, argument: &Argument) -> Result<bool, Str
     let row = (definition.token & 0xffffff) as usize - 1;
     let ty = &metadata.type_defs[row];
     if ty.flags & (0x20 | 0x80) != 0 {
-        return Ok(false);
+        return Ok(None);
     }
     let end = metadata
         .type_defs
@@ -61,6 +68,18 @@ fn constructor(resolver: &Resolver<'_>, argument: &Argument) -> Result<bool, Str
     charge(&resolver.generic_work, (end - ty.method_list) as usize)?;
     for method in ty.method_list..end {
         let row = image.method(0x06000000 | method)?;
+        if matches!(argument.ty, TypeSig::ValueType(_))
+            && row.flags & 7 != 6
+            && metadata.strings.get(row.name).map_err(|e| e.to_string())? == ".ctor"
+        {
+            let signature = image.method_signature(0x06000000 | method)?;
+            if signature.params.is_empty() {
+                return Err(
+                    "Nonpublic value-type constructor requires explicit activation semantics"
+                        .into(),
+                );
+            }
+        }
         if row.flags & 0x1817 != 0x1806
             || metadata.strings.get(row.name).map_err(|e| e.to_string())? != ".ctor"
         {
@@ -79,10 +98,13 @@ fn constructor(resolver: &Resolver<'_>, argument: &Argument) -> Result<bool, Str
                     "Constructor calling convention requires explicit constraint validation".into(),
                 );
             }
-            return Ok(true);
+            return Ok(Some(Definition {
+                assembly: definition.assembly,
+                token: 0x06000000 | method,
+            }));
         }
     }
-    Ok(false)
+    Ok(None)
 }
 
 fn assignable(

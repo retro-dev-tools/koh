@@ -14,7 +14,8 @@ Constraint references may be recursive; substituting closed arguments and checki
 assignability does not require rejecting a cycle. Constructor eligibility requires
 the concrete argument type's own public parameterless instance constructor, or a
 value type. Inherited, private and protected constructors do not qualify. Validation
-does not execute constructors or implement Roslyn's `new T()`/Activator lowering.
+does not execute constructors. Closed `new T()` activation is implemented by the
+[construction lowering](generic-construction.md).
 
 Nominal identities remain assembly-scoped. Known Object/ValueType/Enum/Array
 constraints follow their CLI meaning. A ValueType constraint alone does not imply

@@ -62,6 +62,44 @@ public static class Program
 
     public static int ConstructorEligibility() => ConstructorType<Marker>();
 
+    static T Create<T>()
+        where T : new() => new T();
+
+    public static T CreateInstance<T>() => default;
+
+    public static int ActivatorProbe() => Create<Marker>() == null ? 42 : 0;
+
+    public static int InvalidActivation() => System.Activator.CreateInstance<string>().Length;
+
+    public static int GenericConstruction()
+    {
+        ConstructedValue.Calls = 0;
+        Marker first = Create<Marker>();
+        Marker second = Create<Marker>();
+        ConstructedValue value = Create<ConstructedValue>();
+        Payload zero = Create<Payload>();
+        object plain = Create<object>();
+        object otherPlain = Create<object>();
+        ConstructedValue remoteValue = Library.Create<ConstructedValue>();
+        RemoteMarker remoteMarker = Library.Create<RemoteMarker>();
+        first.Value = 17;
+        return
+            first != second
+            && second.Value == 0
+            && value.Value == 42
+            && zero.Tag == 0
+            && zero.Value == 0
+            && plain != null
+            && plain != otherPlain
+            && remoteValue.Value == 42
+            && ConstructedValue.Calls == 2
+            && remoteMarker.Value == 0
+            && Create<int>() == 0
+            && Create<ulong>() == 0
+            ? 42
+            : 0;
+    }
+
     public static int Expanding() => Expand<int>();
 
     public static int Constraint() => Constrained<int>(42);
@@ -223,3 +261,15 @@ public delegate int Reader(int value);
 public class ConstraintBase { }
 
 public class ConstraintOther { }
+
+public struct ConstructedValue
+{
+    public static int Calls;
+    public int Value;
+
+    public ConstructedValue()
+    {
+        Calls++;
+        Value = 42;
+    }
+}

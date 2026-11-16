@@ -82,6 +82,8 @@ fn generic_method_instances_execute_transitively(
         ("Constraint", "0000002A"),
         ("ConstraintShapes", "0000002A"),
         ("ConstructorEligibility", "0000002A"),
+        ("GenericConstruction", "0000002A"),
+        ("ActivatorProbe", "00000000"),
         ("Main", "00000082"),
     ] {
         let mut object = compile::object_with_debug(
@@ -171,10 +173,13 @@ fn generic_method_instances_execute_transitively(
             assert_eq!(fields[5], "6B".repeat(4096), "{entry} bank2");
         }
     }
-    for (entry, expected) in [(
-        "Expanding",
-        "Managed references require primitive/pointer scalar storage",
-    )] {
+    for (entry, expected) in [
+        ("InvalidActivation", "Generic construction requires"),
+        (
+            "Expanding",
+            "Managed references require primitive/pointer scalar storage",
+        ),
+    ] {
         let error = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap_err();
         assert!(
             error.contains(expected) && error.contains("IL_"),
@@ -183,6 +188,102 @@ fn generic_method_instances_execute_transitively(
     }
     let image = resolver.assembly(0).unwrap();
     let data = image.metadata();
+    let activation = data
+        .member_refs
+        .iter()
+        .enumerate()
+        .find(|(_, member)| {
+            data.strings.get(member.name).unwrap() == "CreateInstance"
+                && member.class.table == Some(clrmeta::TableId::TypeRef)
+                && data
+                    .strings
+                    .get(data.type_refs[member.class.row as usize - 1].type_name)
+                    .unwrap()
+                    == "Activator"
+        })
+        .unwrap()
+        .0;
+    for replacement in ["Program::ConstructorType", "Marker::Read"] {
+        let signature = data
+            .method_defs
+            .iter()
+            .enumerate()
+            .find(|(index, _)| {
+                image.method_name(0x06000001 + *index as u32).unwrap() == replacement
+            })
+            .unwrap()
+            .1
+            .signature;
+        let mut bytes = images[0].clone();
+        let (offset, context) =
+            metadata::table_row(&bytes, clrmeta::TableId::MemberRef, activation);
+        let offset = offset
+            + context.coded_index_size(clrmeta::CodedIndexKind::MemberRefParent)
+            + context.string_index_size();
+        let width = context.blob_index_size();
+        bytes[offset..offset + width].copy_from_slice(&signature.to_le_bytes()[..width]);
+        let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+        let error = compile::object(&changed, Some("Program::ActivatorProbe")).unwrap_err();
+        assert!(
+            error.contains("exact static") && error.contains("IL_"),
+            "{error}"
+        );
+    }
+    let value_ctor = data
+        .method_defs
+        .iter()
+        .enumerate()
+        .find(|(index, _)| {
+            image.method_name(0x06000001 + *index as u32).unwrap() == "ConstructedValue::.ctor"
+        })
+        .unwrap()
+        .0;
+    let mut bytes = images[0].clone();
+    let (offset, _) = metadata::table_row(&bytes, clrmeta::TableId::MethodDef, value_ctor);
+    let flags = (data.method_defs[value_ctor].flags & !7) | 1;
+    bytes[offset + 6..offset + 8].copy_from_slice(&flags.to_le_bytes());
+    let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let error = compile::object(&changed, Some("Program::GenericConstruction")).unwrap_err();
+    assert!(
+        error.contains("Nonpublic value-type constructor") && error.contains("IL_"),
+        "{error}"
+    );
+
+    let mut bytes = images[0].clone();
+    let (offset, context) = metadata::table_row(&bytes, clrmeta::TableId::MemberRef, activation);
+    let width = context.coded_index_size(clrmeta::CodedIndexKind::MemberRefParent);
+    let parent = ((type_row(0, "Program") as u32 + 1) << 3).to_le_bytes();
+    bytes[offset..offset + width].copy_from_slice(&parent[..width]);
+    let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let object = compile::object(&changed, Some("Program::ActivatorProbe")).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Compatible
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let report = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-heap",
+    );
+    let fields = report.split_whitespace().collect::<Vec<_>>();
+    assert_eq!(
+        &fields[..4],
+        &["00", "0000002A", "D000", "OK"],
+        "non-framework CreateInstance must execute ordinary CIL"
+    );
+    if color {
+        assert_eq!(fields[5], "6B".repeat(4096));
+    }
     let parameter = |name| {
         data.generic_params
             .iter()

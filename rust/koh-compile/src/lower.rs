@@ -1075,6 +1075,83 @@ fn lower_inner(
     Ok(function)
 }
 
+fn construct(
+    b: &mut Builder,
+    ty: Type,
+    target: Definition,
+    signature: Signature,
+    mut arguments: Vec<u32>,
+    locals: usize,
+) -> Result<(), String> {
+    if let Type::Object(class) = ty {
+        let object = b.value(Type::Object(class), Op::NewObject(class))?;
+        arguments.insert(0, object.0);
+        b.instructions.push(Instruction {
+            result: None,
+            op: Op::Call {
+                target,
+                signature,
+                arguments,
+            },
+            il_offset: b.offset,
+        });
+        b.stack.push(object);
+        return Ok(());
+    }
+    if let Type::Struct(shape) = ty {
+        let local = if let Some(&(local, old)) = b.constructions.get(&b.offset) {
+            if old != shape {
+                return Err("Constructor storage type changed during stack merging".into());
+            }
+            local
+        } else {
+            let local = locals + b.constructions.len();
+            if local >= 1024 {
+                return Err("Constructor storage exceeds method local limit".into());
+            }
+            b.constructions.insert(b.offset, (local as u32, shape));
+            local as u32
+        };
+        let zero = b.value(Type::Struct(shape), Op::ZeroStruct)?;
+        b.instructions.push(Instruction {
+            result: None,
+            op: Op::StoreLocal {
+                local,
+                value: zero.0,
+            },
+            il_offset: b.offset,
+        });
+        let address = b.value(
+            Type::StructRef(shape),
+            Op::LocalAddress {
+                local,
+                storage: FieldStorage::Value(Storage::Struct(shape)),
+            },
+        )?;
+        arguments.insert(0, address.0);
+        b.instructions.push(Instruction {
+            result: None,
+            op: Op::Call {
+                target,
+                signature,
+                arguments,
+            },
+            il_offset: b.offset,
+        });
+        let value = b.value(
+            Type::Struct(shape),
+            Op::LoadMemory {
+                address: address.0,
+                bits: shape.bytes() * 8,
+                signed: false,
+            },
+        )?;
+        b.stack.push(value);
+        return Ok(());
+    }
+    Err("Construction requires a value or reference type".into())
+}
+
 fn translate(
     b: &mut Builder,
     i: &Cil,
@@ -1839,6 +1916,34 @@ fn translate(
                 }
                 return Ok(Control::Jump(b.edge(next()?)));
             }
+            if let Some(crate::generics::Construction { ty, constructor }) =
+                resolver.construction(method.identity.assembly, token, &b.method_arguments)?
+            {
+                if i.opcode != 0x28 {
+                    return Err("Activator.CreateInstance requires static call".into());
+                }
+                if let Some(target) = constructor {
+                    let signature = crate::generics::method_types(
+                        resolver,
+                        target,
+                        &resolver
+                            .assembly(target.assembly)?
+                            .method_signature(target.token)?,
+                        &[],
+                    )?
+                    .signature;
+                    construct(b, ty, target, signature, vec![], locals.len())?;
+                } else {
+                    let op = match ty {
+                        Type::Object(class) => Op::NewObject(class),
+                        Type::Struct(_) => Op::ZeroStruct,
+                        _ => Op::Constant(0),
+                    };
+                    let value = b.value(ty, op)?;
+                    b.stack.push(value);
+                }
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
             let target = resolver.resolve_method(method.identity.assembly, token)?;
             let instantiated = resolver.instantiate(&target, &b.method_arguments)?;
             let metadata = resolver.assembly(target.definition.assembly)?;
@@ -2026,70 +2131,8 @@ fn translate(
                 }
                 return Ok(Control::Jump(b.edge(next()?)));
             }
-            if let Some(Type::Object(class)) = constructed {
-                let object = b.value(Type::Object(class), Op::NewObject(class))?;
-                arguments.insert(0, object.0);
-                b.instructions.push(Instruction {
-                    result: None,
-                    op: Op::Call {
-                        target: target.definition,
-                        signature,
-                        arguments,
-                    },
-                    il_offset: b.offset,
-                });
-                b.stack.push(object);
-                return Ok(Control::Jump(b.edge(next()?)));
-            }
-            if let Some(Type::Struct(shape)) = constructed {
-                let local = if let Some(&(local, old)) = b.constructions.get(&b.offset) {
-                    if old != shape {
-                        return Err("Constructor storage type changed during stack merging".into());
-                    }
-                    local
-                } else {
-                    let local = locals.len() + b.constructions.len();
-                    if local >= 1024 {
-                        return Err("Constructor storage exceeds method local limit".into());
-                    }
-                    b.constructions.insert(b.offset, (local as u32, shape));
-                    local as u32
-                };
-                let zero = b.value(Type::Struct(shape), Op::ZeroStruct)?;
-                b.instructions.push(Instruction {
-                    result: None,
-                    op: Op::StoreLocal {
-                        local,
-                        value: zero.0,
-                    },
-                    il_offset: b.offset,
-                });
-                let address = b.value(
-                    Type::StructRef(shape),
-                    Op::LocalAddress {
-                        local,
-                        storage: FieldStorage::Value(Storage::Struct(shape)),
-                    },
-                )?;
-                arguments.insert(0, address.0);
-                b.instructions.push(Instruction {
-                    result: None,
-                    op: Op::Call {
-                        target: target.definition,
-                        signature,
-                        arguments,
-                    },
-                    il_offset: b.offset,
-                });
-                let value = b.value(
-                    Type::Struct(shape),
-                    Op::LoadMemory {
-                        address: address.0,
-                        bits: shape.bytes() * 8,
-                        signed: false,
-                    },
-                )?;
-                b.stack.push(value);
+            if let Some(ty) = constructed {
+                construct(b, ty, target.definition, signature, arguments, locals.len())?;
                 return Ok(Control::Jump(b.edge(next()?)));
             }
             let returns = signature.returns;

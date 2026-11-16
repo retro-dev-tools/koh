@@ -8,7 +8,16 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current constraint increment validates closed special, constructor, nongeneric
+Current construction increment supports closed Roslyn `new T()` through trusted
+Activator metadata and the shared ordinary constructor path. Distinct reference
+allocations, zero defaults, explicit struct constructors and reference-library
+side effects execute in Debug/Release × DMG/CGB. Forged owners retain ordinary
+method semantics; invalid signatures and unsupported activation diagnose. Final
+selected12/12 passes89.200s; preceding broad572/572 passes315.603s. See
+[construction contract](generic-construction.md). Ledger87/565 remains unchanged;
+the full compiler migration and legacy removal remain incomplete.
+
+Previous constraint increment validates closed special, constructor, nongeneric
 base/interface and parameter constraints before instantiation. Valid recursive
 parameter constraints are not rejected by a C#-syntax/CLR assumption: the patched
 self-constraint ROM executes42. Malformed value InterfaceImpl and ignored owner0
