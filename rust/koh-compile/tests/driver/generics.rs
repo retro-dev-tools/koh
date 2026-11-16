@@ -85,6 +85,7 @@ fn generic_method_instances_execute_transitively(
         ("GenericConstruction", "0000002A"),
         ("InstanceMethods", "0000002A"),
         ("GenericDelegates", "0000002A"),
+        ("GenericBaseCalls", "0000002A"),
         ("ActivatorProbe", "00000000"),
         ("Main", "00000082"),
     ] {
@@ -176,6 +177,8 @@ fn generic_method_instances_execute_transitively(
         }
     }
     for (entry, expected) in [
+        ("GenericVirtualCall", "Generic virtual methods"),
+        ("GenericVirtualGroup", "Generic virtual methods"),
         ("InvalidActivation", "Generic construction requires"),
         (
             "Expanding",

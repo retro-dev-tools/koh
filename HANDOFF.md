@@ -1052,3 +1052,16 @@ Includes all170lib/314IR and12generic/pointer/nullcases acrossD/RDMGCGB.
 Read-onlyreview no confirmedblockers; null/static/type/sequenceguards preserved.
 Rustfmt/diffchecks EXIT0,CSharpierformatted beforefinalrun. Ledger91unchanged.
 Readylogicalcommit/pushsamePR55; nofullworkspace/crossplatform claim.
+
+Staticallyboundgenericvirtual unit startse5ad6b2. Red59348EXIT100 rejects C#
+base.Forward<T>() despite directcall. Genericinstantiation nowindependentofdispatch;
+unsupportedguard movedto actualcallvirt/ldvirtftn withvirtualgeneric targets.
+Directcall/ldftn supportbasecalls/basegroups through existingclosedABI. Fixture
+GenericBaseCalls requireswide -5000000001, callback42 andValue2 vs override200.
+DynamicGenericVirtualCall/Group retain explicitdiagnostics. First92560EXIT0
+4/4pass33.106s acrossD/RDMGCGB. FormattedRust/C#; final22522live selected178
+lib/generic/classvirtual cases /tmp/koh-generic-base-final.log. Parentownsall
+builds/edits. Ledger91unchanged,fullgoalactive. No architecture/ABI expansion.
+Final22522terminalEXIT0:178/178pass64.527s,276 intentionallyunselecteddrivers.
+Rustfmt/diffpass; read-onlyreview no confirmedblockers, abstractldftnguard preserved.
+No fullworkspace/platformclaim. Readylogicalcommit/pushPR55,ledger91unchanged.

@@ -8,7 +8,17 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current pointer-binding increment deliberately extends the earlier CLI-verifiable
+Current generic-base increment supports statically bound `call`/`ldftn` of generic
+virtual bodies, including ordinary C# base calls and base method groups. Dispatch
+diagnostics now apply where dispatch is requested, rather than to every virtual
+declaration. A deliberately different override cannot replace the selected base
+body: full64-bit return, callback42 and field2 are independently checked. Actual
+generic `callvirt`/`ldvirtftn` remain explicitly unfinished. Final focused178/178
+passes64.527s, exit0 (`/tmp/koh-generic-base-final.log`), including compiler-library,
+four generic configurations and existing virtual-dispatch regressions. Formatting
+passes; read-only review found no confirmed blockers. Ledger91/565 is unchanged.
+
+Previous pointer-binding increment deliberately extends the earlier CLI-verifiable
 pattern boundary to correct nonvirtual `dup/ldvirtftn/newobj` CIL, including closed
 MethodSpecs. Typed receiver/signature checks, null-before-allocation and the
 no-interior-branch rule remain. Patched nonvirtual and generic targets return21

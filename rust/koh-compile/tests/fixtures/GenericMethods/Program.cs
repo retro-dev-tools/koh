@@ -102,6 +102,23 @@ public static class Program
 
     public static int Expanding() => Expand<int>();
 
+    public static int GenericBaseCalls()
+    {
+        var value = new GenericDerived();
+        long wide = value.Direct<long>(-5000000001);
+        Reader callback = value.BaseGroup();
+        int result = callback(42);
+        return wide == -5000000001 && result == 42 && value.Value == 2 ? 42 : 0;
+    }
+
+    public static int GenericVirtualCall() => new GenericDerived().Forward<int>(42);
+
+    public static int GenericVirtualGroup()
+    {
+        Reader callback = new GenericDerived().Forward<int>;
+        return callback(42);
+    }
+
     public static int GenericDelegates()
     {
         Reader first = Identity<int>;
@@ -336,3 +353,27 @@ public struct GenericValueReceiver
 }
 
 public delegate Payload PayloadReader(Payload value);
+
+public class GenericBase
+{
+    public int Value;
+
+    public virtual T Forward<T>(T value)
+    {
+        Value++;
+        return value;
+    }
+}
+
+public class GenericDerived : GenericBase
+{
+    public override T Forward<T>(T value)
+    {
+        Value += 100;
+        return value;
+    }
+
+    public T Direct<T>(T value) => base.Forward<T>(value);
+
+    public Reader BaseGroup() => base.Forward<int>;
+}

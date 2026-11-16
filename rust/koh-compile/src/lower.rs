@@ -1225,6 +1225,9 @@ fn translate(
             let image = resolver.assembly(resolved.definition.assembly)?;
             let flags = image.method(resolved.definition.token)?.flags;
             let virtual_pointer = i.opcode == 0xfe07;
+            if virtual_pointer && flags & 0x40 != 0 && !resolved.method_arguments.is_empty() {
+                return Err("Generic virtual methods require instantiated dispatch".into());
+            }
             if virtual_pointer && flags & 0x10 != 0 {
                 return Err("ldvirtftn requires an instance method".into());
             }
@@ -1951,6 +1954,11 @@ fn translate(
             let instantiated = resolver.instantiate(&target, &b.method_arguments)?;
             let metadata = resolver.assembly(target.definition.assembly)?;
             if i.opcode == 0x6f {
+                if metadata.method(target.definition.token)?.flags & 0x40 != 0
+                    && !target.method_arguments.is_empty()
+                {
+                    return Err("Generic virtual methods require instantiated dispatch".into());
+                }
                 let signature = metadata.method_signature(target.definition.token)?;
                 if !signature.calling_convention.has_this() {
                     return Err("callvirt requires an instance method".into());

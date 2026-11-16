@@ -1,6 +1,6 @@
 # Closed generic methods
 
-The native compiler now specializes reachable static and nonvirtual instance generic methods
+The native compiler now specializes reachable static and instance generic methods
 on nongeneric declaring types. Concrete arguments may be supported primitive
 types, strings, nongeneric classes/interfaces/delegates, enums, nongeneric values
 or supported vectors of those types. A method
@@ -16,10 +16,26 @@ includes the receiver in the typed signature without changing its layout or
 allocating a second object. The InstanceMethods fixture checks two class-method
 widths, object field side effects and a packed-value return through a mutating
 struct receiver in Debug/Release × DMG/CGB. Static flags must agree with the
-receiver signature. Generic virtual methods still require instantiated dispatch
-and diagnose explicitly; this is unfinished support, not malformed metadata.
+receiver signature. Generic virtual methods can be called with statically bound
+`call` or `ldftn`, including C# base calls and base method groups. Runtime-dispatched
+`callvirt`/`ldvirtftn` still require instantiated dispatch and diagnose explicitly;
+this is unfinished support, not malformed metadata.
 
-Closed static and nonvirtual class method groups can bind delegates through
+GenericBaseCalls deliberately overrides Forward<T> with a different side effect.
+The base call returns the full negative64-bit value, the base-bound delegate
+returns42, and the shared field ends at2 rather than200. Both delegate binding
+and invocation must therefore select the stated base body. GenericVirtualCall
+and GenericVirtualGroup separately require explicit runtime-dispatch diagnostics.
+The initial base-call rejection is in `/tmp/koh-generic-base-red.log`; first
+Debug/Release × DMG/CGB acceptance passes4/4 in33.106s, exit0. This follows the
+statically selected `call` semantics in ECMA-335 III.3.19 and the base-target
+`ldftn` construction rules in III.4.21; a virtual flag alone does not request
+runtime dispatch.
+Final compiler-library/generic/class-dispatch regression passes178/178 in64.527s,
+exit0 (`/tmp/koh-generic-base-final.log`). No runtime generic dispatch or completed
+generic feature family is claimed.
+
+Closed static and statically bound class method groups can bind delegates through
 `ldftn` MethodSpecs. Their typed handles retain the existing closed instance
 identity. Callback validation compares both lowered storage and actual CLI types
 after assembly-scoped substitution; int32 stack storage does not make signed and
@@ -34,7 +50,7 @@ packed struct argument/return owned by another assembly than its generic method.
 Existing reused/fresh ELF equality and source-provenance checks apply unchanged.
 The original rejection is in `/tmp/koh-generic-delegate-red.log`; a subsequent
 determinism failure exposed the callback lifetime bug before its correction.
-Generic virtual method pointers, value-type delegate receivers and constructed
+Runtime-dispatched generic method pointers, value-type delegate receivers and constructed
 generic declaring layouts remain unfinished; no support is implied by this change.
 Nonvirtual `ldvirtftn` targets, including closed MethodSpecs, also use this binding
 path; see the [correct versus CLI-verifiable CIL distinction](delegates.md).
@@ -138,7 +154,7 @@ Constructed generic signatures containing foreign named arguments still require
 scoped layout binding; those shapes diagnose rather than reinterpreting tokens.
 Generic declaring types
 need per-instantiation layouts/static storage. Broader constraint shapes and
-virtual generic calls, virtual generic method-pointer targets and
+runtime-dispatched generic calls and method-pointer targets, and
 constructed generic type arguments require binding.
 These are unfinished compiler features, not malformed CLI shapes or approved
 feature retirements. They currently produce explicit diagnostics. Expanding

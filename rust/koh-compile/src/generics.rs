@@ -425,10 +425,6 @@ impl Resolver<'_> {
         if signature.generic_param_count as usize != target.method_arguments.len() {
             return Err("Generic method arity mismatch".into());
         }
-        let flags = image.method(target.definition.token)?.flags;
-        if flags & 0x40 != 0 {
-            return Err("Generic virtual methods require instantiated dispatch".into());
-        }
         let owner = crate::lower::owner_type(self, target.definition)?;
         if image.metadata().generic_params.iter().any(|p| {
             p.owner.table == Some(TableId::TypeDef) && p.owner.row == owner.token & 0xffffff
