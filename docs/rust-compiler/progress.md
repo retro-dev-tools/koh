@@ -3,12 +3,37 @@
 Status: migration incomplete. Native CIL reading, typed IR, optimization and
 SM83/ELF emission are implemented, including banked managed calls. The SDK now
 invokes native compiler/linker processes; the legacy compiler source and test
-project still remain pending final replacement acceptance. Portable PDB/source
-debugging, complete sample acceptance, test-disposition closure and performance
-comparison remain required. The current public API is evidence, not a design
+project still remain pending final replacement acceptance. Complete sample
+acceptance, test-disposition closure, performance comparison and final hosted
+validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current debugger acceptance increment: Rust tests drive the existing C# DAP on
+Current native caller/source-debug acceptance: budgeted, versioned exact-PC unwind
+symbols pass through canonical ELF/KDBG without adding ROM instructions or frame
+storage. The existing debugger follows actual saved PC/u16 bank cookies, bounds
+stack and ROM accesses, and stops at unknown states. Debug/Release tests force
+equal CPU addresses in distinct banks and verify recursive caller source chains.
+Eighteen independent malformed/corrupt/bounds/limit states exercise rejection.
+Actual2048 SDK Debug/DMG and Release/CGB source breakpoints recover the exact
+ordered `TitleScene.Enter → Game.Run → Program.Main` source chain, then resume to
+the named Update function. Core DAP acceptance is proven; GUI and arbitrary-PC
+unwinding are not claimed. See the [contract](native-unwind.md).
+
+Broader selected255/255 passes438.133s, exit0, including all157 library/all80
+SM83 cases,17 driver cases and an SDK graphics launch. Subsequent19/19 driver
+cases pass202.899s; final edited helper/ordered-callers11/11 passes99.619s.
+All are selected runs, not new full-workspace/hosted results. Review-fixed
+aggregate metadata accounting includes symbols even without PDBs; standalone
+near records are deliberately unimplemented. The preceding hosted failure was
+an outdated CLI/library ELF-parity expectation after automatic PDB discovery.
+Commit09d332d preserves byte-for-byte determinism and input-integrity checks in
+both explicit no-PDB and default debug modes; all four configurations pass.
+Both legacy Gb2048Kdbg methods now have complete native replacements:
+70/565 complete,495 partial/outstanding, zero physically retired.
+The existing debugger-owned .NET suite separately passes37/37, zero skips; its
+build has zero warnings/errors. Workspace check, separate rustdoc and rustfmt pass.
+
+Previous debugger acceptance increment: Rust tests drive the existing C# DAP on
 native Debug/Release ROMs through real source breakpoints, exact top-frame source,
 registers, readable symbols and ROM-matching disassembly. The same debug session
 continues to `__koh_exit`, returns42 without a fault and restores SP D000. Genuine
@@ -18,8 +43,8 @@ PDB/CLI/debugger regression passes10/10 in69.777s, exit0, with243 intentionally
 unselected driver cases; this is not a workspace or cross-platform result.
 Read-only review caught shared reference rebuilds in the no-PDB test; the corrected
 test rebuilds only the temporary root project against an unchanged DLL copy.
-Caller-stack unwinding and real game source-debugger acceptance remain open.
-Ledger:69/565 complete,496 partial/outstanding, zero physically retired.
+Caller-stack and real game acceptance were still open at that checkpoint.
+Ledger then:69/565 complete,496 partial/outstanding, zero physically retired.
 
 Previous source-mapping increment: validated PDB inputs now reach surviving IL
 origins, emitted byte ranges, canonical ELF and linker KDBG metadata. Native CLI

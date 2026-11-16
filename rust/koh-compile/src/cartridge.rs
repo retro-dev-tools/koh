@@ -8,6 +8,67 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 const OAM_DMA: [u8; 8] = [0xe0, 0x46, 0x3e, 40, 0x3d, 0x20, 0xfd, 0xc9];
 
+fn account_debug_bytes(object: &Object, total: &mut usize) -> Result<(), String> {
+    let symbols = object.symbols.iter().flat_map(|s| {
+        [
+            s.name.len(),
+            128,
+            s.source.as_ref().map_or(0, |p| p.file.len()),
+        ]
+    });
+    let sections = object.sections.iter().flat_map(|s| {
+        s.lines
+            .iter()
+            .flat_map(|p| [p.file.len(), 128])
+            .chain(s.patches.iter().flat_map(|p| [p.source.file.len(), 128]))
+    });
+    for bytes in symbols.chain(sections) {
+        *total = total
+            .checked_add(bytes)
+            .filter(|&n| n <= 64 * 1024 * 1024)
+            .ok_or("Source metadata exceeds 64 MiB compilation limit")?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+
+    #[rstest::rstest]
+    #[case(0, true)]
+    #[case(1, false)]
+    #[case(usize::MAX, false)]
+    fn symbol_metadata_has_a_cumulative_budget_without_pdb(
+        #[case] extra: usize,
+        #[case] succeeds: bool,
+    ) {
+        let name = "__koh_unwind_v1_b_0020_test";
+        let object = Object {
+            sections: vec![Section {
+                name: ".text.unwind".into(),
+                ..Default::default()
+            }],
+            symbols: vec![symbol(name.into(), 0, 0)],
+        };
+        object.validate().unwrap();
+        let cost = name.len() + 128;
+        let mut total = if extra == usize::MAX {
+            extra
+        } else {
+            64 * 1024 * 1024 - cost + extra
+        };
+        let result = account_debug_bytes(&object, &mut total);
+        assert_eq!(result.is_ok(), succeeds);
+        if succeeds {
+            assert_eq!(total, 64 * 1024 * 1024);
+            assert!(account_debug_bytes(&object, &mut total).is_err());
+        } else {
+            assert!(result.unwrap_err().contains("64 MiB compilation limit"));
+        }
+    }
+}
+
 fn symbol(name: String, section: usize, offset: usize) -> Symbol {
     Symbol {
         name,
@@ -401,23 +462,7 @@ pub(crate) fn emit_with_debug(
             .get(function.identity.assembly)
             .and_then(Option::as_ref);
         let object = sm83::emit_with_strings(function, Some(&strings), true, pdb)?;
-        if pdb.is_some() {
-            for section in &object.sections {
-                debug_bytes += section
-                    .lines
-                    .iter()
-                    .map(|p| p.file.len() + 128)
-                    .sum::<usize>();
-                debug_bytes += section
-                    .patches
-                    .iter()
-                    .map(|p| p.source.file.len() + 128)
-                    .sum::<usize>();
-            }
-            if debug_bytes > 64 * 1024 * 1024 {
-                return Err("Source metadata exceeds 64 MiB compilation limit".into());
-            }
-        }
+        account_debug_bytes(&object, &mut debug_bytes)?;
         objects.push(object);
     }
     if !classes.is_empty() {

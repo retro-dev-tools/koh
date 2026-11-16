@@ -606,3 +606,79 @@ Sourcehashsnapshot /tmp/koh-debugger-sources.json beforecommit. Parenthandles
 Next commit thisverifiedincrement andpush, updatePRmilestoneprogress without
 checkingmilestone1complete. Investigate nativeABI-awarecallerunwind without
 reproducing StackTraceHandler's arbitraryword/FFFE/bankbyte assumptions.
+
+## Native caller unwind implementation unit
+
+Parent owns sm83 exact-PC debug markers and existing debugger integration plus
+Rust DAP caller assertions/docs. No ROM ABI/code instruction changes planned.
+Use versioned reserved marker symbols through canonical ELF/KDBG; source IL
+boundaries layout.size, exact call resumes layout.size+pending args/results.
+Banked E cookie PC atE+2/bankwordE+4, nextSP E+6; validate far_return symbol,
+WRAM0 stack bounds, increasingSP, maxframes. Missing/ambiguous/unsupported state
+stops native unwind; retain existing assembly path separately. Marker names
+central/versioned/strictly parsed; metadata resource budget applies. Reject
+in-between prologue/helper/temporary-push states, not infer by nearest label.
+Current redtest handle17325 /tmp/koh-unwind-red.log tests Probe→Inspect source
+caller independent of arbitrary stackword scans. No other parentlocalbuild.
+Review agent can inspect only, no files/build ownership. Next reviewed native
+state constants must reflect actual call resume size after bankcookieconsumption.
+
+Unwind implementation dirty now: Rust sm83::Code.mark_unwind uses budgeted
+versioned exact-PC local labels atentry, sourceIL points, callresumes; noROMbytes.
+Existing debugger Session.NativeStackUnwinder validates recipe conflicts, cookie
+stub, u16bank, ROM/SPbounds; StackTraceHandler nativebranch exactonly, legacyasm
+branch preserved. Variables hidesreservedmarkers. Rust tests force managedmethods
+todistinctbankswithsame4000base, checktwo recursiveframes androotcaller D/R DMG/CGB.
+Thin DebuggerHost state injection enables18handbuilt malformed/bounds/cookie/limit
+scenarios; assertionsallRust. Parentselected13caseshandle82180 currentlyrunning
+/tmp/koh-unwind-cases.log; no otherbuild. Initialbankeddisassemblytestfailureused
+wrong rawROMoffset; correctedexpectedbank*4000+address-4000, not emulator changes.
+Reviewownership remainsreadonly; source-debugdocs pending contract/evidenceupdate.
+
+Broad regression handle90201 active selected255cases, includes all157compilerlib,
+allsm83target, PDB/symbol drivercases, four CLIparitycases and sdk_dotnet_run.
+Initialbudgettest defaultempty sectionname invalid; fixed namedsection fixture.
+Reviewfound unconditional unwind aggregatebudget gap (fixed unconditional all
+function-symbol/provenance accounting,3boundary/overflow tests) and unusednearABI
+bankinference. Simplified unshippednear branchaway: only production b marker
+emitted/accepted; n explicitlyunknown. Review recheck no furtherconfirmedfinding.
+PrimaryCI81af run43888582597 failed947/1267 at driver CLI/library byteparity:
+defaultCLI nowautoPDB whereas plainobject API issymbolfree. Fixedexpectations
+checkbothdefaultdebug andexplicit--no-pdb forbyteparity+repeatability+inputintegrity;
+allfourupdatedcases passed currentbroad log. Keepfix separatelogicalcommit.
+
+Broad255/255 passed438.133s exit0 /tmp/koh-unwind-regression.log incl157lib,
+80sm83cases,17drivers andSDKheadlessgraphics;262unselected explicitly.
+Committed CIparity fix09d332d (notpushedyet) separatefromunwindunit. Parentnow
+handle78236 running19drivercases /tmp/koh-unwind-game-final.log, addsactualSDK
+2048 D/R sourcebreakpoint+framework/rootcallers+functionbreakpoint. No parallel
+builds. Added DebuggerHost boundedframes/bank snapshot. Rustprocesswriter changed
+to concurrent stdinwrite whilewait_with_output drainsresponses, avoiding small
+Windowspipe deadlock for18statebatch; mustrerun editedhelperaftercurrentrun.
+Native-unwind.md definesexactPCb-onlycontract/unknownstates/budgets/alternatives.
+
+
+## Source-debugging acceptance terminal checkpoint
+
+Broad255/255pass438.133s /tmp/koh-unwind-regression.log, exit0; includes157lib,
+80SM83,17driver,1SDKgraphics,262intentionallyunselected. Subsequent19/19pass
+202.899s addsactual2048SDKdebug. Finaleditedconcurrentprocesshelper andordered
+callerasserts11/11pass99.619s /tmp/koh-unwind-symbols-final.log,247unselected.
+Actual2048D/DMGandR/CGB sourcebreakpointTitleScene.Enter exactphysicalfile/line,
+orderedGame.Run/Program.Main callers, resumedTitleScene.Update method/bank pass.
+Nativeb-only records exactentry/IL/callresume states withbankedE+6cookie; unsupported
+PCs returnprovenprefix. NoROMABI/frame/instructionchanges; canonicalELF/KDBG only.
+Reviewfixed budget gap andunneedednearpath; unknown/corrupt18states and3budget
+checks pass. ExistingDebuggerTUnit37/37passzero skips20.717s exit0, buildzero
+warnings/errors. Workspacecheck7.56spass(existingcubehelperwarning),separate
+rustdoc0casespass,rustfmtpass. Allparenthandles90201,78236,14252,8242terminal,
+noactivebuilds. Sourcehashsnapshot /tmp/koh-unwind-sources.json.
+
+Commit09d332d CLIparityfix remainsunpushed untilunwindcommit, pushbothonce.
+Source-debugmilestone1 cannowcheckcompleteunderexplicitexact-PCcontract; GUI/
+arbitraryPCnotclaimed, finalhostedgate4stillopen. Ledger70/565complete,495
+outstanding,nonephysicallyretired. KeepPR55draft/unmerged,no secondPR.
+Nextwholegoalunit milestone2 language/runtime/interrupt/bank/capacity contract,
+thenalltestclosure+legacydeletion3 andfinalproduct/perf/releases/hosts4.
+Fullgoalnotcomplete; donotshrinktosourcedebugorclaimwholeworkspacesuccess.
+Mainbattle.pngpreservedsha fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454.

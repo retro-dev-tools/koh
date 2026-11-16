@@ -200,6 +200,28 @@ impl Code<'_> {
         });
     }
 
+    fn mark_unwind(&mut self, delta: u16, banked: bool) {
+        if !banked {
+            return;
+        }
+        let name = format!(
+            "__koh_unwind_v1_b_{delta:04x}_{}_{}",
+            self.prefix,
+            self.symbols.len()
+        );
+        if self.debug_space(name.len() + 128) {
+            self.symbols.push(Symbol {
+                name,
+                binding: SymbolBinding::Local,
+                definition: SymbolDefinition::Label {
+                    section: SectionId(0),
+                    offset: self.data.len() as u32,
+                },
+                source: None,
+            });
+        }
+    }
+
     fn jump(&mut self, opcode: u8, target: SymbolId) {
         self.bytes(&[opcode]);
         let offset = self.data.len();
@@ -1345,6 +1367,7 @@ pub(crate) fn emit_with_strings(
                     | Op::VramWrite { .. }
             )
         });
+    code.mark_unwind(0, banked);
     code.guard(
         layout.size
             + if allocator.is_some() || multiplication || memory_loop {
@@ -1369,6 +1392,7 @@ pub(crate) fn emit_with_strings(
     for (index, block) in function.blocks.iter().enumerate() {
         code.mark(labels[index]);
         for instruction in &block.instructions {
+            code.mark_unwind(layout.size, banked);
             code.mark_il(instruction.il_offset);
             let output = instruction.result.map(|r| layout.values[&r.0]);
             let slot = |id| layout.values[&id].0;
@@ -2124,6 +2148,7 @@ pub(crate) fn emit_with_strings(
                         code.jump(0xcd, callee);
                     }
                     let size = size - cookie;
+                    code.mark_unwind(layout.size + size, banked);
                     if width != 0 {
                         code.copy(0, destination + size, width);
                     }
@@ -2353,6 +2378,7 @@ pub(crate) fn emit_with_strings(
             }
             code.jump(0xc3, labels[edge.block]);
         };
+        code.mark_unwind(layout.size, banked);
         code.mark_il(block.terminator.il_offset);
         match &block.terminator.kind {
             Control::Jump(edge) => transfer(&mut code, edge),

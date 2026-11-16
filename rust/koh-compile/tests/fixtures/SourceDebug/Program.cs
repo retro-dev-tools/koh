@@ -4,8 +4,12 @@ public static class Program
 
     public static int Inspect() => Probe(Main());
 
+    public static int InspectRecursive() => Probe(Main() - 2);
+
     private static int Probe(int value)
     {
+        if (value < 42)
+            return Probe(value + 1);
         Value = value + 0;
         return Value;
     }

@@ -6,6 +6,9 @@ additional interrupt-safe pointer publication; SP-relative frames avoid that sha
 state. The first allocator spills SSA values into deterministic frame slots.
 Register residency and lifetime-based slot reuse are optimizations, not semantics.
 
+[Native unwind records](native-unwind.md) describe exact source-breakpoint and
+call-resume states through existing ELF/KDBG symbols, without runtime frame changes.
+
 [Strings](strings.md) use a distinct16-bit ROM0 reference: u16 UTF-16 unit count,
 then u16 units, all little-endian. Program-wide literal interning preserves
 reference identity across calls and assemblies. Accessors check null/full-width

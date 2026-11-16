@@ -62,7 +62,10 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   whole-migration gates remain required.
   Metadata commitb4caf55 hosted Rust suites pass1012 Linux/macOS
   and1010 Windows cases; those results predate the object-core increment.
-  Full current-head workspace/hosted acceptance, source debugging, broader
+  Native source-breakpoint and exact-PC caller inspection now pass for real2048
+  SDK Debug/Release ROMs through the existing debugger. See the
+  [unwind contract](docs/rust-compiler/native-unwind.md); arbitrary-PC caller
+  unwinding is not claimed. Full current-head workspace/hosted acceptance, broader
   runtime/gameplay, test closure, release integration and legacy deletion remain
   incomplete. Container cleanup is done. Existing API shapes are evidence,
   not a design baseline.
@@ -91,8 +94,9 @@ than a test count or a working standalone compiler. All work stays in PR #55.
 3. Prove complete representative games in the existing C# emulator, including
    graphics and nontrivial language behavior. Preserve assets and distinguish
    documented aspirational examples from passing acceptance samples.
-4. Finish matching Portable PDB reading and source provenance through IR/ELF/KDBG;
-   prove actual debugger breakpoints, source/disassembly mapping and stack inspection.
+4. Source-debug acceptance is implemented: matching PDBs, IR/ELF/KDBG provenance,
+   real source/function breakpoints, disassembly and exact-PC caller inspection.
+   Retain these checks during final hosted validation; unsupported PCs stop unwinding.
 5. Switch SDK/MSBuild, run/debug tooling, CI and release payloads to Rust. Verify
    ordinary dotnet builds, references, DMG/CGB flags, incremental behavior and
    paths with spaces; preserve useful tile-sheet/build functionality.

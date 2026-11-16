@@ -33,5 +33,14 @@ Captures and generated projects use temporary directories, preserving sample art
 This sample began as a north-star API experiment; its
 [historical design notes](../../../docs/superpowers/specs/2026-07-19-ideal-game-api-design.md)
 describe the old compiler and ABI. They are not specifications for native code
-generation. Source breakpoints and native stack inspection remain separate
-whole-migration acceptance gates.
+generation. Native source-debugger acceptance now runs separately:
+
+```sh
+cargo nextest run -p koh-compile --test driver -E 'test(sdk_2048_source_debugger)'
+```
+
+These Rust-driven core-DAP cases stop at the original TitleScene source, inspect
+the ordered framework/entry callers, and continue to the named Update function.
+Debug/DMG and Release/CGB are represented. See the
+[unwind contract](../../../docs/rust-compiler/native-unwind.md) for supported
+inspection points; arbitrary-instruction and editor-GUI acceptance are not claimed.

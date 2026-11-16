@@ -1,7 +1,9 @@
 # Source debugging migration
 
-Status: source breakpoint and machine-state acceptance implemented; complete
-caller-stack unwinding and real sample debugging remain open.
+Status: source-breakpoint acceptance passes for fixtures and the real2048 sample.
+Caller inspection uses the [documented exact-PC contract](native-unwind.md);
+arbitrary-instruction unwinding is explicitly unsupported. Final hosted validation
+remains part of the whole migration gate.
 
 The native IR already carries method identity and original IL offsets on
 instructions and terminators. Emission already records instruction-boundary IL
@@ -179,12 +181,28 @@ continues to a function breakpoint at `__koh_exit`, with return42, no fault and
 restored D000 SP checked through debugger register responses. No production
 emulator/debugger code is replaced by the fixture.
 
-This proves top-frame/source and machine-state inspection, not caller unwinding.
+That checkpoint proved top-frame/source and machine-state inspection, not caller unwinding.
 The existing StackTraceHandler scans arbitrary stack words up to FFFE; native
 frames include spilled values and banked return cookies, with startup SP D000.
 Those heuristic assumptions are not a compiler ABI requirement. Reliable caller
 frames still need independently validated compiler/debugger integration; the
-milestone remains open, including source debugging of a real game sample.
+milestone remained open, including source debugging of a real game sample.
+
+That checkpoint's caller gap is now replaced by native unwind records carried
+through ordinary ELF/KDBG symbols. The former arbitrary-word/FFFE assumptions
+are not used for native frames. Banked and recursive Debug/Release programs at
+equal CPU addresses in distinct banks recover their real source callers. Unknown
+PCs and corrupt metadata/cookies return only the proven frame prefix. Near-call
+records are not a second supported production convention.
+
+`driver::symbols::sdk_2048_source_debugger_recovers_framework_callers` builds the
+actual unmodified2048 sources using the SDK and compares its ROM/KDBG with native
+ELF linking. Debug/DMG and Release/CGB boot through the existing debugger, stop on
+`TitleScene.Enter`'s physical `Assets.Load()` line, and report the exact ordered
+source callers `Game.Run` and `Program.Main`. Continuing reaches the readable
+`TitleScene.Update` function symbol at its expected bank/address. This closes the
+sample-specific KDBG resolution requirement without assuming legacy IR or code
+addresses. It is a core-DAP acceptance test, not a claim of GUI interaction.
 
 `driver::symbols::genuinely_symbol_free_roslyn_assembly_compiles_and_executes`
 rebuilds the root assembly with DebugType=None and DebugSymbols=false, independently
@@ -195,6 +213,9 @@ sidecar; the test cannot rebuild shared runtime outputs with symbols disabled.
 This replaces `Gb2048KdbgTests.Frontend_DoesNotThrow_WhenAssemblyHasNoPdb`; the
 sample-specific KDBG resolution method remains partially covered.
 
+At that preceding checkpoint the sample-specific method was still partial; it
+is now replaced by the real2048 debugger cases above.
+
 Final focused selection:10/10 passes in69.777s, exit0
 (`/tmp/koh-debug-symbols-reviewed.log`);243 unrelated driver cases were explicitly
 unselected. Initial fixture compilation failures (delegate conversion and an
@@ -202,7 +223,29 @@ invalid StopReason member) were fixed. Review caught the shared reference rebuil
 described above; the final run uses the isolated reference and same-session resume
 assertions. No tests were ignored or weakened to obtain this result.
 
-The broader selected regression completes254/254 in416.277s, exit0
+Unwind verification: broader255/255 passes438.133s, exit0
+(`/tmp/koh-unwind-regression.log`), including all157 compiler-library cases,
+all80 SM83 cases,17 selected driver cases and an SDK headless graphics launch;
+262 cases in those binaries were intentionally unselected. The subsequent
+19-case driver selection passes202.899s including the real sample. The final
+edited process helper and ordered-caller assertions pass11/11 in99.619s, exit0
+(`/tmp/koh-unwind-symbols-final.log`), with247 driver cases explicitly unselected.
+
+Review caught missing aggregate accounting for PDB-free unwind symbols; the
+compiler now applies the cumulative budget unconditionally and has three boundary/
+overflow cases. An unnecessary near-call decoder was removed before shipping.
+The test process writes stdin concurrently while draining responses to avoid
+small-pipe deadlocks. The first forced-bank disassembly oracle used a CPU address
+as a raw ROM offset; it now computes the selected bank's actual file offset.
+
+The earlier source-range-only selected regression completes254/254 in416.277s, exit0
 (`/tmp/koh-pdb-mapping-regression.log`), with253 intentionally unselected cases
 in those test binaries. It includes compiler-library and SM83 targets, PDB/CLI
 cases and actual2048/JRPG SDK gameplay. This is not a full-workspace result.
+
+The still-active debugger's own .NET regression project builds with zero warnings/
+errors and passes37/37 with zero skips, exit0 (`/tmp/koh-unwind-debugger-tests.log`).
+These are debugger-owned tests; all new compiler-origin assertions above are Rust
+tests discoverable by nextest. Workspace all-target/all-feature check passes7.56s
+with the existing unused cube-helper warning; separate workspace rustdoc passes
+with zero doctests. Rustfmt passes. No new full-workspace or hosted result is claimed.
