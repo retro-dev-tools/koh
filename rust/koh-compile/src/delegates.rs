@@ -97,10 +97,16 @@ pub(crate) fn callback(
     } else {
         target
     };
+    let specialization = resolver.instance(declared)?;
+    let declared = specialization
+        .as_ref()
+        .map_or(declared, |instance| instance.method);
+    let arguments = specialization
+        .as_ref()
+        .map_or(&[][..], |instance| instance.arguments.as_slice());
     let image = resolver.assembly(declared.assembly)?;
     let raw = image.method_signature(declared.token)?;
-    let stored = crate::lower::storage_signature(resolver, declared, &raw)?;
-    let actual = crate::lower::bound_signature(resolver, declared.assembly, &stored)?;
+    let actual = crate::generics::method_types(resolver, declared, &raw, arguments)?.signature;
     let invoke = signature(resolver, kind)?;
     let instance = raw.calling_convention.has_this();
     if actual.parameters.get(usize::from(instance)..) != Some(invoke.parameters.as_slice())
@@ -116,19 +122,21 @@ pub(crate) fn callback(
     let argument_assembly = binding.metadata.argument_assembly;
     drop(bindings);
     for (expected, actual) in expected_raw.params.iter().zip(&raw.params) {
+        let actual = crate::generics::scoped(declared.assembly, actual, arguments)?;
         if !type_matches(
             resolver,
             expected_assembly,
             expected,
             argument_assembly,
             &type_arguments,
-            declared.assembly,
-            actual,
+            actual.assembly,
+            &actual.ty,
             0,
         )? {
             return Err("Delegate target parameter type differs from Invoke".into());
         }
     }
+    let returns = crate::generics::scoped(declared.assembly, &raw.return_type, arguments)?;
     if invoke.returns.is_some()
         && !type_matches(
             resolver,
@@ -136,8 +144,8 @@ pub(crate) fn callback(
             &expected_raw.return_type,
             argument_assembly,
             &type_arguments,
-            declared.assembly,
-            &raw.return_type,
+            returns.assembly,
+            &returns.ty,
             0,
         )?
     {
@@ -282,11 +290,17 @@ pub(crate) fn function(
     } else {
         target
     };
+    let specialization = resolver.instance(declared)?;
+    let declared = specialization
+        .as_ref()
+        .map_or(declared, |instance| instance.method);
+    let arguments = specialization
+        .as_ref()
+        .map_or(&[][..], |instance| instance.arguments.as_slice());
     let raw = resolver
         .assembly(declared.assembly)?
         .method_signature(declared.token)?;
-    let stored = crate::lower::storage_signature(resolver, declared, &raw)?;
-    let actual = crate::lower::bound_signature(resolver, declared.assembly, &stored)?;
+    let actual = crate::generics::method_types(resolver, declared, &raw, arguments)?.signature;
     let mut next = signature.parameters.len() as u32;
     let mut instructions = Vec::new();
     let mut arguments = Vec::new();

@@ -8,7 +8,20 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current compiler increment removes the blanket rejection of nonvirtual generic
+Current delegate increment supports closed generic `ldftn` targets using existing
+specialization and callback ABI. Scoped raw signatures remain checked independently
+of lowered widths. The fixture covers same-method int/ushort instantiations,
+reference-library and bound-class targets, side effects and foreign packed structs.
+Reused/fresh ELF equality exposed stale callback IDs; callbacks now reset alongside
+generic instances. Selected library/IR/delegate/generic regression passes544/544
+in362.459s, exit0 (`/tmp/koh-generic-delegate-final.log`), before the final added
+signedness mutation. Generic virtual targets and declaring layouts remain unfinished.
+The final signedness mutation also passes4/4 in32.431s, exit0
+(`/tmp/koh-generic-delegate-signedness-final.log`): a ushort-to-short MethodSpec
+substitution rejects at callback binding despite identical lowered register widths.
+Ledger91/565 remains unchanged. See [generic contract](generic-methods.md).
+
+Previous compiler increment removes the blanket rejection of nonvirtual generic
 instance methods. Existing typed receiver lowering supports object and byref
 struct receivers, field side effects and independently specialized widths.
 Generic virtual dispatch remains unfinished with an explicit diagnostic.

@@ -84,6 +84,7 @@ fn generic_method_instances_execute_transitively(
         ("ConstructorEligibility", "0000002A"),
         ("GenericConstruction", "0000002A"),
         ("InstanceMethods", "0000002A"),
+        ("GenericDelegates", "0000002A"),
         ("ActivatorProbe", "00000000"),
         ("Main", "00000082"),
     ] {
@@ -189,6 +190,32 @@ fn generic_method_instances_execute_transitively(
     }
     let image = resolver.assembly(0).unwrap();
     let data = image.metadata();
+    let specification = |kind, foreign: bool| {
+        data.method_specs
+            .iter()
+            .enumerate()
+            .find(|(index, _)| {
+                let Ok(target) = resolver.resolve_method(0, 0x2b000001 + *index as u32) else {
+                    return false;
+                };
+                target.method_arguments == [clrmeta::TypeSig::Primitive(kind)]
+                    && (!foreign || target.definition.assembly == 2)
+            })
+            .unwrap()
+    };
+    let (unsigned, _) = specification(clrmeta::ElementType::U2, true);
+    let (_, signed) = specification(clrmeta::ElementType::I2, false);
+    let mut bytes = images[0].clone();
+    let (offset, context) = metadata::table_row(&bytes, clrmeta::TableId::MethodSpec, unsigned);
+    let offset = offset + context.coded_index_size(clrmeta::CodedIndexKind::MethodDefOrRef);
+    let width = context.blob_index_size();
+    bytes[offset..offset + width].copy_from_slice(&signed.instantiation.to_le_bytes()[..width]);
+    let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let error = compile::object(&changed, Some("Program::GenericDelegates")).unwrap_err();
+    assert!(
+        error.contains("Delegate target parameter type differs") && error.contains("IL_"),
+        "{error}"
+    );
     let receiver_method = data
         .method_defs
         .iter()

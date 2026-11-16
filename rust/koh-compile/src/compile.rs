@@ -269,6 +269,7 @@ fn type_name(
 
 pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Function>, String> {
     resolver.generic_instances.borrow_mut().clear();
+    resolver.callbacks.borrow_mut().clear();
     resolver.generic_work.set(0);
     resolver.generic_nodes.set(0);
     let mut seen = HashSet::from([entry]);

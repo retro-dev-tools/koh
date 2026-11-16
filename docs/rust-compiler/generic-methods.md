@@ -19,6 +19,29 @@ struct receiver in Debug/Release × DMG/CGB. Static flags must agree with the
 receiver signature. Generic virtual methods still require instantiated dispatch
 and diagnose explicitly; this is unfinished support, not malformed metadata.
 
+Closed static and nonvirtual class method groups can bind delegates through
+`ldftn` MethodSpecs. Their typed handles retain the existing closed instance
+identity. Callback validation compares both lowered storage and actual CLI types
+after assembly-scoped substitution; int32 stack storage does not make signed and
+unsigned narrow parameters interchangeable. Callback emission calls the closed
+target using the existing delegate ABI. Callback bindings reset alongside generic
+instances for each reachability compilation, avoiding stale synthetic identities
+when a Resolver is reused; layout-owned delegate type identities remain stable.
+
+The GenericDelegates fixture covers two instantiations of the same static method,
+referenced generic methods, a bound class receiver with observable mutation and a
+packed struct argument/return owned by another assembly than its generic method.
+Existing reused/fresh ELF equality and source-provenance checks apply unchanged.
+The original rejection is in `/tmp/koh-generic-delegate-red.log`; a subsequent
+determinism failure exposed the callback lifetime bug before its correction.
+Generic virtual method pointers, value-type delegate receivers and constructed
+generic declaring layouts remain unfinished; no support is implied by this change.
+Selected compiler-library/IR/delegate/generic regression passes544/544 in362.459s;
+after adding the ushort-to-short rejection probe, final4/4 passes32.431s, exit0.
+Logs: `/tmp/koh-generic-delegate-final.log` and
+`/tmp/koh-generic-delegate-signedness-final.log`. These are selected local results,
+not final workspace/cross-platform acceptance. No legacy disposition count changes.
+
 [ECMA-335 II.9.3–9.4 and II.23.2.15](https://www.ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf)
 justify method-parameter scope, closed substitution and MethodSpec arity.
 Method arguments substitute into return/parameter/local signatures, addressed
@@ -113,7 +136,7 @@ Constructed generic signatures containing foreign named arguments still require
 scoped layout binding; those shapes diagnose rather than reinterpreting tokens.
 Generic declaring types
 need per-instantiation layouts/static storage. Broader constraint shapes and
-virtual generic calls, generic method-pointer targets and
+virtual generic calls, virtual generic method-pointer targets and
 constructed generic type arguments require binding.
 These are unfinished compiler features, not malformed CLI shapes or approved
 feature retirements. They currently produce explicit diagnostics. Expanding

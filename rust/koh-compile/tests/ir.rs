@@ -199,6 +199,8 @@ fn delegate_uses_require_one_canonical_invoke_signature(
 
 #[rstest]
 #[case(0x06000001, true)]
+#[case(0xfb000001, true)]
+#[case(0xfb000000, false)]
 #[case(0xfe000001, true)]
 #[case(0x06000000, false)]
 #[case(0x04000001, false)]

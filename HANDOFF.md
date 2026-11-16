@@ -1012,3 +1012,26 @@ unsupported errors+IL provenance required. Parentownsserialbuilds. Ledger91uncha
 Final5139terminalEXIT0:4/4pass31.877s. Library29196terminalEXIT0:170/170pass1.416s,
 zero skipped. Formatting/CSharpierpass; productiondiff only narrows blanket guard
 to virtual methods. Readylogicalcommit/pushPR55. Broader generics/fullgoal remains.
+
+Generic delegate binding startsb6f7f3d. Roslyn ldftn MethodSpec red52226EXIT100.
+Target now instantiated via existinggenericcache; callback signature checks and
+emission unwrap declaration but keep actual scoped arguments and closedcalltarget.
+IR methodhandles allow nonzero0xfb identities (new valid/invalid unitcases).
+Second82983EXIT100 found fresh/reusedELF mismatch: oldcallbacks retained reset
+instance IDs. reachable now clears callbacks with genericinstances; delegate-type
+cache retained because cachedlayouts may reference its identities. Third84746
+EXIT0 1/1pass8.277s before removing unnecessarydelegate-typeclear. Currentfinal6444
+runs544 lib/IR/generic/delegate cases /tmp/koh-generic-delegate-final.log. Added
+late signedushort-to-short MethodSpec mismatch probe; rerun genericfinal afterwards.
+Fixture covers samegenericmethod int/ushort targets, referenceDLLtarget, closedclass
+receiver sideeffect and foreignpackedPayload argument/return. No newABI. Parentowns
+serialbuilds. Ledger91unchanged, fullgoalactive. Do not claim completion.
+Final6444EXIT0:544/544pass362.459s lib/IR/delegates/generics (224 intentionally
+unselecteddrivers). Late signedness probe first build101 missing boolannotation,
+then74250EXIT0 4/4pass32.431s /tmp/koh-generic-delegate-signedness-final.log.
+Workspace28817EXIT0 alltargets/allfeatures8.68s existingcubesunusedhelperwarning.
+Compiler rustdocEXIT0 zero cases; CSharpiercheckEXIT0. backend_audit read-only
+review requested currentdiff; no builds/edits. Pendingcommit/review and PR55update.
+Read-onlyreview: no confirmed blockers; retained delegate/layout caches containno
+callbackIDs, scoped/raw signaturechecks preserve signedness. No reviewerbuildclaim.
+Alllocalhandles terminal; readylogicalcommit. Fullgoal/ledger unchanged.

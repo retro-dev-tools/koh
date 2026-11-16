@@ -102,6 +102,27 @@ public static class Program
 
     public static int Expanding() => Expand<int>();
 
+    public static int GenericDelegates()
+    {
+        Reader first = Identity<int>;
+        RemoteReader second = Library.Forward<ushort>;
+        RemoteReader third = Identity<ushort>;
+        var marker = new GenericReceiver { Value = 17 };
+        Reader bound = marker.Forward<int>;
+        PayloadReader packed = Library.Forward<Payload>;
+        Payload payload = packed(new Payload { Tag = 7, Value = 60000 });
+        return
+            first(42) == 42
+            && second(60000) == 60000
+            && third(50000) == 50000
+            && bound(1000) == 1000
+            && marker.Value == 18
+            && payload.Tag == 7
+            && payload.Value == 60000
+            ? 42
+            : 0;
+    }
+
     public static int InstanceMethods()
     {
         var marker = new GenericReceiver { Value = 17 };
@@ -313,3 +334,5 @@ public struct GenericValueReceiver
         return value;
     }
 }
+
+public delegate Payload PayloadReader(Payload value);

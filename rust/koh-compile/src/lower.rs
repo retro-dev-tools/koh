@@ -1221,9 +1221,7 @@ fn translate(
             };
             let resolver = resolver.ok_or("Method pointer requires metadata resolution")?;
             let resolved = resolver.resolve_method(method.identity.assembly, token)?;
-            if !resolved.type_arguments.is_empty() || !resolved.method_arguments.is_empty() {
-                return Err("Generic method-pointer target requires instantiated lowering".into());
-            }
+            let instantiated = resolver.instantiate(&resolved, &b.method_arguments)?;
             let image = resolver.assembly(resolved.definition.assembly)?;
             let flags = image.method(resolved.definition.token)?.flags;
             let virtual_pointer = i.opcode == 0xfe07;
@@ -1246,7 +1244,7 @@ fn translate(
             let target = if virtual_pointer && flags & 0x40 != 0 {
                 crate::dispatch::identity(resolved.definition)
             } else {
-                resolved.definition
+                instantiated
             };
             let value = b.value(Type::MethodHandle(target), Op::MethodHandle(target))?;
             b.stack.push(value);
@@ -1848,7 +1846,9 @@ fn translate(
                     let declared = if target.token >> 24 == 0xfe {
                         crate::dispatch::declaration(target)
                     } else {
-                        target
+                        resolver
+                            .instance(target)?
+                            .map_or(target, |instance| instance.method)
                     };
                     let instance = resolver
                         .assembly(declared.assembly)?
