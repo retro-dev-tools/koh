@@ -112,6 +112,8 @@ If restore fails with `NU1902` or `NU1903`, a dependency audit has found a vulne
 
 ### Test
 
+See [CI validation](docs/ci-validation.md) for PR checks and the full merge gate.
+
 ```sh
 dotnet msbuild build.proj -t:Test
 ```
@@ -123,7 +125,7 @@ Invoke as `dotnet msbuild build.proj -t:<Target>` (no external tool install).
 | Target                | Description                                                 |
 | --------------------- | ----------------------------------------------------------- |
 | `Test`                | Run the fast suite (everything except `Koh.Compiler.Tests`) |
-| `TestAll`             | Run the full suite, as CI does                              |
+| `TestAll`             | Run the full .NET suite used by full validation                              |
 | `BuildSample2048`     | Build the assembly 2048 sample ROM                          |
 | `Benchmark`           | Run benchmarks                                              |
 | `PublishDev`          | Publish the LSP server for local VS Code debugging          |

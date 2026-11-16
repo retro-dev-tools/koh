@@ -1,12 +1,114 @@
-name: CI
+name: Full validation
 
 on:
   push:
     branches: [master]
   pull_request:
+    types: [opened, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-validation-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  RUSTUP_TOOLCHAIN: stable
 
 jobs:
+  native:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.140
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: cargo +stable fmt --all -- --check
+      - name: Check
+        run: cargo +stable check --workspace --all-targets --all-features --locked
+      - name: Test
+        run: cargo +stable nextest run --workspace --all-features --locked
+      - name: Test Rust documentation
+        run: cargo +stable test --doc --workspace --all-features --locked
+      - name: Build native executables
+        run: cargo +stable build --release --package koh-asm --package koh-link --package koh-compile --locked
+      - name: Smoke-test native compiler artifacts
+        env:
+          KOH_COMPILE: ${{ github.workspace }}/target/release/koh-compile${{ runner.os == 'Windows' && '.exe' || '' }}
+          KOH_LINK: ${{ github.workspace }}/target/release/koh-link${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: cargo +stable nextest run -p koh-compile --test sdk --locked -E 'test(sdk_dotnet_run)'
+      - name: Publish native-backed language server
+        run: dotnet publish src/Asm/Koh.Lsp -c Release --no-self-contained -o artifacts/language-server -m:1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: koh-lsp-native-${{ runner.os }}
+          path: artifacts/language-server/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: koh-native-${{ runner.os }}
+          path: |
+            target/release/koh-asm
+            target/release/koh-asm.exe
+            target/release/koh-link
+            target/release/koh-link.exe
+            target/release/koh-compile
+            target/release/koh-compile.exe
+            licenses/rust-assembler-dependencies.md
+            licenses/rust-assembler/
+
+  references:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.140
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install RGBDS build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bison flex libpng-dev pkg-config
+      - name: Build pinned RGBDS
+        run: |
+          git clone --depth 1 --branch v1.0.1 https://github.com/gbdev/rgbds.git "$RUNNER_TEMP/rgbds"
+          make -C "$RUNNER_TEMP/rgbds" -j2
+          echo "$RUNNER_TEMP/rgbds" >> "$GITHUB_PATH"
+      - name: Test against RGBDS
+        env:
+          KOH_RGBDS_TEST: '1'
+        run: cargo +stable nextest run -p koh-asm -p koh-link --all-features --locked
+      - name: Compare ELF and independent RGBDS pipelines
+        run: python3 scripts/verify-rust-assembler.py --output "$RUNNER_TEMP/rust-assembler-verification"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-assembler-verification
+          path: ${{ runner.temp }}/rust-assembler-verification
+          if-no-files-found: ignore
+
   sdl3-renderer:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +159,7 @@ jobs:
           SH
 
   build-and-test:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     strategy:
       fail-fast: false
       matrix:
@@ -90,6 +193,7 @@ jobs:
   # (missing native assets, platform API gaps) before it reaches a
   # user trying to ship.
   emulator-aot-publish:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     strategy:
       fail-fast: false
       matrix:
@@ -157,6 +261,7 @@ jobs:
   # always opens a window even in "headless" mode; Windows and macOS
   # runners have a session that VS Code is happy to render into.
   extension-tests:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     strategy:
       fail-fast: false
       matrix:
@@ -185,6 +290,7 @@ jobs:
         run: npm test
 
   benchmark-native:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     needs: build-and-test
     steps:
@@ -206,6 +312,7 @@ jobs:
           dotnet run --project tools/benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Native*'
 
   build-sample-2048:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

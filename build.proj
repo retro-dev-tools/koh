@@ -26,7 +26,6 @@
     a normal desktop and take the machine down with them. Everything else in the repo is
     ordinary unit testing.
 
-    Use TestAll before pushing, or when touching the compiler. It is what CI runs.
   -->
   <Target Name="Test">
     <!-- The solution flag is required: a bare positional arg is ambiguous to the .NET 10 SDK's
