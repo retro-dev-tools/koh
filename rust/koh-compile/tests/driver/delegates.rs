@@ -51,17 +51,36 @@ fn sealed_virtual_tokens_execute_the_override(
             .find(|&token| image.method_name(token).unwrap() == name)
             .unwrap()
     };
-    for (entry, opcode) in [
-        ("Program::SealedCall", 0x6f),
-        ("Program::SealedGroup", 0xfe07),
-    ] {
-        let (modified, original) = replace_method_token(
-            image,
-            &images[0],
-            method(entry),
-            opcode,
+    let generic = (0..image.metadata().method_specs.len())
+        .find_map(|index| {
+            let token = 0x2b000001 + index as u32;
+            let target = resolver.resolve_method(0, token).unwrap();
+            (target.definition.token == method("Counter::Identity")).then_some(token)
+        })
+        .unwrap();
+    for (entry, opcode, target, expected) in [
+        (
+            "Program::SealedCall",
+            0x6f,
             method("DoubleCounter::Add"),
-        );
+            "0000002A",
+        ),
+        (
+            "Program::SealedGroup",
+            0xfe07,
+            method("DoubleCounter::Add"),
+            "0000002A",
+        ),
+        (
+            "Program::SealedGroup",
+            0xfe07,
+            method("Counter::PlainAdd"),
+            "00000015",
+        ),
+        ("Program::SealedGroup", 0xfe07, generic, "00000015"),
+    ] {
+        let (modified, original) =
+            replace_method_token(image, &images[0], method(entry), opcode, target);
         assert!(matches!(
             image.method_name(original).unwrap().as_str(),
             "Counter::Add" | "DoubleCounter::Add"
@@ -91,7 +110,7 @@ fn sealed_virtual_tokens_execute_the_override(
         let fields: Vec<_> = result.split_whitespace().collect();
         assert_eq!(
             &fields[..4],
-            &["00", "0000002A", "D000", "OK"],
+            &["00", expected, "D000", "OK"],
             "{entry}: {result}"
         );
         if color {
@@ -131,11 +150,32 @@ fn null_delegates_fault_at_binding_or_invocation(
     let (directory, images) = gameboy_images(host, configuration, "DelegateCalls");
     let framework = framework_image(directory.path(), configuration);
     let resolver = Resolver::new(&[&images[0], &images[1], &framework]).unwrap();
-    for entry in [
-        "Program::NullInvoke",
-        "Program::NullBinding",
-        "Program::NullNonVirtualBinding",
+    for (entry, nonvirtual) in [
+        ("Program::NullInvoke", false),
+        ("Program::NullBinding", false),
+        ("Program::NullNonVirtualBinding", false),
+        ("Program::NullBinding", true),
     ] {
+        let bytes = if nonvirtual {
+            let image = resolver.assembly(0).unwrap();
+            let method = |name| {
+                (1..=image.metadata().method_defs.len() as u32)
+                    .map(|row| 0x06000000 | row)
+                    .find(|&token| image.method_name(token).unwrap() == name)
+                    .unwrap()
+            };
+            replace_method_token(
+                image,
+                &images[0],
+                method(entry),
+                0xfe07,
+                method("Counter::PlainAdd"),
+            )
+            .0
+        } else {
+            images[0].clone()
+        };
+        let resolver = Resolver::new(&[&bytes, &images[1], &framework]).unwrap();
         let object = compile::object(&resolver, Some(entry)).unwrap();
         let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
         let linked = koh_link::link(

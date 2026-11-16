@@ -36,6 +36,8 @@ The original rejection is in `/tmp/koh-generic-delegate-red.log`; a subsequent
 determinism failure exposed the callback lifetime bug before its correction.
 Generic virtual method pointers, value-type delegate receivers and constructed
 generic declaring layouts remain unfinished; no support is implied by this change.
+Nonvirtual `ldvirtftn` targets, including closed MethodSpecs, also use this binding
+path; see the [correct versus CLI-verifiable CIL distinction](delegates.md).
 Selected compiler-library/IR/delegate/generic regression passes544/544 in362.459s;
 after adding the ushort-to-short rejection probe, final4/4 passes32.431s, exit0.
 Logs: `/tmp/koh-generic-delegate-final.log` and

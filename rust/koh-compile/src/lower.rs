@@ -1838,8 +1838,11 @@ fn translate(
                         return Err("Delegate constructor requires a typed method handle".into());
                     };
                     let receiver = b.pop()?;
-                    if b.delegate_sequences.get(&b.offset).copied()
-                        != Some(target.token >> 24 == 0xfe)
+                    if b.delegate_sequences
+                        .get(&b.offset)
+                        .is_none_or(|virtual_sequence| {
+                            target.token >> 24 == 0xfe && !virtual_sequence
+                        })
                     {
                         return Err("Delegate construction requires a verified ldftn/newobj or dup/ldvirtftn/newobj sequence without branches into its interior".into());
                     }

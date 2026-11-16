@@ -1035,3 +1035,20 @@ review requested currentdiff; no builds/edits. Pendingcommit/review and PR55upda
 Read-onlyreview: no confirmed blockers; retained delegate/layout caches containno
 callbackIDs, scoped/raw signaturechecks preserve signedness. No reviewerbuildclaim.
 Alllocalhandles terminal; readylogicalcommit. Fullgoal/ledger unchanged.
+
+Nonvirtualldvirtftn unit starts159e809. CorrectCIL nonvirtual instance targets were
+rejected by delegate sequence check requiringdispatch0xfe. Red36815EXIT100; root
+check now accepts tracked dup/ldvirtftn/newobj fornonvirtual/generic targets while
+preserving nointeriorbranches, receiver/signaturechecks/nullbeforeallocation.
+Earlier docs intentionally limitedto CLI-verifiable forms; newcontract explicitly
+supports correct-but-unverifiable form per ECMAIII4.18 correctness vsIII4.21
+verifiability. Notmalformed and no assumptionCLRoracle. Docupdatednoterationale.
+Final53391 live /tmp/koh-nonvirtual-ldvirtftn-final.log selected496lib/IR/generic/
+sealed/nullcases. Fixture patchesSealedGroup targettoCounterPlainAdd and closed
+Identity<int> returning21 ratherthanoverride42; nullpatchedtarget fault4 and
+unallocatedheap asserted. Parentownsallbuilds/edits. Ledger91unchanged.
+Final53391terminalEXIT0:496/496pass86.152s,272 intentionallyunselected drivers.
+Includes all170lib/314IR and12generic/pointer/nullcases acrossD/RDMGCGB.
+Read-onlyreview no confirmedblockers; null/static/type/sequenceguards preserved.
+Rustfmt/diffchecks EXIT0,CSharpierformatted beforefinalrun. Ledger91unchanged.
+Readylogicalcommit/pushsamePR55; nofullworkspace/crossplatform claim.

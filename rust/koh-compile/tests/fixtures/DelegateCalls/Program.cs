@@ -20,6 +20,8 @@ public class Counter
     public virtual int Add(int value) => Value += value;
 
     public int PlainAdd(int value) => Value += value;
+
+    public T Identity<T>(T value) => value;
 }
 
 public sealed class DoubleCounter : Counter
@@ -96,6 +98,13 @@ public static class Program
     {
         DoubleCounter counter = new DoubleCounter();
         Func<int, int> callback = counter.Add;
+        return callback(21);
+    }
+
+    public static int GenericGroup()
+    {
+        var counter = new Counter();
+        Func<int, int> callback = counter.Identity<int>;
         return callback(21);
     }
 

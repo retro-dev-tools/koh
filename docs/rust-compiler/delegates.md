@@ -23,9 +23,16 @@ closed instance targets before allocation; null invocation faults explicitly.
 
 [ECMA-335, sixth edition, III.4.21](https://www.ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf)
 defines the verified ldftn/newobj and dup/ldvirtftn/newobj sequences and prohibits
-branches into their interiors. The virtual sequence requires a virtual method.
-The compiler verifies those CIL relationships before SSA block parameters rename
-values; comparing raw SSA IDs was an incorrect initial implementation.
+branches into their interiors. That CLI-verifiable virtual sequence requires a
+virtual method. Koh additionally supports the correct, not CLI-verifiable,
+`dup/ldvirtftn/newobj` shape naming a nonvirtual instance method, including closed
+MethodSpecs. III.4.18 correctness requires a nonstatic method defined for the
+receiver; its null check still occurs before allocation. Koh checks receiver and
+signature types and preserves the same no-interior-branches sequence restriction.
+No dynamic dispatch slot is invented for a nonvirtual target. This deliberately
+extends the earlier verifiable-pattern-only boundary without changing the ABI.
+These relationships are checked before SSA block parameters rename values;
+comparing raw SSA IDs was an incorrect initial implementation.
 
 ## Heap and calling ABI
 
@@ -69,7 +76,7 @@ faults. Null faults use code4; allocation exhaustion uses code5.
 
 Exact nominal target signatures are supported. Variance/adaptation, closed-static
 and open-instance forms, multicast/equality APIs, async delegate APIs, arbitrary
-calli, generic method-pointer instantiation and boxed value-type receivers still
+calli, virtual generic method-pointer instantiation and boxed value-type receivers still
 require explicit support decisions and diagnostics. This is a visible current
 boundary, not approval to retire useful legacy coverage. Interface/general
 generic/language-runtime completion remains a whole-migration gate.
@@ -99,8 +106,9 @@ are recorded in test-disposition.md.
 Review caught enum identity being erased by storage normalization; raw nominal
 comparison fixes both instance interning and target binding. Forged enum/byte
 callbacks bound to an int target now reject. Another review suggestion concerned
-nonvirtual ldvirtftn construction; it was withdrawn after checking the standard's
-verified-construction rule. Metadata tests reject malformed runtime contracts
+nonvirtual ldvirtftn construction; it was initially withdrawn under the standard's
+verified-construction rule. The later explicit extension above supports this
+correct but unverifiable CIL shape with typed receiver/target checks. Metadata tests reject malformed runtime contracts
 and forged framework-reference identities.
 
 A Release null-binding fixture initially had no binding operation in its IL:
@@ -108,6 +116,17 @@ Roslyn removed the unused conversion, leaving ldnull/pop/return42. The fixture
 now stores the callback in a static field, retaining the operation in both build
 configurations. The null-fault assertion and pre-allocation heap check remain.
 Native compilation follows the assembly's actual CIL, not reconstructed C#.
+
+The nonvirtual-pointer regression patches actual Roslyn SealedGroup `ldvirtftn`
+tokens to Counter.PlainAdd and a closed Counter.Identity<int> MethodSpec. Both
+return21 rather than the override's42. A patched null binding retains fault4,
+restored frame guards and a completely unallocated heap. The original rejection
+is recorded in `/tmp/koh-nonvirtual-ldvirtftn-red.log`; initial four-configuration
+acceptance passes4/4 in24.462s before the generic/null extensions. Final results
+pass496/496 in86.152s, exit0 (`/tmp/koh-nonvirtual-ldvirtftn-final.log`), including
+compiler-library, IR, generic, pointer and null regressions. Read-only review found
+no confirmed blockers. No feature retirement or whole-migration completion
+is implied.
 
 The unchanged JRPG now builds through ordinary Release SDK/native tool discovery
 into a131072-byte ROM, zero warnings/errors,45.81s, exit0:

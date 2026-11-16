@@ -8,7 +8,16 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current delegate increment supports closed generic `ldftn` targets using existing
+Current pointer-binding increment deliberately extends the earlier CLI-verifiable
+pattern boundary to correct nonvirtual `dup/ldvirtftn/newobj` CIL, including closed
+MethodSpecs. Typed receiver/signature checks, null-before-allocation and the
+no-interior-branch rule remain. Patched nonvirtual and generic targets return21
+rather than override42; patched null binding faults4 without heap allocation.
+Selected compiler-library/IR/generic/pointer/null regression passes496/496 in86.152s,
+exit0 (`/tmp/koh-nonvirtual-ldvirtftn-final.log`). Read-only review found no confirmed
+blockers. Ledger91/565 remains unchanged. See [contract rationale](delegates.md).
+
+Previous delegate increment supports closed generic `ldftn` targets using existing
 specialization and callback ABI. Scoped raw signatures remain checked independently
 of lowered widths. The fixture covers same-method int/ushort instantiations,
 reference-library and bound-class targets, side effects and foreign packed structs.
