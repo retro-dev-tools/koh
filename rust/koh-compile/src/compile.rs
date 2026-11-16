@@ -57,13 +57,22 @@ fn object_inner(
         .class_layouts
         .borrow()
         .values()
-        .map(|layout| crate::ir::ClassType::new(layout.identity, layout.base, layout.bytes))
+        .map(|layout| {
+            if layout.interface {
+                crate::ir::ClassType::interface(layout.identity)
+            } else {
+                crate::ir::ClassType::new(layout.identity, layout.base, layout.bytes)
+            }
+        })
         .collect::<Result<Vec<_>, _>>()?;
-    let mut object = if pdbs.is_empty() {
-        crate::cartridge::emit(&functions, entry, &classes)?
-    } else {
-        crate::cartridge::emit_with_debug(&functions, entry, &classes, pdbs)?
-    };
+    let interfaces = resolver
+        .class_layouts
+        .borrow()
+        .values()
+        .map(|layout| (layout.identity, layout.interfaces.clone()))
+        .collect();
+    let mut object =
+        crate::cartridge::emit_with_debug(&functions, entry, &classes, &interfaces, pdbs)?;
     let mut names = std::collections::HashMap::new();
     let mut name_bytes = 0usize;
     for function in &functions {
@@ -342,6 +351,11 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
         }
     }
     let classes: Vec<_> = classes.into_values().collect();
+    for &class in &classes {
+        binder
+            .validate_interfaces(class)
+            .map_err(|error| format!("Allocated class {:?}: {error}", class.identity()))?;
+    }
     for (method, site) in virtuals.into_values() {
         let function = binder
             .function(method, &classes)

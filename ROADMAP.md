@@ -58,8 +58,10 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   disabled for nonempty CGB attribute writes and nonempty1bpp/font loads.
   JRPG art/palette/OAM/pixel checks and four isolated captures now pass, retaining
   the300-frame power-on title deadline; font-loop throughput was corrected.
-  Final selected42/42 and edited JRPG9/9 pass. Interface dispatch and the other
-  whole-migration gates remain required.
+  Final selected42/42 and edited JRPG9/9 pass. Nongeneric interface dispatch,
+  explicit/inherited MethodImpl bindings and class-body selection through default
+  declarations now have native execution coverage. Generic/default-body dispatch
+  and the other whole-migration gates remain required.
   Metadata commitb4caf55 hosted Rust suites pass1012 Linux/macOS
   and1010 Windows cases; those results predate the object-core increment.
   Native source-breakpoint and exact-PC caller inspection now pass for real2048

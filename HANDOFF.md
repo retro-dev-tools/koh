@@ -682,3 +682,80 @@ Nextwholegoalunit milestone2 language/runtime/interrupt/bank/capacity contract,
 thenalltestclosure+legacydeletion3 andfinalproduct/perf/releases/hosts4.
 Fullgoalnotcomplete; donotshrinktosourcedebugorclaimwholeworkspacesuccess.
 Mainbattle.pngpreservedsha fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454.
+
+## Interface implementation unit active
+
+Parent owns dirty IR ClassType interface tag/layout ClassLayout.interface and
+flattened .interfaces; lower coerces statically valid class/interface values with
+checked runtime cast; compile passes cached memberships to cartridge. Runtime
+ROM0 descriptor prefix parentu16 +countu16 +interface descriptorptr[count]; heap
+object header/fields and argument widths unchanged. Interface refs remain typed
+2bytes, no interface instantiation/fields allowed. Existing class cast prefix
+remains parentwalk; interface cast scans actualtype's flattened memberships.
+Dispatch Binder extends closedworld selectors with implicit/explicitMethodImpl,
+inherited maps and reimplementation; mappings must use valid owner/signatures,
+nonfinalvirtualdeclaration/virtualbody, cycles/work capped. Default/generic/
+value-boxing interfaces remain explicitly unsupported pending contract work.
+
+Test fixtureInterfaceCalls simpleIUnit/static Current currently2D/R cases.
+Red15031 failed correct unsupportedinterface layout; firstgreen33656 exposed
+canonicalnull Extends is Some(TypeDef),row0, nottableNone. Correctedcanonical
+nulltag check. Parent9185 rerun /tmp/koh-interface-green.log live now. No other
+builds; do not restart it due observationtimeouts. No commits for thisunit yet.
+Reviewers read-only, nofiles/buildownership. Reviewerbinding owns dispatch/CIL
+methodmapping semantics; reviewerbackend ownsIR/layout/descriptor/runtimecast.
+Fullgoal stillactive milestone2,70/565ledger, nonewclosureclaimfrom2casefixture.
+Hosted21ed run43896426313 confirmedlive, managedjobpassed,nativeinprogress;
+PRmergeabletrue/draftblocked(expectedprotectedchecks),notmergeconflict.
+
+Interfacecore first10cases D/R passed19.132s including actualManagedHost .NET
+execution oracles42 (compiler never executesinput). Reviewrepros reproduced:
+ReimplementedExplicit returned37 not42 /tmp/koh-interface-review-red.log;
+large200byteframe failedtofinishatPC01C9 /tmp/koh-interface-large-red.log.
+Fixed inheritedexplicitmapping precedence at eachancestor and preservedDE around
+extendedSPbankrestore in sharedobject_class. AddedTryCastClass/isinst across
+IR/verifier/optimize/backend, null/nonmatch semantics. InterfaceLibrary reference
+fixtures exercisecrossassembly implicit/explicitMemberRef declarations; 208byte
+valuearg/return andint64 results included. Current4D/R×DMG/CGB casespassed
+48.022s /tmp/koh-interface-banks.log:20success+2faults percase, eachsuccessful
+method .NEToracle42 andnativeROMreturn42/SPD000/guard; faultsCLRtypes/trap4/10;
+wholebank2snapshotpreserved onCGB; forceddistinctROMbanks. Metadata assembly
+structural InterfaceImpl/MethodImpl row validation newlyadded, notyet compiled.
+No buildsactive(otherthanhosted21ed43896426313lastlive); parent81403terminal
+logbuthandleunpolled. Need metadata mutation oracles+badinputtests, descriptor/
+layout/virtual/game regressions anddocs beforecommit/closure. Ledger70 unchanged.
+
+Interface review continuation: user explicitly requires fixing valid CIL shapes,
+not copying CLR restrictions. ECMA II.22.27 permits inherited MethodImpl bodies;
+the temporary same-type rejection was removed. Final pending fixtures assert
+inherited MethodDef/MemberRef ROM42 independently while recording CLR TypeLoad
+rejections; a class-slot alias corroborates CLR/native behavior. Added executable
+body/strict-access validation, clearer generic diagnostics and class large-frame
+cast regression. EmulatorHost gains test-only native-scroll snapshot FF42/FF43.
+Parent regression81282 is live, log /tmp/koh-interface-regression.log,677selected;
+binary predates final inherited/strict fixture edits. Do not run concurrent builds.
+Next format then final focused interface/IR tests and SDK game/debug regression.
+Review ownership unchanged: binding_review read-only dispatch/metadata semantics;
+backend_audit read-only IR/layout/descriptors/SM83. Parent owns all edits/builds.
+CI-only a6d6bc0 pushed; full validation no longer duplicates runs on master pushes.
+Other migration work remains active; no interface commit/ledger closure yet.
+
+Final interface state: parent81282 terminal exit100,676/677 pass1005.408s; only
+obsolete unsupported-interface layout assertion failed. Replaced with positive
+identity/no-instance-storage checks. Final parent36733 terminal exit0:34/34pass
+419.564s /tmp/koh-interface-final.log,620unselected. Includes4interface matrices
+(29success+2faults each),2metadata cases (3patched nativebindings each),IR/layout,
+existingclassvirtualcases,4SDK2048games,2JRPGgames,2actualSDKsource-debugcallers.
+Valid inherited MethodDef/MemberRef bodies execute42 despite optional knownCLR
+same-type rejection; class-slot alias mustreturn42onboth. No CLR bug is required
+bytest. DirectFF42/FF43snapshot07EE avoids matching wrong intrinsic read/write.
+Default declaration + concreteclassbody reproducedunsupported13.038s exit100
+/tmp/koh-interface-default-red.log; binder now searchesclassbodies before rejecting
+default fallback. Default body7 versusclass42 disambiguates selection. Default
+fallback/generics/boxing/staticvirtual remain pending fullmigrationimplementation.
+Reviews revalidated ECMA RVARule8; no remaining confirmedbinding/backendblocker.
+Ledger71/565complete,494partial,outstanding;zero physicallyretired. Source/asset
+snapshot764files /tmp/koh-interface-sources.json unchanged through finalrun.
+Workspacecheck17084 terminalexit0 in14.25s (existingcubesbuild_hostwarning),
+CSharpiercheck87460 terminalexit0 (4files), rustfmtcheckexit0, workspace rustdoc
+exit0 (0cases). Then pushsamePR55/updateconcisechecklist; do notmarkgoalcomplete.

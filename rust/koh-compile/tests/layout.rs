@@ -116,7 +116,6 @@ fn reference_classes_preserve_inherited_storage(
 #[case("Generic`1", "generic")]
 #[case("Sequential", "AutoLayout")]
 #[case("Explicit", "AutoLayout")]
-#[case("IPeer", "interface")]
 #[case("Body", "reference class")]
 #[case("TooLarge", "capacity")]
 fn unsupported_class_layouts_diagnose(
@@ -128,6 +127,21 @@ fn unsupported_class_layouts_diagnose(
         let resolver = Resolver::new(&[&image[0], &image[1]]).unwrap();
         let error = layout::class(&resolver, definition(&resolver, name)).unwrap_err();
         assert!(error.contains(message), "{name}: {error}");
+    }
+}
+
+#[rstest]
+fn interface_views_have_identity_without_instance_storage(class_images: &[[Vec<u8>; 2]; 2]) {
+    for image in class_images {
+        let resolver = Resolver::new(&[&image[0], &image[1]]).unwrap();
+        let identity = definition(&resolver, "IPeer");
+        let view = layout::class(&resolver, identity).unwrap();
+        assert_eq!(view.identity, identity);
+        assert!(view.interface);
+        assert_eq!(view.bytes, 2);
+        assert_eq!(view.base, None);
+        assert!(view.fields.is_empty());
+        assert!(view.interfaces.is_empty());
     }
 }
 

@@ -8,6 +8,23 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+Current interface increment implements metadata-driven nongeneric interface
+dispatch, explicit/inherited MethodImpl bindings, castclass/isinst and typed
+interface storage/delegates. Valid inherited bodies follow ECMA semantics rather
+than the tested CLR's same-type restriction. Concrete class implementations are
+selected even for default interface declarations; default-body fallback remains
+pending. Tests directly observe hardware scroll registers and preserve bank/frame
+guards, including large frames and aggregate calls. See [interfaces](interfaces.md).
+This closes one obsolete legacy rejection expectation:71/565 complete,494
+partial/outstanding, zero physically retired. Earlier ledger counts below record
+their respective checkpoints, not the current total.
+
+Final interface selection passes34/34 in419.564s, exit0; it includes actual
+2048/JRPG gameplay and source-debugger callers after the runtime descriptor change.
+Broader677-case run passed676 with one obsolete interface-rejection expectation;
+its positive replacement passes in the final selection. This does not turn that
+exit100 run into a full-suite pass. Logs and exact scope are in interfaces.md.
+
 Current native caller/source-debug acceptance: budgeted, versioned exact-PC unwind
 symbols pass through canonical ELF/KDBG without adding ROM instructions or frame
 storage. The existing debugger follows actual saved PC/u16 bank cookies, bounds

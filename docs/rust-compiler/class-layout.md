@@ -2,8 +2,8 @@
 
 Status: validated metadata/layout foundation and executable object core.
 Native ROM probes cover allocation, constructors, fields and direct calls.
-Interface dispatch,2048v2/JRPG acceptance and source debugging remain
-required; this does not complete the compiler replacement.
+Interface dispatch,2048v2/JRPG execution and exact-PC source debugging now have
+native acceptance coverage; this does not complete the compiler replacement.
 
 ## Requirements from actual consumers
 
@@ -48,7 +48,8 @@ only inheritance and inline value layouts recurse, not referenced objects.
 
 The two-byte prefix avoids copying the old optional one-byte dispatch-tag limit.
 The prefix contains a ROM0 descriptor address. Each descriptor contains its
-parent descriptor address; the built-in System.Object descriptor contains zero.
+parent descriptor address followed by its transitive interface memberships;
+the built-in System.Object descriptor has a zero parent and empty memberships.
 Canonical ELF symbols and relocations carry these addresses to the linker.
 Typed object references retain class identity through calls, locals and SSA
 joins. Reference-valued fields and class/string arrays use typed two-byte cells.
@@ -84,7 +85,8 @@ SVBK across heap accesses. It shares the checked4KiB arena with arrays and raw
 allocations. Null access faults with code4; exhaustion faults with code5.
 Nonvirtual callvirt null-checks even when the method never reads this; ordinary
 base calls remain direct. Class virtual reachability now uses a bounded fixed
-point over instantiated types and call sites; interfaces remain pending.
+point over instantiated types and call sites; [interfaces](interfaces.md) now
+participate through explicit metadata membership and resolved implementations.
 Banked access, reference-valued arrays, callbacks, reentrancy and capacity checks
 must compose with the existing ABI. Keep both real games and all compiler-owned
 semantic tests on the final completion checklist.

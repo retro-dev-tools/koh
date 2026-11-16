@@ -514,10 +514,113 @@ fn class_checks_preserve_reference_types_and_effects(#[case] input: Type, #[case
 }
 
 #[rstest]
+#[case(Type::Null, true)]
+#[case(Type::Object(ClassType::root()), true)]
+#[case(Type::Native, false)]
+#[case(Type::I32, false)]
+fn interface_try_cast_retains_typed_operands_through_optimization(
+    #[case] input: Type,
+    #[case] valid: bool,
+) {
+    let interface = ClassType::interface(Definition {
+        assembly: 0,
+        token: 0x02000002,
+    })
+    .unwrap();
+    let mut f = diamond();
+    f.parameters = vec![input];
+    f.locals = vec![input];
+    f.returns = Some(Type::Object(interface));
+    f.blocks = vec![Block {
+        parameters: vec![(0, input)],
+        instructions: vec![
+            Instruction {
+                result: None,
+                op: Op::StoreLocal { local: 0, value: 0 },
+                il_offset: 10,
+            },
+            instruction(1, input, Op::LoadLocal(0)),
+            Instruction {
+                result: Some((2, Type::Object(interface))),
+                op: Op::TryCastClass {
+                    object: 1,
+                    class: interface,
+                },
+                il_offset: 20,
+            },
+        ],
+        terminator: Terminator {
+            kind: Control::Return(Some(2)),
+            il_offset: 21,
+        },
+    }];
+    if input == Type::Null {
+        f.parameters.clear();
+        f.locals.clear();
+        f.blocks[0].parameters.clear();
+        f.blocks[0]
+            .instructions
+            .splice(0..2, [instruction(0, input, Op::Constant(0))]);
+        f.blocks[0].instructions[1].op = Op::TryCastClass {
+            object: 0,
+            class: interface,
+        };
+    }
+    if !valid {
+        assert!(verify(&f).unwrap_err().contains("object reference"));
+        return;
+    }
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    verify(&f).unwrap();
+    let cast = f.blocks[0]
+        .instructions
+        .iter()
+        .find(|i| matches!(i.op, Op::TryCastClass { .. }))
+        .unwrap();
+    assert_eq!(cast.il_offset, 20);
+    assert_eq!(cast.op.operands().collect::<Vec<_>>(), vec![0]);
+    koh_compile::sm83::emit(&f).unwrap();
+    f.blocks[0]
+        .instructions
+        .iter_mut()
+        .find(|i| matches!(i.op, Op::TryCastClass { .. }))
+        .unwrap()
+        .result = Some((2, Type::I32));
+    assert!(verify(&f).is_err());
+}
+
+#[test]
+fn interface_views_cannot_be_allocated() {
+    let interface = ClassType::interface(Definition {
+        assembly: 0,
+        token: 0x02000002,
+    })
+    .unwrap();
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = None;
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![instruction(
+            0,
+            Type::Object(interface),
+            Op::NewObject(interface),
+        )],
+        terminator: Terminator {
+            kind: Control::Return(None),
+            il_offset: 1,
+        },
+    }];
+    assert!(verify(&f).unwrap_err().contains("allocate an interface"));
+}
+
+#[rstest]
 #[case("same", true)]
 #[case("bytes", false)]
 #[case("base", false)]
 #[case("value-kind", false)]
+#[case("interface-kind", false)]
 fn class_identity_has_one_shape_across_functions(#[case] shape: &str, #[case] valid: bool) {
     let id = Definition {
         assembly: 0,
@@ -525,6 +628,7 @@ fn class_identity_has_one_shape_across_functions(#[case] shape: &str, #[case] va
     };
     let class = ClassType::new(id, None, 2).unwrap();
     let other = match shape {
+        "interface-kind" => Type::Object(ClassType::interface(id).unwrap()),
         "bytes" => Type::Object(ClassType::new(id, None, 3).unwrap()),
         "base" => Type::Object(
             ClassType::new(

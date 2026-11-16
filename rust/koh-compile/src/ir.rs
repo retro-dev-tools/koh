@@ -50,6 +50,7 @@ pub struct ClassType {
     identity: Option<Definition>,
     base: Option<Definition>,
     bytes: u16,
+    interface: bool,
 }
 
 impl ClassType {
@@ -58,6 +59,7 @@ impl ClassType {
             identity: None,
             base: None,
             bytes: 2,
+            interface: false,
         }
     }
     pub fn new(identity: Definition, base: Option<Definition>, bytes: u16) -> Result<Self, String> {
@@ -75,7 +77,17 @@ impl ClassType {
             identity: Some(identity),
             base,
             bytes,
+            interface: false,
         })
+    }
+    pub fn interface(identity: Definition) -> Result<Self, String> {
+        Ok(Self {
+            interface: true,
+            ..Self::new(identity, None, 2)?
+        })
+    }
+    pub fn is_interface(self) -> bool {
+        self.interface
     }
     pub fn identity(self) -> Option<Definition> {
         self.identity
@@ -375,6 +387,10 @@ pub enum Op {
         object: u32,
         class: ClassType,
     },
+    TryCastClass {
+        object: u32,
+        class: ClassType,
+    },
     NewObject(ClassType),
     NewDelegate {
         kind: DelegateType,
@@ -545,6 +561,7 @@ impl Op {
             | Self::Upcast { class, .. }
             | Self::IsClass { class, .. }
             | Self::CastClass { class, .. }
+            | Self::TryCastClass { class, .. }
             | Self::ObjectFieldAddress { owner: class, .. } => Some(class),
             _ => None,
         }
@@ -589,6 +606,7 @@ impl Op {
             | Self::CheckObject(bytes)
             | Self::IsClass { object: bytes, .. }
             | Self::CastClass { object: bytes, .. }
+            | Self::TryCastClass { object: bytes, .. }
             | Self::ObjectFieldAddress { object: bytes, .. }
             | Self::Upcast { value: bytes, .. } => [Some(bytes), None],
             Self::InitializeArray { array, .. } => [Some(array), None],
@@ -1125,16 +1143,25 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                 let position = index + 1;
                 let result = instruction.result.map(|r| r.1);
                 let expected = match instruction.op {
-                    Op::IsClass { object, .. } | Op::CastClass { object, .. } => {
+                    Op::IsClass { object, .. }
+                    | Op::CastClass { object, .. }
+                    | Op::TryCastClass { object, .. } => {
                         if !matches!(check(object, position)?, Type::Object(_) | Type::Null) {
                             return Err("Class operation requires an object reference".into());
                         }
                         Some(match instruction.op {
-                            Op::CastClass { class, .. } => Type::Object(class),
+                            Op::CastClass { class, .. } | Op::TryCastClass { class, .. } => {
+                                Type::Object(class)
+                            }
                             _ => Type::I32,
                         })
                     }
-                    Op::NewObject(class) => Some(Type::Object(class)),
+                    Op::NewObject(class) => {
+                        if class.is_interface() {
+                            return Err("Cannot allocate an interface".into());
+                        }
+                        Some(Type::Object(class))
+                    }
                     Op::Upcast { value, class } => {
                         let Type::Object(source) = check(value, position)? else {
                             return Err("Upcast requires an object reference".into());
@@ -1159,7 +1186,8 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         offset,
                         storage,
                     } => {
-                        if check(object, position)? != Type::Object(owner)
+                        if owner.is_interface()
+                            || check(object, position)? != Type::Object(owner)
                             || offset < 2
                             || offset
                                 .checked_add(storage.bytes())

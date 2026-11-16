@@ -373,7 +373,35 @@ impl Code<'_> {
     fn object_class(&mut self, saved: u16) {
         self.heap_bank(saved);
         self.bytes(&[0x0a, 0x5f, 0x03, 0x0a, 0x57]);
-        self.restore_bank(saved);
+        if saved > 127 {
+            self.bytes(&[0xd5]);
+            self.restore_bank(saved + 2);
+            self.bytes(&[0xd1]);
+        } else {
+            self.restore_bank(saved);
+        }
+    }
+
+    fn match_interface_descriptor(&mut self, class: ClassType, yes: SymbolId, no: SymbolId) {
+        self.bytes(&[0x62, 0x6b, 0x23, 0x23, 0x2a, 0x5f, 0x2a, 0x57]);
+        let descriptor = self.import(class_symbol(class.identity()));
+        self.jump(0x01, descriptor);
+        let again = self.label();
+        let skip = self.label();
+        let next = self.label();
+        self.mark(again);
+        self.bytes(&[0x7a, 0xb3]);
+        self.jump(0xca, no);
+        self.bytes(&[0x2a, 0xb9]);
+        self.jump(0xc2, skip);
+        self.bytes(&[0x2a, 0xb8]);
+        self.jump(0xca, yes);
+        self.jump(0xc3, next);
+        self.mark(skip);
+        self.bytes(&[0x23]);
+        self.mark(next);
+        self.bytes(&[0x1b]);
+        self.jump(0xc3, again);
     }
 
     fn pins_active(&mut self, pins: &BTreeMap<u32, u16>) {
@@ -1410,40 +1438,59 @@ pub(crate) fn emit_with_strings(
                     code.bytes(&[0x78, 0xb1]);
                     code.jump(0xca, done);
                     code.object_class(layout.arithmetic + 24);
-                    let descriptor = code.import(class_symbol(class.identity()));
-                    code.jump(0x21, descriptor);
-                    code.bytes(&[0x7a, 0xbc]);
-                    code.jump(0xc2, done);
-                    code.bytes(&[0x7b, 0xbd]);
-                    code.jump(0xc2, done);
+                    if class.is_interface() {
+                        let matched = code.label();
+                        code.match_interface_descriptor(class, matched, done);
+                        code.mark(matched);
+                    } else {
+                        let descriptor = code.import(class_symbol(class.identity()));
+                        code.jump(0x21, descriptor);
+                        code.bytes(&[0x7a, 0xbc]);
+                        code.jump(0xc2, done);
+                        code.bytes(&[0x7b, 0xbd]);
+                        code.jump(0xc2, done);
+                    }
                     code.constant(destination, 4, 1);
                     code.mark(done);
                 }
-                Op::CastClass { object, class } => {
+                Op::CastClass { object, class } | Op::TryCastClass { object, class } => {
+                    let optional = matches!(instruction.op, Op::TryCastClass { .. });
                     code.copy(slot(object), destination, 2);
                     code.indirect(destination);
                     let done = code.label();
                     code.bytes(&[0x78, 0xb1]);
                     code.jump(0xca, done);
                     code.object_class(layout.arithmetic + 24);
-                    code.bytes(&[0x62, 0x6b]);
-                    let descriptor = code.import(class_symbol(class.identity()));
-                    code.jump(0x01, descriptor);
-                    code.bytes(&[0x16, 65]);
-                    let again = code.label();
-                    let parent = code.label();
-                    let fault = code.import("__koh_trap_type".into());
-                    code.mark(again);
-                    code.bytes(&[0x7c, 0xb8]);
-                    code.jump(0xc2, parent);
-                    code.bytes(&[0x7d, 0xb9]);
-                    code.jump(0xca, done);
-                    code.mark(parent);
-                    code.bytes(&[0x7c, 0xb5]);
-                    code.jump(0xca, fault);
-                    code.bytes(&[0x2a, 0x66, 0x6f, 0x15]);
-                    code.jump(0xc2, again);
-                    code.jump(0xc3, fault);
+                    let fault = if optional {
+                        code.label()
+                    } else {
+                        code.import("__koh_trap_type".into())
+                    };
+                    if class.is_interface() {
+                        code.match_interface_descriptor(class, done, fault);
+                    } else {
+                        code.bytes(&[0x62, 0x6b]);
+                        let descriptor = code.import(class_symbol(class.identity()));
+                        code.jump(0x01, descriptor);
+                        code.bytes(&[0x16, 65]);
+                        let again = code.label();
+                        let parent = code.label();
+                        code.mark(again);
+                        code.bytes(&[0x7c, 0xb8]);
+                        code.jump(0xc2, parent);
+                        code.bytes(&[0x7d, 0xb9]);
+                        code.jump(0xca, done);
+                        code.mark(parent);
+                        code.bytes(&[0x7c, 0xb5]);
+                        code.jump(0xca, fault);
+                        code.bytes(&[0x2a, 0x66, 0x6f, 0x15]);
+                        code.jump(0xc2, again);
+                        code.jump(0xc3, fault);
+                    }
+                    if optional {
+                        code.mark(fault);
+                        code.constant(destination, 2, 0);
+                    }
                     code.mark(done);
                 }
                 Op::Upcast { value, .. } => code.copy(slot(value), destination, 2),

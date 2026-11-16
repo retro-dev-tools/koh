@@ -481,7 +481,7 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilVirtualDispatchTests.cs`
 Inherited fields never overlap, base-typed calls dispatch by runtime receiver, scene changes retain constructor state and interrupt-only roots participate. Interface shapes outside supported closed-world analysis must diagnose. Prefix/tag layouts are optional.
 
 - **PORT, complete** `InheritedFields_UsePrefixLayout_NoOverlap` — same native driver, `ObjectCore::InheritedFields`; exact base/derived/alias packets and final heap descriptors in Debug/Release × DMG/CGB; see test-disposition.md.
-- **PORT** `UntraceableInterfaceCall_IsDiagnostic`.
+- **REPLACE, complete** `UntraceableInterfaceCall_IsDiagnostic` — the old unsupported-interface exception is an implementation limit, not a language contract. Native `driver::interfaces` executes the stored byte-returning receiver and directly checks hardware FF42=07/FF43=EE in D/R × DMG/CGB, alongside interface binding, runtime faults and malformed/unsupported IL diagnostics. See interfaces.md.
 - **PORT, complete** `VirtualCalls_TagDispatchThroughBaseTypedStatic` — native `driver::virtual_slots_and_constructor_dispatch_execute`, exact three-type Area/Kind packets through static receiver reloads and loop reassignment; separate ROM banks including257+, four D/R × DMG/CGB cases. Slot representation is redesigned; see virtual-dispatch.md.
 - **PORT** `SceneMachine_GameRun_DeferredChangeWithCtorState`.
 - **PORT** `TagDispatch_CoexistsWithInterruptHandlerRoots`.

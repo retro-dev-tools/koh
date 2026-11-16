@@ -308,6 +308,7 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                 | Op::CheckObject(id)
                 | Op::IsClass { object: id, .. }
                 | Op::CastClass { object: id, .. }
+                | Op::TryCastClass { object: id, .. }
                 | Op::ObjectFieldAddress { object: id, .. }
                 | Op::Not(id)
                 | Op::Convert { value: id, .. }

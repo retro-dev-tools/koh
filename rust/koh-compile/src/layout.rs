@@ -5,6 +5,7 @@ use crate::{
 use clrmeta::{ElementType, TableId, TypeSig};
 use std::{collections::HashSet, sync::Arc};
 mod classes;
+pub(crate) use classes::implements;
 pub use classes::{ClassLayout, class};
 
 #[derive(Debug, Clone)]

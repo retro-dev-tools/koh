@@ -280,18 +280,20 @@ fn startup(entry: &Function, globals: u16, dma: bool) -> Result<Object, String> 
     })
 }
 
+#[cfg(test)]
 pub(crate) fn emit(
     functions: &[Function],
     entry: Definition,
     known_classes: &[crate::ir::ClassType],
 ) -> Result<Object, String> {
-    emit_with_debug(functions, entry, known_classes, &[])
+    emit_with_debug(functions, entry, known_classes, &HashMap::new(), &[])
 }
 
 pub(crate) fn emit_with_debug(
     functions: &[Function],
     entry: Definition,
     known_classes: &[crate::ir::ClassType],
+    interfaces: &HashMap<Definition, Vec<Definition>>,
     pdbs: &[Option<crate::pdb::PortablePdb>],
 ) -> Result<Object, String> {
     verify_program(functions)?;
@@ -482,13 +484,38 @@ pub(crate) fn emit_with_debug(
                 pending.push(parent);
                 classes.insert(key, parent);
             }
+            for &id in interfaces
+                .get(&class.identity().unwrap())
+                .into_iter()
+                .flatten()
+            {
+                let key = sm83::class_symbol(Some(id));
+                let interface = *known.get(&key).ok_or("Missing interface descriptor")?;
+                if !interface.is_interface() {
+                    return Err("Runtime membership requires an interface descriptor".into());
+                }
+                if !classes.contains_key(&key) {
+                    pending.push(interface);
+                    classes.insert(key, interface);
+                }
+            }
         }
         let mut data = Vec::new();
+        let mut offset = 0;
         let symbols: Vec<_> = classes
-            .keys()
-            .enumerate()
-            .map(|(i, name)| symbol(name.clone(), 0, i * 2))
+            .iter()
+            .map(|(name, class)| {
+                let result = symbol(name.clone(), 0, offset);
+                offset += 4 + class
+                    .identity()
+                    .and_then(|id| interfaces.get(&id))
+                    .map_or(0, |list| list.len() * 2);
+                result
+            })
             .collect();
+        if offset > 0x4000 {
+            return Err("Runtime type descriptors exceed ROM0 capacity".into());
+        }
         let indices: BTreeMap<_, _> = classes
             .keys()
             .enumerate()
@@ -506,7 +533,7 @@ pub(crate) fn emit_with_debug(
                 let parent = classes
                     .get(&sm83::class_symbol(current.base()))
                     .ok_or("Missing parent class descriptor")?;
-                if parent.bytes() > current.bytes() {
+                if parent.is_interface() || parent.bytes() > current.bytes() {
                     return Err("Class descriptor overlaps base storage".into());
                 }
                 current = *parent;
@@ -516,6 +543,21 @@ pub(crate) fn emit_with_debug(
                 patches.push(patch(0, data.len(), indices[&key]));
             }
             data.extend([0, 0]);
+            let list = class
+                .identity()
+                .and_then(|id| interfaces.get(&id))
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            data.extend((list.len() as u16).to_le_bytes());
+            for &id in list {
+                let key = sm83::class_symbol(Some(id));
+                patches.push(patch(
+                    0,
+                    data.len(),
+                    *indices.get(&key).ok_or("Missing interface descriptor")?,
+                ));
+                data.extend([0, 0]);
+            }
         }
         objects.push(Object {
             sections: vec![Section {

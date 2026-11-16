@@ -13,11 +13,13 @@ bool rawOam = args.Length > 0 && args[0] == "--native-oam-trigger";
 bool maps = args.Length > 0 && args[0] == "--native-maps";
 bool cpu = args.Length > 0 && args[0] == "--native-cpu";
 bool arena = args.Length > 0 && args[0] == "--native-arena";
+bool scroll = args.Length > 0 && args[0] == "--native-scroll";
 bool video = frame || oamMode || rawOam || maps || (args.Length > 0 && args[0] == "--native-video");
 bool heap =
     video
     || stack
     || arena
+    || scroll
     || fillCost
     || fillWrap
     || copyWrap
@@ -231,6 +233,8 @@ foreach (
             snapshot += $" {timing.OamStarts}:{dmaInstructions}:{gb.Mmu.DebugRead(0xff46):X2}";
         if (arena)
             snapshot += $" {gb.Mmu.DebugRead(0xff47):X2}";
+        if (scroll)
+            snapshot += $" {gb.Mmu.DebugRead(0xff42):X2}{gb.Mmu.DebugRead(0xff43):X2}";
         if (fillCost)
             snapshot += $" {gb.Cpu.TotalTCycles}";
         if (fillWrap)

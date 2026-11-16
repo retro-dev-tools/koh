@@ -1,5 +1,5 @@
 use clrmeta::{
-    CodedIndexKind, Metadata, MetadataRoot, TableId, TablesHeader, reader::Reader,
+    CodedIndex, CodedIndexKind, Metadata, MetadataRoot, TableId, TablesHeader, reader::Reader,
     tables::TableContext,
 };
 use object::{FileKind, pe, read::pe::SectionTable};
@@ -239,6 +239,63 @@ fn metadata(bytes: &[u8]) -> Result<Metadata, String> {
             .is_none_or(|ty| ty.method_list != 1)
     {
         return Err("Method definitions have no declaring type".into());
+    }
+    let valid_row = |index: CodedIndex| {
+        let count = match index.table {
+            Some(TableId::TypeDef) => result.type_defs.len(),
+            Some(TableId::TypeRef) => result.type_refs.len(),
+            Some(TableId::TypeSpec) => result.type_specs.len(),
+            Some(TableId::MethodDef) => result.method_defs.len(),
+            Some(TableId::MemberRef) => result.member_refs.len(),
+            _ => return false,
+        };
+        index.row != 0 && index.row as usize <= count
+    };
+    let mut interfaces = HashSet::new();
+    for (index, row) in result.interface_impls.iter().enumerate() {
+        if row.class == 0
+            || row.class as usize > result.type_defs.len()
+            || !valid_row(row.interface)
+            || !matches!(
+                row.interface.table,
+                Some(TableId::TypeDef | TableId::TypeRef | TableId::TypeSpec)
+            )
+        {
+            return Err(format!(
+                "InterfaceImpl row{} has invalid class/interface index",
+                index + 1
+            ));
+        }
+        if !interfaces.insert((row.class, row.interface.table, row.interface.row)) {
+            return Err(format!("Duplicate InterfaceImpl row{}", index + 1));
+        }
+    }
+    let mut implementations = HashSet::new();
+    for (index, row) in result.method_impls.iter().enumerate() {
+        if row.class == 0
+            || row.class as usize > result.type_defs.len()
+            || [row.method_body, row.method_declaration]
+                .into_iter()
+                .any(|id| {
+                    !matches!(id.table, Some(TableId::MethodDef | TableId::MemberRef))
+                        || !valid_row(id)
+                })
+        {
+            return Err(format!(
+                "MethodImpl row{} has invalid class/method index",
+                index + 1
+            ));
+        }
+        if !implementations.insert((
+            row.class,
+            row.method_declaration.table,
+            row.method_declaration.row,
+        )) {
+            return Err(format!(
+                "Duplicate MethodImpl declaration at row{}",
+                index + 1
+            ));
+        }
     }
     Ok(result)
 }

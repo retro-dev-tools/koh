@@ -18,8 +18,9 @@ bytes; Length/char results retain their int32 evaluation/call widths.
 [Reference classes](class-layout.md) use distinct typed16-bit references into
 the shared checked WRAM-bank1 arena. Each allocation starts with a two-byte
 ROM0 descriptor address, followed by packed inherited and declared fields.
-The descriptor contains its parent descriptor address; System.Object's root
-contains zero. Standard ELF symbols/relocations let the linker place descriptors.
+The descriptor contains its parent descriptor address, a u16 interface count,
+then that many u16 interface descriptor addresses. System.Object's parent and
+count are zero. Standard ELF symbols/relocations let the linker place descriptors.
 Allocation zeroes fields and installs identity before constructor execution.
 Reference-valued fields/static storage/array elements use typed two-byte cells;
 raw memory loads cannot invent managed reference identities. Calls and returns
@@ -29,7 +30,8 @@ arena exhaustion faults with code5. Heap accesses preserve CGB SVBK.
 ordinary banked calls; direct base calls remain direct. Exact runtime descriptor
 tests select implementations, and checked receiver casts follow parent links
 without changing reference identity. Invalid runtime type faults use code10.
-Interface/explicit MethodImpl dispatch remains pending and explicitly diagnoses.
+[Interface/explicit MethodImpl dispatch](interfaces.md) reuses this calling ABI;
+interface casts test transitive membership in the runtime descriptor.
 
 [OAM DMA](oam-dma.md) uses a linker-placed8-byte HRAM routine installed once at
 boot. Its source page is passed in A; no shared WRAM scratch is required. The

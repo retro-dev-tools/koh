@@ -255,6 +255,11 @@ pub(crate) fn bound_type(
             bound_storage(resolver, assembly, rectangle_element(ty)?)?,
             ArrayKind::Rectangle,
         )),
+        clrmeta::TypeSig::GenericInst { .. }
+        | clrmeta::TypeSig::Var(_)
+        | clrmeta::TypeSig::MVar(_) => {
+            Err("Unsupported generic type requires instantiated lowering".into())
+        }
         _ => integer_type(ty),
     }
 }
@@ -279,6 +284,9 @@ pub(crate) fn class_type(
     identity: Definition,
 ) -> Result<ClassType, String> {
     let layout = crate::layout::class(resolver, identity)?;
+    if layout.interface {
+        return ClassType::interface(layout.identity);
+    }
     ClassType::new(layout.identity, layout.base, layout.bytes)
 }
 
@@ -573,6 +581,23 @@ impl Builder<'_, '_> {
             Ok(value)
         } else if let (Type::Object(mut source), Type::Object(target)) = (value.1, ty) {
             let resolver = self.resolver.ok_or("Object coercion requires metadata")?;
+            if target.is_interface() {
+                let assignable = source
+                    .identity()
+                    .map(|id| crate::layout::implements(resolver, id, target.identity().unwrap()))
+                    .transpose()?
+                    .unwrap_or(false);
+                if !assignable {
+                    return Err("Object reference does not implement requested interface".into());
+                }
+                return self.value(
+                    ty,
+                    Op::CastClass {
+                        object: value.0,
+                        class: target,
+                    },
+                );
+            }
             let mut value = value;
             for _ in 0..64 {
                 if source.identity().is_none() {
@@ -1291,7 +1316,7 @@ fn translate(
             )?;
             b.stack.push(value);
         }
-        0x74 => {
+        0x74 | 0x75 => {
             let Operand::Token(token) = i.operand else {
                 return Err("Missing castclass type".into());
             };
@@ -1307,9 +1332,16 @@ fn translate(
             let object = b.pop()?;
             let result = b.value(
                 Type::Object(class),
-                Op::CastClass {
-                    object: object.0,
-                    class,
+                if i.opcode == 0x75 {
+                    Op::TryCastClass {
+                        object: object.0,
+                        class,
+                    }
+                } else {
+                    Op::CastClass {
+                        object: object.0,
+                        class,
+                    }
                 },
             )?;
             b.stack.push(result);

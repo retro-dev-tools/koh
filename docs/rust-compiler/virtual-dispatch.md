@@ -1,8 +1,8 @@
 # Native class virtual dispatch
 
 Status: executable custom-class virtual dispatch; full migration remains open.
-Interfaces, explicit MethodImpl mappings and generic virtual instantiations
-still require implementation and explicit diagnostics. This is not general
+Reference [interfaces and explicit MethodImpl mappings](interfaces.md) are now
+implemented; generic virtual instantiations still require implementation. This is not general
 .NET compatibility or completed scene-game acceptance.
 
 ## Semantic requirements
@@ -24,7 +24,7 @@ capabilities remain required independently of that API's quality.
 The binder resolves nongeneric class slots from declaring assembly/token,
 method name and exact metadata signature. It distinguishes newslot from reuse,
 checks final/strict-access constraints and diagnoses ambiguous implementations.
-Explicit MethodImpl mappings currently diagnose rather than guessing from names.
+Explicit MethodImpl mappings resolve declaration/body identities and signatures.
 Same-name unrelated generic overloads remain dead when not selected.
 
 Reachability repeatedly processes ordinary calls, reachable NewObject classes
@@ -55,8 +55,8 @@ array casts and general exception handling remain unsupported. TypeFault is an
 explicit terminal IR control operation, with no placeholder return value.
 
 Synthetic dispatcher locations remain synthetic; original call instructions
-retain caller/IL identity. Portable PDB source and stack debugging are separate
-unfinished acceptance gates, not established by these function symbols.
+retain caller/IL identity. Portable PDB source and exact-PC caller inspection
+have separate [debugger acceptance](native-unwind.md).
 
 ## Evidence and remaining work
 
@@ -95,9 +95,11 @@ both Debug/Release cases reproduced success where rejection was required
 The binder now checks all same-class candidates, with explicit negative cases.
 An80-class/80-site generated Roslyn fixture checks the work-limit diagnostic.
 
-An ordinary2048v2 Release SDK build now advances through Game::Run and fails at
+At this earlier virtual-dispatch checkpoint, an ordinary2048v2 Release SDK
+build advanced through Game::Run and failed at
 Assets::Load IL_0005: managed-reference fields inside value structs remain
-unsupported, exit1 in29.78s (`/tmp/koh-virtual-2048-sdk.log`). This is the next
-compiler gap, not game acceptance or a reason to remove useful asset handles.
-Scene transitions, JRPG interfaces/delegates, interrupts, complete test migration,
-source debugging and retiring compiler deletion remain required in the same PR.
+unsupported, exit1 in29.78s (`/tmp/koh-virtual-2048-sdk.log`). Later increments
+closed that gap and added real game and source-debugger acceptance; see
+[current progress](progress.md), [interfaces](interfaces.md) and
+[JRPG acceptance](jrpg-acceptance.md). Interrupts, complete test migration and
+retiring compiler deletion remain required in the same PR.

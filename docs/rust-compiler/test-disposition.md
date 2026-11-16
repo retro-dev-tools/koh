@@ -31,13 +31,36 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: seventy legacy methods; zero physically retired.**
+**Native behavioral replacements: seventy-one legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining495 methods still have
+The remaining494 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## Interface replacement
+
+`CilVirtualDispatchTests.UntraceableInterfaceCall_IsDiagnostic` is REPLACE complete.
+Its former exception records a compiler limitation, not independently justified
+CIL behavior. Nextest discovers four `driver::interfaces` Debug/Release × DMG/CGB
+cases and two metadata cases. Each configuration executes29 successful entries
+and two faults; metadata cases additionally execute three patched bindings.
+This totals130 native ROM probes across configurations, not130 distinct language
+rules. The old byte-return/static-reload fixture now succeeds and the external
+emulator host directly checks FF42=07/FF43=EE. Matching intrinsic write/read code
+alone cannot satisfy that assertion. Wider cases cover independent/explicit/
+inherited mappings, interfaces in fields/arrays/delegates, aggregate and64-bit
+calls, cast/isinst, null/type faults and bank/frame preservation.
+
+Fifteen malformed metadata probes per Roslyn mode preserve useful rejection
+coverage. Three unimplemented default/generic/boxed shapes still diagnose with
+caller/IL context. Valid inherited MethodDef/MemberRef bodies execute42 even where
+the tested CLR rejects them; a future CLR accepting them is permitted by the test.
+The class-slot alias must return42 on both hosts. This replaces a legacy-only
+negative expectation with stronger public behavior and diagnostic assertions;
+it does not remove interface coverage or claim generic/default-body completeness.
+See [contract and remaining work](interfaces.md).
 
 ## JRPG replacements
 

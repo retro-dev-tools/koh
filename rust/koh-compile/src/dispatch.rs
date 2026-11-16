@@ -3,7 +3,7 @@ use crate::{
     lower,
     resolve::{Definition, Resolver},
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub(crate) fn identity(method: Definition) -> Definition {
     Definition {
@@ -22,6 +22,8 @@ pub(crate) fn declaration(method: Definition) -> Definition {
 pub(crate) struct Binder<'r, 'a> {
     resolver: &'r Resolver<'a>,
     slots: HashMap<Definition, Definition>,
+    mappings: HashMap<Definition, Vec<(Definition, Definition)>>,
+    active: HashSet<(Definition, ClassType)>,
     work: usize,
 }
 
@@ -30,6 +32,8 @@ impl<'r, 'a> Binder<'r, 'a> {
         Self {
             resolver,
             slots: HashMap::new(),
+            mappings: HashMap::new(),
+            active: HashSet::new(),
             work: 0,
         }
     }
@@ -70,13 +74,6 @@ impl<'r, 'a> Binder<'r, 'a> {
             .type_defs
             .get(index)
             .ok_or("Invalid virtual owner")?;
-        if metadata
-            .method_impls
-            .iter()
-            .any(|m| m.class == (index + 1) as u32)
-        {
-            return Err("Explicit MethodImpl virtual mappings require dispatch binding".into());
-        }
         let end = metadata
             .type_defs
             .get(index + 1)
@@ -112,6 +109,210 @@ impl<'r, 'a> Binder<'r, 'a> {
         image.method_signature(method.token)
     }
 
+    fn mappings(&mut self, owner: Definition) -> Result<Vec<(Definition, Definition)>, String> {
+        if let Some(result) = self.mappings.get(&owner) {
+            let result = result.clone();
+            self.charge(result.len())?;
+            return Ok(result);
+        }
+        let metadata = self.resolver.assembly(owner.assembly)?.metadata();
+        self.charge(metadata.method_impls.len())?;
+        let class = lower::class_type(self.resolver, owner)?;
+        let chain = self.chain(class)?;
+        let mut result = Vec::new();
+        for row in metadata
+            .method_impls
+            .iter()
+            .filter(|row| row.class == owner.token & 0xffffff)
+        {
+            if class.is_interface() {
+                return Err(
+                    "Default interface MethodImpl requires unsupported interface body resolution"
+                        .into(),
+                );
+            }
+            let mut targets = Vec::new();
+            for token in [row.method_declaration, row.method_body] {
+                let table = token.table.ok_or("MethodImpl has a null method")?;
+                if !matches!(
+                    table,
+                    clrmeta::TableId::MethodDef | clrmeta::TableId::MemberRef
+                ) || token.row == 0
+                {
+                    return Err("MethodImpl requires MethodDef or MemberRef".into());
+                }
+                let resolved = self
+                    .resolver
+                    .resolve_method(owner.assembly, ((table as u32) << 24) | token.row)?;
+                if !resolved.type_arguments.is_empty() || !resolved.method_arguments.is_empty() {
+                    return Err("Generic MethodImpl requires instantiated binding".into());
+                }
+                targets.push(resolved.definition);
+            }
+            let (declaration, body) = (targets[0], targets[1]);
+            let declared_owner = lower::owner_type(self.resolver, declaration)?;
+            let body_owner = lower::owner_type(self.resolver, body)?;
+            let declared_class = lower::class_type(self.resolver, declared_owner)?;
+            if !chain.contains(&body_owner)
+                || if declared_class.is_interface() {
+                    !crate::layout::implements(self.resolver, owner, declared_owner)?
+                } else {
+                    !chain.contains(&declared_owner)
+                }
+            {
+                return Err("MethodImpl body/declaration is outside the class inheritance or interface contract".into());
+            }
+            let declaration_row = self
+                .resolver
+                .assembly(declaration.assembly)?
+                .method(declaration.token)?;
+            let body_row = self.resolver.assembly(body.assembly)?.method(body.token)?;
+            if body_row.rva == 0 {
+                return Err("MethodImpl body must define an executable IL body".into());
+            }
+            if declaration_row.flags & 0x200 != 0
+                && !match declaration_row.flags & 7 {
+                    1 => declared_owner == owner,
+                    2 | 3 => declared_owner.assembly == owner.assembly,
+                    4..=6 => true,
+                    _ => false,
+                }
+            {
+                return Err("MethodImpl targets an inaccessible strict declaration".into());
+            }
+            if declaration_row.flags & 0x70 != 0x40 || body_row.flags & 0x50 != 0x40 {
+                return Err("MethodImpl requires nonfinal instance virtual declaration and instance virtual body".into());
+            }
+            let declaration_sig = self.signature(declaration)?;
+            let body_sig = self.signature(body)?;
+            if !declaration_sig.calling_convention.has_this()
+                || !body_sig.calling_convention.has_this()
+                || !self.resolver.methods_equal(
+                    declaration.assembly,
+                    &declaration_sig,
+                    body.assembly,
+                    &body_sig,
+                    0,
+                )?
+            {
+                return Err(
+                    "MethodImpl signatures differ; covariant or generic adaptation is unsupported"
+                        .into(),
+                );
+            }
+            if result.iter().any(|&(prior, _)| prior == declaration) {
+                return Err("Duplicate MethodImpl declaration".into());
+            }
+            result.push((declaration, body));
+        }
+        self.mappings.insert(owner, result.clone());
+        Ok(result)
+    }
+
+    fn declares_interface(
+        &mut self,
+        owner: Definition,
+        interface: Definition,
+    ) -> Result<bool, String> {
+        let metadata = self.resolver.assembly(owner.assembly)?.metadata();
+        self.charge(metadata.interface_impls.len())?;
+        for row in metadata
+            .interface_impls
+            .iter()
+            .filter(|row| row.class == owner.token & 0xffffff)
+        {
+            let table = row.interface.table.ok_or("Null InterfaceImpl")?;
+            let id = self
+                .resolver
+                .resolve_type(owner.assembly, ((table as u32) << 24) | row.interface.row)?;
+            if id == interface || crate::layout::implements(self.resolver, id, interface)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn interface_implementation(
+        &mut self,
+        method: Definition,
+        class: ClassType,
+        owner: Definition,
+    ) -> Result<Option<Definition>, String> {
+        let id = class
+            .identity()
+            .ok_or("Interface implementation requires a concrete class")?;
+        if !crate::layout::implements(self.resolver, id, owner)? {
+            return Ok(None);
+        }
+        self.slot(method)?;
+        let signature = self.signature(method)?;
+        let image = self.resolver.assembly(method.assembly)?;
+        let missing = if image.method(method.token)?.flags & 0x400 == 0 {
+            "Default interface method execution is unsupported"
+        } else {
+            "Interface slot has no public virtual implementation"
+        };
+        let name = image
+            .metadata()
+            .strings
+            .get(image.method(method.token)?.name)
+            .map_err(|e| e.to_string())?;
+        let chain = self.chain(class)?;
+        for (index, &owner) in chain.iter().enumerate() {
+            let explicit = self.mappings(owner)?;
+            if let Some((_, body)) = explicit
+                .iter()
+                .find(|(declaration, _)| *declaration == method)
+            {
+                return self.implementation(*body, class);
+            }
+            if !self.declares_interface(owner, lower::owner_type(self.resolver, method)?)? {
+                continue;
+            }
+            for &base in &chain[index..] {
+                if let Some((_, body)) = self
+                    .mappings(base)?
+                    .into_iter()
+                    .find(|(declaration, _)| *declaration == method)
+                {
+                    return self.implementation(body, class);
+                }
+                let mut candidate = None;
+                for target in self.methods(base)? {
+                    let image = self.resolver.assembly(target.assembly)?;
+                    let row = image.method(target.token)?;
+                    if row.flags & 0x57 != 0x46
+                        || image
+                            .metadata()
+                            .strings
+                            .get(row.name)
+                            .map_err(|e| e.to_string())?
+                            != name
+                    {
+                        continue;
+                    }
+                    let other = self.signature(target)?;
+                    if self.resolver.methods_equal(
+                        method.assembly,
+                        &signature,
+                        target.assembly,
+                        &other,
+                        0,
+                    )? {
+                        if candidate.replace(target).is_some() {
+                            return Err("Ambiguous interface implementation".into());
+                        }
+                    }
+                }
+                if let Some(target) = candidate {
+                    return self.implementation(target, class);
+                }
+            }
+            return Err(missing.into());
+        }
+        Err(missing.into())
+    }
+
     fn slot(&mut self, method: Definition) -> Result<Definition, String> {
         if let Some(slot) = self.slots.get(&method) {
             return Ok(*slot);
@@ -128,6 +329,13 @@ impl<'r, 'a> Binder<'r, 'a> {
         }
         let owner = lower::owner_type(self.resolver, method)?;
         let class = lower::class_type(self.resolver, owner)?;
+        if class.is_interface() {
+            if flags & 0x120 != 0x100 {
+                return Err("Interface dispatch slot must be nonfinal and newslot".into());
+            }
+            self.slots.insert(method, method);
+            return Ok(method);
+        }
         let name = image
             .metadata()
             .strings
@@ -191,8 +399,24 @@ impl<'r, 'a> Binder<'r, 'a> {
         method: Definition,
         class: ClassType,
     ) -> Result<Option<Definition>, String> {
+        if self.active.len() >= 64 || !self.active.insert((method, class)) {
+            return Err("Virtual/MethodImpl binding cycle or depth exceeds64".into());
+        }
+        let result = self.implementation_inner(method, class);
+        self.active.remove(&(method, class));
+        result
+    }
+
+    fn implementation_inner(
+        &mut self,
+        method: Definition,
+        class: ClassType,
+    ) -> Result<Option<Definition>, String> {
         self.charge(1)?;
         let owner = lower::owner_type(self.resolver, method)?;
+        if lower::class_type(self.resolver, owner)?.is_interface() {
+            return self.interface_implementation(method, class, owner);
+        }
         let chain = self.chain(class)?;
         if !chain.contains(&owner) {
             return Ok(None);
@@ -206,6 +430,22 @@ impl<'r, 'a> Binder<'r, 'a> {
             .get(image.method(method.token)?.name)
             .map_err(|e| e.to_string())?;
         for owner in chain {
+            for (declaration, body) in self.mappings(owner)? {
+                if lower::class_type(
+                    self.resolver,
+                    lower::owner_type(self.resolver, declaration)?,
+                )?
+                .is_interface()
+                {
+                    continue;
+                }
+                if self.slot(declaration)? == slot {
+                    if self.slot(body)? == slot {
+                        return Ok(Some(body));
+                    }
+                    return self.implementation(body, class);
+                }
+            }
             let mut implementation = None;
             for candidate in self.methods(owner)? {
                 let image = self.resolver.assembly(candidate.assembly)?;
@@ -252,6 +492,32 @@ impl<'r, 'a> Binder<'r, 'a> {
             method.assembly,
             &lower::storage_signature(self.resolver, method, &signature)?,
         )
+    }
+
+    pub(crate) fn validate_interfaces(&mut self, class: ClassType) -> Result<(), String> {
+        let Some(id) = class.identity() else {
+            return Ok(());
+        };
+        let layout = crate::layout::class(self.resolver, id)?;
+        self.charge(layout.interfaces.len())?;
+        for &interface in &layout.interfaces {
+            for method in self.methods(interface)? {
+                let flags = self
+                    .resolver
+                    .assembly(method.assembly)?
+                    .method(method.token)?
+                    .flags;
+                if flags & 0x50 == 0x50 {
+                    return Err("Static virtual interface contracts are unsupported".into());
+                }
+                if flags & 0x50 != 0x40 {
+                    continue;
+                }
+                self.implementation(method, class)?
+                    .ok_or("Allocated class has no interface method implementation")?;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn function(

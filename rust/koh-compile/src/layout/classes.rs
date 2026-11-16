@@ -12,6 +12,8 @@ pub struct ClassLayout {
     pub base: Option<Definition>,
     pub bytes: u16,
     pub fields: Vec<Arc<Field>>,
+    pub interface: bool,
+    pub interfaces: Vec<Definition>,
     depth: u8,
 }
 
@@ -21,6 +23,20 @@ pub fn class(resolver: &Resolver<'_>, identity: Definition) -> Result<Arc<ClassL
         active: HashSet::new(),
     }
     .layout(identity)
+}
+
+pub(crate) fn implements(
+    resolver: &Resolver<'_>,
+    class: Definition,
+    interface: Definition,
+) -> Result<bool, String> {
+    let mut build = Classes {
+        resolver,
+        active: HashSet::new(),
+    };
+    let layout = build.layout(class)?;
+    build.work(layout.interfaces.len() + 1)?;
+    Ok(layout.interfaces.contains(&interface))
 }
 
 struct Classes<'r, 'a> {
@@ -146,9 +162,7 @@ impl Classes<'_, '_> {
                 + metadata.class_layouts.len()
                 + metadata.field_layouts.len(),
         )?;
-        if ty.flags & 0x20 != 0 {
-            return Err("Class layout cannot describe an interface".into());
-        }
+        let interface = ty.flags & 0x20 != 0;
         let framework = if ty.extends.table == Some(TableId::TypeRef) {
             framework_type(metadata, 0x01000000 | ty.extends.row)?
         } else {
@@ -170,6 +184,78 @@ impl Classes<'_, '_> {
         if metadata.class_layouts.iter().any(|row| row.parent == rid) {
             return Err("AutoLayout class has unexpected ClassLayout metadata".into());
         }
+        let mut interfaces = Vec::new();
+        let mut interface_depth = 1;
+        self.work(metadata.interface_impls.len())?;
+        for row in metadata
+            .interface_impls
+            .iter()
+            .filter(|row| row.class == rid)
+        {
+            let table = row
+                .interface
+                .table
+                .ok_or("InterfaceImpl has null interface")?;
+            if !matches!(table, TableId::TypeDef | TableId::TypeRef) || row.interface.row == 0 {
+                return Err("InterfaceImpl requires a nongeneric interface type".into());
+            }
+            let id = self.resolver.resolve_type(
+                identity.assembly,
+                ((table as u32) << 24) | row.interface.row,
+            )?;
+            let layout = self.layout(id)?;
+            if !layout.interface {
+                return Err("InterfaceImpl names a non-interface type".into());
+            }
+            interface_depth = interface_depth.max(layout.depth + 1);
+            for id in std::iter::once(&id).chain(&layout.interfaces) {
+                self.work(interfaces.len() + 1)?;
+                if !interfaces.contains(id) {
+                    interfaces.push(*id);
+                }
+            }
+        }
+        if interface {
+            if ty.flags & 0x80 == 0
+                || ty.flags & 0x100 != 0
+                || ty.extends.row != 0
+                || ty.extends.table != Some(TableId::TypeDef)
+            {
+                return Err(
+                    "Interface requires abstract, unsealed metadata without a base class".into(),
+                );
+            }
+            if interface_depth > 64 {
+                return Err("Interface inheritance depth exceeds64".into());
+            }
+            let end = metadata
+                .type_defs
+                .get(rid as usize)
+                .map_or(metadata.fields.len() as u32 + 1, |ty| ty.field_list);
+            let start = ty
+                .field_list
+                .checked_sub(1)
+                .ok_or("Invalid interface field range")? as usize;
+            let end = end.checked_sub(1).ok_or("Invalid interface field range")? as usize;
+            for field in metadata
+                .fields
+                .get(start..end)
+                .ok_or("Invalid interface field range")?
+            {
+                if field.flags & 0x10 == 0 {
+                    return Err("Interface cannot declare instance fields".into());
+                }
+            }
+            return Ok(ClassLayout {
+                identity,
+                base: None,
+                bytes: 2,
+                fields: vec![],
+                interface,
+                interfaces,
+                depth: interface_depth,
+            });
+        }
         let base = if framework == Some(("System", "Object")) {
             None
         } else {
@@ -187,6 +273,15 @@ impl Classes<'_, '_> {
         };
         let (mut bytes, mut fields, depth) = if let Some(base) = base {
             let layout = self.layout(base)?;
+            if layout.interface {
+                return Err("Class cannot extend an interface as its base class".into());
+            }
+            for &id in &layout.interfaces {
+                self.work(interfaces.len() + 1)?;
+                if !interfaces.contains(&id) {
+                    interfaces.push(id);
+                }
+            }
             if layout.depth >= 64 {
                 return Err("Class inheritance depth exceeds64".into());
             }
@@ -256,6 +351,8 @@ impl Classes<'_, '_> {
             base,
             bytes: bytes as u16,
             fields,
+            interface,
+            interfaces,
             depth,
         })
     }
