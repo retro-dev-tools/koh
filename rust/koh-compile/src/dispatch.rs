@@ -125,12 +125,6 @@ impl<'r, 'a> Binder<'r, 'a> {
             .iter()
             .filter(|row| row.class == owner.token & 0xffffff)
         {
-            if class.is_interface() {
-                return Err(
-                    "Default interface MethodImpl requires unsupported interface body resolution"
-                        .into(),
-                );
-            }
             let mut targets = Vec::new();
             for token in [row.method_declaration, row.method_body] {
                 let table = token.table.ok_or("MethodImpl has a null method")?;
@@ -167,7 +161,19 @@ impl<'r, 'a> Binder<'r, 'a> {
                 .assembly(declaration.assembly)?
                 .method(declaration.token)?;
             let body_row = self.resolver.assembly(body.assembly)?.method(body.token)?;
-            if body_row.rva == 0 {
+            let reabstract = class.is_interface() && body_row.flags & 0x400 != 0;
+            if class.is_interface() && body_row.flags & 0x170 != 0x60 {
+                return Err(
+                    "Interface MethodImpl body must be final instance virtual without newslot"
+                        .into(),
+                );
+            }
+            if reabstract && body_row.rva != 0 {
+                return Err(
+                    "Abstract interface MethodImpl body cannot contain executable IL".into(),
+                );
+            }
+            if body_row.rva == 0 && !reabstract {
                 return Err("MethodImpl body must define an executable IL body".into());
             }
             if declaration_row.flags & 0x200 != 0
@@ -245,13 +251,18 @@ impl<'r, 'a> Binder<'r, 'a> {
             return Ok(None);
         }
         self.slot(method)?;
+        if self
+            .resolver
+            .assembly(method.assembly)?
+            .method(method.token)?
+            .flags
+            & 0x20
+            != 0
+        {
+            return Ok(Some(method));
+        }
         let signature = self.signature(method)?;
         let image = self.resolver.assembly(method.assembly)?;
-        let missing = if image.method(method.token)?.flags & 0x400 == 0 {
-            "Default interface method execution is unsupported"
-        } else {
-            "Interface slot has no public virtual implementation"
-        };
         let name = image
             .metadata()
             .strings
@@ -308,9 +319,63 @@ impl<'r, 'a> Binder<'r, 'a> {
                     return self.implementation(target, class);
                 }
             }
-            return Err(missing.into());
+            break;
         }
-        Err(missing.into())
+        self.default_implementation(method, id).map(Some)
+    }
+
+    fn default_implementation(
+        &mut self,
+        method: Definition,
+        class: Definition,
+    ) -> Result<Definition, String> {
+        let owner = lower::owner_type(self.resolver, method)?;
+        let mut candidates = Vec::new();
+        if self
+            .resolver
+            .assembly(method.assembly)?
+            .method(method.token)?
+            .flags
+            & 0x400
+            == 0
+        {
+            candidates.push((owner, method));
+        }
+        let layout = crate::layout::class(self.resolver, class)?;
+        self.charge(layout.interfaces.len())?;
+        for &interface in &layout.interfaces {
+            for (declaration, body) in self.mappings(interface)? {
+                if declaration == method {
+                    candidates.push((interface, body));
+                }
+            }
+        }
+        let mut selected = None;
+        for &(owner, body) in &candidates {
+            let mut shadowed = false;
+            for &(other, _) in &candidates {
+                self.charge(1)?;
+                if other != owner && crate::layout::implements(self.resolver, other, owner)? {
+                    shadowed = true;
+                    break;
+                }
+            }
+            if !shadowed && selected.replace(body).is_some() {
+                return Err("Ambiguous default interface implementation".into());
+            }
+        }
+        let selected = selected.ok_or("Interface slot has no implementation")?;
+        if self
+            .resolver
+            .assembly(selected.assembly)?
+            .method(selected.token)?
+            .flags
+            & 0x400
+            != 0
+        {
+            return Err("Re-abstracted interface slot has no concrete implementation".into());
+        }
+        Ok(selected)
     }
 
     fn slot(&mut self, method: Definition) -> Result<Definition, String> {
@@ -330,6 +395,20 @@ impl<'r, 'a> Binder<'r, 'a> {
         let owner = lower::owner_type(self.resolver, method)?;
         let class = lower::class_type(self.resolver, owner)?;
         if class.is_interface() {
+            if flags & 0x120 == 0x20
+                && self
+                    .mappings(owner)?
+                    .iter()
+                    .any(|&(_, body)| body == method)
+            {
+                if flags & 0x400 != 0 {
+                    return Err(
+                        "Abstract interface implementation body cannot be invoked directly".into(),
+                    );
+                }
+                self.slots.insert(method, method);
+                return Ok(method);
+            }
             if flags & 0x120 != 0x100 {
                 return Err("Interface dispatch slot must be nonfinal and newslot".into());
             }
@@ -501,6 +580,7 @@ impl<'r, 'a> Binder<'r, 'a> {
         let layout = crate::layout::class(self.resolver, id)?;
         self.charge(layout.interfaces.len())?;
         for &interface in &layout.interfaces {
+            let mappings = self.mappings(interface)?;
             for method in self.methods(interface)? {
                 let flags = self
                     .resolver
@@ -511,6 +591,9 @@ impl<'r, 'a> Binder<'r, 'a> {
                     return Err("Static virtual interface contracts are unsupported".into());
                 }
                 if flags & 0x50 != 0x40 {
+                    continue;
+                }
+                if mappings.iter().any(|&(_, body)| body == method) {
                     continue;
                 }
                 self.implementation(method, class)?

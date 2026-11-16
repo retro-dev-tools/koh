@@ -12,8 +12,10 @@ Current interface increment implements metadata-driven nongeneric interface
 dispatch, explicit/inherited MethodImpl bindings, castclass/isinst and typed
 interface storage/delegates. Valid inherited bodies follow ECMA semantics rather
 than the tested CLR's same-type restriction. Concrete class implementations are
-selected even for default interface declarations; default-body fallback remains
-pending. Tests directly observe hardware scroll registers and preserve bank/frame
+selected even for default interface declarations. Default bodies now use bounded
+most-specific interface selection, including re-abstraction and explicit final
+body tokens; ambiguous or missing bodies diagnose. Tests directly observe hardware
+scroll registers and preserve bank/frame
 guards, including large frames and aggregate calls. See [interfaces](interfaces.md).
 This closes one obsolete legacy rejection expectation:71/565 complete,494
 partial/outstanding, zero physically retired. Earlier ledger counts below record
@@ -24,6 +26,14 @@ Final interface selection passes34/34 in419.564s, exit0; it includes actual
 Broader677-case run passed676 with one obsolete interface-rejection expectation;
 its positive replacement passes in the final selection. This does not turn that
 exit100 run into a full-suite pass. Logs and exact scope are in interfaces.md.
+
+Default-interface extension final10/10 passes95.941s; small/large interface
+graph-budget2/2 passes10.508s. The broader503-case selection passed497 with six
+Roslyn fixture warning failures; packet visibility was corrected and those six
+pass in the final10. Production binder/IR/reference/class-dispatch cases passed.
+The preceding pushed a152743 is independently hosted-green:1287/1287 workspace/
+all-features cases, zero skips,1610.259s; rustdoc and .NET fast tests also pass
+(run43913045233). These hosted results predate the default-interface extension.
 
 Current native caller/source-debug acceptance: budgeted, versioned exact-PC unwind
 symbols pass through canonical ELF/KDBG without adding ROM instructions or frame

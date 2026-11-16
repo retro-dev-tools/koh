@@ -60,7 +60,8 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   the300-frame power-on title deadline; font-loop throughput was corrected.
   Final selected42/42 and edited JRPG9/9 pass. Nongeneric interface dispatch,
   explicit/inherited MethodImpl bindings and class-body selection through default
-  declarations now have native execution coverage. Generic/default-body dispatch
+  declarations now have native execution coverage. Default bodies, re-abstraction
+  and most-specific selection are implemented. Generic/static-virtual dispatch
   and the other whole-migration gates remain required.
   Metadata commitb4caf55 hosted Rust suites pass1012 Linux/macOS
   and1010 Windows cases; those results predate the object-core increment.

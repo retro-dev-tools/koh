@@ -44,9 +44,9 @@ merely because they are documented.
 `CilVirtualDispatchTests.UntraceableInterfaceCall_IsDiagnostic` is REPLACE complete.
 Its former exception records a compiler limitation, not independently justified
 CIL behavior. Nextest discovers four `driver::interfaces` Debug/Release × DMG/CGB
-cases and two metadata cases. Each configuration executes29 successful entries
+cases and two metadata cases. Each configuration executes30 successful entries
 and two faults; metadata cases additionally execute three patched bindings.
-This totals130 native ROM probes across configurations, not130 distinct language
+This totals134 native ROM probes across configurations, not134 distinct language
 rules. The old byte-return/static-reload fixture now succeeds and the external
 emulator host directly checks FF42=07/FF43=EE. Matching intrinsic write/read code
 alone cannot satisfy that assertion. Wider cases cover independent/explicit/
@@ -54,12 +54,13 @@ inherited mappings, interfaces in fields/arrays/delegates, aggregate and64-bit
 calls, cast/isinst, null/type faults and bank/frame preservation.
 
 Fifteen malformed metadata probes per Roslyn mode preserve useful rejection
-coverage. Three unimplemented default/generic/boxed shapes still diagnose with
+coverage. Two unimplemented generic/boxed shapes still diagnose with
 caller/IL context. Valid inherited MethodDef/MemberRef bodies execute42 even where
 the tested CLR rejects them; a future CLR accepting them is permitted by the test.
 The class-slot alias must return42 on both hosts. This replaces a legacy-only
-negative expectation with stronger public behavior and diagnostic assertions;
-it does not remove interface coverage or claim generic/default-body completeness.
+negative expectation with stronger public behavior and diagnostic assertions.
+The default-interface extension adds101 native ROM probes without changing the
+legacy method count. Generic/static-virtual/boxing work remains open.
 See [contract and remaining work](interfaces.md).
 
 ## JRPG replacements

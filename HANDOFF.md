@@ -759,3 +759,59 @@ snapshot764files /tmp/koh-interface-sources.json unchanged through finalrun.
 Workspacecheck17084 terminalexit0 in14.25s (existingcubesbuild_hostwarning),
 CSharpiercheck87460 terminalexit0 (4files), rustfmtcheckexit0, workspace rustdoc
 exit0 (0cases). Then pushsamePR55/updateconcisechecklist; do notmarkgoalcomplete.
+
+Default-interface unit begins at clean pushed a152743. Primary CI run43913045233
+stilllive: Rustinprogress,managedfastpassed. Goalturnpriorprogressconfirmed.
+Plan: actualRoslyn/default-body fixtures and negative diamond/reabstract probes;
+extend existingBinder MethodImpl validation for interface-owned final bodies and
+abstract re-abstraction; bounded most-specific fallback after class binding;
+skip implementation bodies as separate interface obligations; preserve typedIR/
+bankedABI/backend. Test default-body nestedcalls, helpers, properties, classwins,
+inherited/reversed diamonds, referenceassembly defaults, cctor and null behavior.
+Parent owns all code/builds; no new parallel implementation. Reviewers may only
+read assigned files after parent request. No current language capability retired.
+
+Default basicred98163terminal exit100 /tmp/koh-default-red.log:17/18entries
+diagnosedunsupported whilemanagedall42. Basicgreen95681terminalexit0 1/1pass
+11.008s afterBinderfallback. New boundeddefault_implementation usescanonical
+interfaceMethodImpl candidates+strictsubinterface dominance, classbodies first.
+Interface-owned bodies requirefinalvirtualnon-newslot; abstractreabstraction
+allowedwithRVA0 onlyforinterfaceowners. Implementation methods aren'tnewslots.
+Parent34345live /tmp/koh-default-contract.log12tests:bothnegativeD/Rpassed,
+first3of4defaultDMGCGBpassed. NegativeCLRprobes corroborateAmbiguous/EntryPoint
+exceptions; Rustdiagnoses both plus4malformedbody shapes. Olddefaultunsupported
+fixture movedtosuccess; nonewledgerclosure. Bindingreview ownsread-onlyBinder/
+defaultfixturesreview onrequest; nobuilds/editsallowed. Backend unchanged.
+
+Contract34345terminal12/12pass133.783s exit0, thenreviewfoundfinalinterfacebody
+tokens wronglytreatedasnewslot. Reproducedbothcallvirt/ldvirtftn red85517 exit100
+8.144s /tmp/koh-default-final-token-red.log; managedpatchedDLLboth42whileRust
+rejected. Binder.slot acceptsconcretefinalnon-newslotregisteredMethodImplbody,
+interface_implementation selectsitexactlybeforeclass/defaultsearch. No lower/
+delegateduplicatedroute. Green73722terminal10/10pass93.685s,exit0. Addedexplicit
+abstract-bodytoken rejectionprobes,22defaultsuccessentriesinclint64/byref/208byte
+structcopy,once-onlycctor/deadunsupportedfloatbody; sourcesformatted.
+Currentparent13225live /tmp/koh-default-regression.log503selected expected;
+alllib/IR/references+default/interface/classvirtual/sealeddelegate regressions.
+No other localbuildactive. Reviewbinding remainsread-only; parentownsallmutations.
+
+Finaldefaultunit:13225terminalexit100,497/503pass323.327s. Sixfailureswere
+RoslynCS0649frominternalPacketunusedpaddingfields; publictestpacketcorrected
+visibilitywithoutdisablingwarnings. Allsixpassinfinal60993terminalexit0
+10/10pass95.941s /tmp/koh-default-final.log. Samefinalselectionpasses22success
+entries+null ×4DMGCGB,and2exactfinalbodycall/delegateprobes×4;plus8abstract-token
+rejections and12malformed/ambiguous/reabstractcompileprobes. These100ROMprobes
+plusgraphsmallcase=101new; previousinterfacegroupnow134ROMprobesaftermoving
+default-onlyentryfromrejectedtosupported. Ledger71/565unchanged,494open/partial.
+Graphbudget67950terminal1pass1fail(wrongtestexpectedBinderwording); source
+classes.rs48–56provesearlier1048576ClassLayoutbudget. Correctedexactboundary
+assertion+callerIL;93135terminal2/2pass10.508sexit0 /tmp/koh-default-budget-final.log.
+8interfacepositiveexecutes42,1024interfaceinputdiagnoseswithoutpanic.
+Workspacecheck24177terminalexit0 in8.78s(existingcubeswarning);rustfmt/rustdoc0
+casespass;CSharpier58525terminalexit0(2files). Source/assetsnapshot767files
+/tmp/koh-default-sources.json capturedafterlastsourceedit; verifyafterhook.
+Previoushead a152743 hostedrun43913045233 completedSUCCESSbothjobs; primarylog
+/tmp/koh-interface-hosted-success.log showsworkspaceallfeatures1287/1287pass,
+zero skips1610.259s+rustdoc+.NETfast. Predatesdefaultunit; donotclaimnewheadCI.
+Alllocalparentsnowterminal. Nextcommit/pushsamePR55/updatebodyandvaulthandoff;
+fullmigrationstaysactive. No speculativeframework,newbackend,orABIchangeadded.

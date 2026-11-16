@@ -64,6 +64,7 @@ fn interface_calls_through_static_storage_execute(
         "LegacyStorage",
         "LegacyHardware",
         "DefaultOverridden",
+        "DefaultInterface",
     ] {
         if entry != "LegacyHardware" {
             let result = super::dotnet()
@@ -387,7 +388,6 @@ fn interface_metadata_contracts_diagnose_and_inherited_memberref_bodies_execute(
         assert!(error.contains(needle), "{label}: {error}");
     }
     for (entry, needle) in [
-        ("DefaultInterface", "Default interface"),
         ("GenericInterface", "generic"),
         ("BoxedInterface", "0x008c"),
     ] {
