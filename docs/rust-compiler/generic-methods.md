@@ -1,6 +1,6 @@
-# Closed static generic methods
+# Closed generic methods
 
-The native compiler now specializes reachable static generic methods
+The native compiler now specializes reachable static and nonvirtual instance generic methods
 on nongeneric declaring types. Concrete arguments may be supported primitive
 types, strings, nongeneric classes/interfaces/delegates, enums, nongeneric values
 or supported vectors of those types. A method
@@ -9,6 +9,15 @@ even though both use the CIL int32 evaluation-stack type.
 
 [Closed argument constraints](generic-constraints.md) now validate supported
 special, base/interface and method-parameter requirements before code generation.
+
+Nonvirtual class methods use the ordinary object receiver, including callvirt's
+null check; struct methods use the ordinary managed-byref receiver. Specialization
+includes the receiver in the typed signature without changing its layout or
+allocating a second object. The InstanceMethods fixture checks two class-method
+widths, object field side effects and a packed-value return through a mutating
+struct receiver in Debug/Release × DMG/CGB. Static flags must agree with the
+receiver signature. Generic virtual methods still require instantiated dispatch
+and diagnose explicitly; this is unfinished support, not malformed metadata.
 
 [ECMA-335 II.9.3–9.4 and II.23.2.15](https://www.ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf)
 justify method-parameter scope, closed substitution and MethodSpec arity.
@@ -104,7 +113,7 @@ Constructed generic signatures containing foreign named arguments still require
 scoped layout binding; those shapes diagnose rather than reinterpreting tokens.
 Generic declaring types
 need per-instantiation layouts/static storage. Broader constraint shapes and
-instance/virtual generic calls, generic method-pointer targets and
+virtual generic calls, generic method-pointer targets and
 constructed generic type arguments require binding.
 These are unfinished compiler features, not malformed CLI shapes or approved
 feature retirements. They currently produce explicit diagnostics. Expanding

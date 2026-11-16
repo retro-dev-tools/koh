@@ -83,6 +83,7 @@ fn generic_method_instances_execute_transitively(
         ("ConstraintShapes", "0000002A"),
         ("ConstructorEligibility", "0000002A"),
         ("GenericConstruction", "0000002A"),
+        ("InstanceMethods", "0000002A"),
         ("ActivatorProbe", "00000000"),
         ("Main", "00000082"),
     ] {
@@ -188,6 +189,27 @@ fn generic_method_instances_execute_transitively(
     }
     let image = resolver.assembly(0).unwrap();
     let data = image.metadata();
+    let receiver_method = data
+        .method_defs
+        .iter()
+        .enumerate()
+        .find(|(index, _)| {
+            image.method_name(0x06000001 + *index as u32).unwrap() == "GenericReceiver::Forward"
+        })
+        .unwrap()
+        .0;
+    for (flag, expected) in [
+        (0x10, "static/instance signature disagrees"),
+        (0x40, "Generic virtual methods"),
+    ] {
+        let mut bytes = images[0].clone();
+        let (offset, _) = metadata::table_row(&bytes, clrmeta::TableId::MethodDef, receiver_method);
+        let flags = data.method_defs[receiver_method].flags | flag;
+        bytes[offset + 6..offset + 8].copy_from_slice(&flags.to_le_bytes());
+        let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+        let error = compile::object(&changed, Some("Program::InstanceMethods")).unwrap_err();
+        assert!(error.contains(expected) && error.contains("IL_"), "{error}");
+    }
     let activation = data
         .member_refs
         .iter()

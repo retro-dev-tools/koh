@@ -425,10 +425,9 @@ impl Resolver<'_> {
         if signature.generic_param_count as usize != target.method_arguments.len() {
             return Err("Generic method arity mismatch".into());
         }
-        if signature.calling_convention.has_this()
-            || image.method(target.definition.token)?.flags & 0x10 == 0
-        {
-            return Err("Generic instance methods require instantiated dispatch".into());
+        let flags = image.method(target.definition.token)?.flags;
+        if flags & 0x40 != 0 {
+            return Err("Generic virtual methods require instantiated dispatch".into());
         }
         let owner = crate::lower::owner_type(self, target.definition)?;
         if image.metadata().generic_params.iter().any(|p| {

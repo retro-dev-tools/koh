@@ -8,7 +8,17 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current test closure completes all six CilGenericTests methods. The four remaining
+Current compiler increment removes the blanket rejection of nonvirtual generic
+instance methods. Existing typed receiver lowering supports object and byref
+struct receivers, field side effects and independently specialized widths.
+Generic virtual dispatch remains unfinished with an explicit diagnostic.
+The initial valid fixture fails in `/tmp/koh-instance-generic-red.log`; first
+four-configuration acceptance passes4/4 in32.244s. Ledger91/565 is unchanged.
+Final static-signature/virtual-dispatch probes also pass4/4 in31.877s, exit0
+(`/tmp/koh-instance-generic-final2.log`). Existing static consistency validation
+remains in the shared assembly reader rather than being duplicated.
+
+Previous test closure completes all six CilGenericTests methods. The four remaining
 numeric methods now have native full64-bit expression/extension acceptance,
 independent expected bytes in both build modes and DMG/CGB execution. Final2/2
 passes18.073s; four ROMs compare12 complete64-bit results. Ledger now91/565 complete,

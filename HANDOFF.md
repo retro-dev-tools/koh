@@ -999,3 +999,16 @@ cases run Debug/Release × DMG/CGB,4ROMs12results; final2/2pass18.073s EXIT0
 /tmp/koh-generic-wide-closure.log. Formatting finalEXIT0. Ledger91/565complete,
 474partial/outstanding, zero physicallyretired. Compiler production code unchanged.
 Next full goal still pending broader runtime/features, all tests and legacy removal.
+
+Nonvirtual generic instance increment starts62d2545. Added InstanceMethods fixture
+(class widths64/16, receiver sideeffects and mutating struct receiver returning
+packed Payload). Red33549 EXIT100 blanket generic instance rejection. Removed
+that blanket guard, retaining explicit unfinished virtual dispatch diagnostic.
+Existing assembly reader already validates static/hasthis consistency; no duplicate
+validator. First4/4pass32.244s. Final staticflag/virtual negative probes running
+5139 /tmp/koh-instance-generic-final2.log after earlier assertion text corrected to
+existing reader diagnostic. No test weakening: exactstatic mismatch and virtual
+unsupported errors+IL provenance required. Parentownsserialbuilds. Ledger91unchanged.
+Final5139terminalEXIT0:4/4pass31.877s. Library29196terminalEXIT0:170/170pass1.416s,
+zero skipped. Formatting/CSharpierpass; productiondiff only narrows blanket guard
+to virtual methods. Readylogicalcommit/pushPR55. Broader generics/fullgoal remains.

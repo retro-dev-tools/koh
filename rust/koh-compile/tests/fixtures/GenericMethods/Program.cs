@@ -102,6 +102,24 @@ public static class Program
 
     public static int Expanding() => Expand<int>();
 
+    public static int InstanceMethods()
+    {
+        var marker = new GenericReceiver { Value = 17 };
+        var value = new GenericValueReceiver { Value = 3 };
+        long wide = marker.Forward<long>(-5000000001);
+        ushort narrow = marker.Forward<ushort>(1000);
+        Payload payload = value.Forward(new Payload { Tag = 7, Value = 42 });
+        return
+            wide == -5000000001
+            && narrow == 1000
+            && marker.Value == 19
+            && payload.Tag == 7
+            && payload.Value == 42
+            && value.Value == 4
+            ? 42
+            : 0;
+    }
+
     public static int Constraint() => Constrained<int>(42);
 
     public static int ConstraintShapes()
@@ -271,5 +289,27 @@ public struct ConstructedValue
     {
         Calls++;
         Value = 42;
+    }
+}
+
+public class GenericReceiver
+{
+    public int Value;
+
+    public T Forward<T>(T value)
+    {
+        Value++;
+        return value;
+    }
+}
+
+public struct GenericValueReceiver
+{
+    public int Value;
+
+    public T Forward<T>(T value)
+    {
+        Value++;
+        return value;
     }
 }
