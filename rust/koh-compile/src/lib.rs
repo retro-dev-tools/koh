@@ -3,6 +3,7 @@ pub mod assembly;
 mod cartridge;
 pub mod cil;
 pub mod compile;
+mod constrained;
 mod contracts;
 mod delegates;
 mod dispatch;

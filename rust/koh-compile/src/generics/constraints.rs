@@ -107,7 +107,7 @@ pub(super) fn parameterless(
     Ok(None)
 }
 
-fn assignable(
+pub(crate) fn assignable(
     resolver: &Resolver<'_>,
     argument: &Argument,
     constraint: &Argument,

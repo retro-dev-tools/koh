@@ -8,7 +8,21 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current runtime-generic increment retains closed arguments in dispatch identities,
+Current constrained-call increment supports class/interface reference cells and
+unboxed struct implementations, including explicit MethodImpl and generic method
+arguments. Reference cells are dereferenced before normal dispatch; value receivers
+retain their original pointer, so mutation/copies preserve C# semantics without
+boxing. Prefix/call control flow, closed receiver types and body ownership are
+checked. Boxing-dependent/default-interface value fallback and static constrained
+dispatch remain explicit unfinished work. See [contract](constrained-calls.md).
+Selected library/IR/interface/generic/class-dispatch regression passes524/524 in
+252.077s, exit0 (`/tmp/koh-constrained-regression.log`). Final4/4 passes39.612s
+(`/tmp/koh-constrained-final.log`), including the late no-box heap assertion and
+interface alias case;116 ROMs across Debug/Release × DMG/CGB. Invalid receiver types
+and foreign-struct MethodImpl bodies reject. Read-only review found no confirmed
+blockers. Ledger91/565 is unchanged; broader migration/removal remains incomplete.
+
+Previous runtime-generic increment retains closed arguments in dispatch identities,
 selects raw class/interface/MethodImpl/default bodies through the existing binder,
 then specializes selected bodies with the same scoped arguments and constraints.
 Class overrides, generic delegates, implicit/explicit/default interfaces and

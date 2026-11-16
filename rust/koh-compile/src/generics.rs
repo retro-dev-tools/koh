@@ -2,6 +2,7 @@ use crate::resolve::{Definition, ResolvedMethod, Resolver};
 use clrmeta::{MethodSig, TableId, TypeSig};
 mod constraints;
 mod construction;
+pub(crate) use constraints::assignable;
 pub(crate) use construction::Construction;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -10,7 +11,7 @@ pub(crate) struct Instance {
     pub arguments: Vec<Argument>,
 }
 
-fn charge(counter: &std::cell::Cell<usize>, amount: usize) -> Result<(), String> {
+pub(crate) fn charge(counter: &std::cell::Cell<usize>, amount: usize) -> Result<(), String> {
     let total = counter
         .get()
         .checked_add(amount)

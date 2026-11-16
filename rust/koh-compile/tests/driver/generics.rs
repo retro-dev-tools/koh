@@ -90,6 +90,9 @@ fn generic_method_instances_execute_transitively(
         ("GenericVirtualGroup", "0000002A"),
         ("GenericInterfaces", "0000002A"),
         ("GenericReferences", "0000002A"),
+        ("ConstrainedValues", "0000002A"),
+        ("ConstrainedReferences", "0000002A"),
+        ("ConstrainedGenerics", "0000002A"),
         ("ActivatorProbe", "00000000"),
         ("Main", "00000082"),
     ] {
@@ -176,11 +179,14 @@ fn generic_method_instances_execute_transitively(
         );
         let fields: Vec<_> = report.split_whitespace().collect();
         assert_eq!(&fields[..4], &["00", expected, "D000", "OK"], "{entry}");
+        if entry == "ConstrainedValues" {
+            super::assert_heap_snapshot(fields[4], &[0x5a; 4096], "Unboxed constrained values");
+        }
         if color {
             assert_eq!(fields[5], "6B".repeat(4096), "{entry} bank2");
         }
     }
-    for entry in ["GenericNullCall", "GenericNullGroup"] {
+    for entry in ["GenericNullCall", "GenericNullGroup", "ConstrainedNull"] {
         let object = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap();
         let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
         let linked = koh_link::link(
@@ -225,6 +231,53 @@ fn generic_method_instances_execute_transitively(
     }
     let image = resolver.assembly(0).unwrap();
     let data = image.metadata();
+    let method_token = |name| {
+        (1..=data.method_defs.len() as u32)
+            .map(|row| 0x06000000 | row)
+            .find(|&token| image.method_name(token).unwrap() == name)
+            .unwrap()
+    };
+    let body = image.method_body(method_token("Program::Advance")).unwrap();
+    let prefix = koh_compile::cil::decode(body.il)
+        .unwrap()
+        .into_iter()
+        .find(|i| i.opcode == 0xfe16)
+        .unwrap();
+    let positions: Vec<_> = images[0]
+        .windows(body.il.len())
+        .enumerate()
+        .filter_map(|(offset, candidate)| (candidate == body.il).then_some(offset))
+        .collect();
+    assert_eq!(positions.len(), 1);
+    let mut bytes = images[0].clone();
+    let offset = positions[0] + prefix.offset as usize + 2;
+    let wrong = 0x02000001 + type_row(0, "Marker") as u32;
+    bytes[offset..offset + 4].copy_from_slice(&wrong.to_le_bytes());
+    let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let error = compile::object(&changed, Some("Program::ConstrainedValues")).unwrap_err();
+    assert!(
+        error.contains("Constrained receiver must be a managed pointer") && error.contains("IL_"),
+        "{error}"
+    );
+
+    let explicit_value = type_row(0, "ExplicitMutableValue") as u32 + 1;
+    let mapping = data
+        .method_impls
+        .iter()
+        .position(|row| row.class == explicit_value)
+        .unwrap();
+    let mut bytes = images[0].clone();
+    let (offset, context) = metadata::table_row(&bytes, clrmeta::TableId::MethodImpl, mapping);
+    let offset = offset + context.table_index_size(clrmeta::TableId::TypeDef);
+    let width = context.coded_index_size(clrmeta::CodedIndexKind::MethodDefOrRef);
+    let wrong = (method_token("MutableValue::Next") & 0xffffff) << 1;
+    bytes[offset..offset + width].copy_from_slice(&wrong.to_le_bytes()[..width]);
+    let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let error = compile::object(&changed, Some("Program::ConstrainedValues")).unwrap_err();
+    assert!(
+        error.contains("Constrained MethodImpl body must belong") && error.contains("IL_"),
+        "{error}"
+    );
     let specification = |kind, foreign: bool| {
         data.method_specs
             .iter()

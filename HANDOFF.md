@@ -1096,3 +1096,29 @@ CSharpiercheck2filesEXIT0, fixturehashsnapshotready. Review no confirmedblockers
 Docsupdate currentruntimegenericcontract andremainingconstructed/boxed/constrained
 boundaries. Ledger91unchanged; readylogicalcommit/pushsamePR55 afterdoc/fmt.
 Prior5d CI43948277863 stillin_progress lastchecked; do notclaimnewheadgreen.
+
+Constrainedcall unit startsa9f48e9. Red91093EXIT100 CILfe16unsupported inAdvance<T>.
+Newconstrained module validatesprefix/callatomiccontrolflow andmetadata type tags;
+staticcall/ldftn extensions explicitunsupported, nevermalformedbyassumption.
+LowerprefixusesclosedscopedthisType. ReferenceCellObjectdereferencedbeforeordinary
+callvirt; StructRef passedunchangedtodirectown/interfacebody, no boxing/copy.
+Valuehelper reusesgenericassignable+rawmethodsignaturecomparison, checks ownbody,
+explicitMethodImpl flags/signature/owner andimplicitpublicvirtual matches, charges
+existinggenericwork. Boxing/default-interfacevalue fallback explicitdiagnostic.
+No newIRop/ABI; existing LoadMemory nullmanagedpointerchecks retained. Do not add
+blanketnullcheck to valuemethodcall: no dereference unlessbodyusesreceiver.
+First30826EXIT0 1/1pass9.696s; 98750EXIT0 186/186pass41.615s lib/generic acrossD/RDMGCGB.
+Fixturesproveoriginalstructmutation/copyindependence, classaliases/null, explicit
+structmethods and genericinterfacemethods onstruct/class withpackedPayloadreturns.
+Lateaddedprefixwrongtype andMethodImplwrongstructbody probes requirecurrentregression.
+Current89250live524lib/IR/generic/default+ordinaryinterface/classvirtual cases
+/tmp/koh-constrained-regression.log. Newmodule8rstest structural cases. Parentowns
+allbuilds/edits. Ledger91unchanged, fullgoalactive. Needreview/docs/finalchecks/commit.
+Final89250terminalEXIT0:524/524pass252.077s (182lib/316IR/26drivers),258unselected.
+Lateassertions/interfacealias59711EXIT0:4/4pass39.612s;116ROMs acrossfourconfigs,
+includingvalue-onlyheap5A unchanged,refinterfacealias43 andnull4. Bothhostilemetadata
+probespass. Workspace70691EXIT0 alltargets/allfeatures7.99s existingcubeswarning;
+rustdocEXIT0 zero cases; rustfmtEXIT0. Read-onlyreviewno confirmedblockers.
+Docconstrained-calls.md definescontract/unsupportedboxing/defaultvalue/staticcases.
+Ledger91unchanged. PriorheadCI43951785684 stillin_progress Rusttests, .NETfast
+completedSUCCESS; no fullCIgreen claimed. Readylogicalcommit/pushafterhookcheck.

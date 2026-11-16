@@ -578,6 +578,7 @@ struct Builder<'r, 'a> {
     pinned: HashSet<usize>,
     constructions: HashMap<u32, (u32, ValueType)>,
     delegate_sequences: HashMap<u32, bool>,
+    constrained_calls: HashMap<u32, u32>,
     instructions: Vec<Instruction>,
     stack: Vec<(u32, Type)>,
     offset: u32,
@@ -838,6 +839,7 @@ fn lower_inner(
         pinned: pinned.iter().copied().collect(),
         constructions: HashMap::new(),
         delegate_sequences: crate::delegates::construction_sequences(&cil),
+        constrained_calls: crate::constrained::prefixes(&cil)?,
         instructions: vec![],
         stack: vec![],
         offset: 0,
@@ -1602,7 +1604,30 @@ fn translate(
                 Operand::Token(token) => token,
                 _ => return Err("Missing call method token".into()),
             };
-            if let Some((shape, kind)) = resolver.array_method(method.identity.assembly, token)? {
+            let constrained = b
+                .constrained_calls
+                .get(&i.offset)
+                .map(|&token| -> Result<Type, String> {
+                    let operand = crate::generics::storage(
+                        resolver,
+                        method.identity.assembly,
+                        &resolver.type_signature(method.identity.assembly, token)?,
+                        &b.method_arguments,
+                    )?;
+                    let ty = bound_type(resolver, operand.assembly, &operand.ty)?;
+                    if !matches!(ty, Type::Struct(_) | Type::Object(_)) {
+                        return Err(
+                            "Constrained receiver shape requires additional runtime lowering"
+                                .into(),
+                        );
+                    }
+                    Ok(ty)
+                })
+                .transpose()?;
+            if constrained.is_none()
+                && let Some((shape, kind)) =
+                    resolver.array_method(method.identity.assembly, token)?
+            {
                 use crate::resolve::ArrayMethod;
                 let element = bound_storage(
                     resolver,
@@ -1672,7 +1697,9 @@ fn translate(
                 }
                 return Ok(Control::Jump(b.edge(next()?)));
             }
-            if let Some(query) = resolver.array_query(method.identity.assembly, token)? {
+            if constrained.is_none()
+                && let Some(query) = resolver.array_query(method.identity.assembly, token)?
+            {
                 use crate::resolve::ArrayQuery;
                 if constructing {
                     return Err("System.Array query cannot be constructed".into());
@@ -1747,7 +1774,9 @@ fn translate(
                 b.stack.push(value);
                 return Ok(Control::Jump(b.edge(next()?)));
             }
-            if resolver.object_constructor(method.identity.assembly, token)? {
+            if constrained.is_none()
+                && resolver.object_constructor(method.identity.assembly, token)?
+            {
                 if constructing {
                     let object = b.value(
                         Type::Object(ClassType::root()),
@@ -1763,7 +1792,7 @@ fn translate(
                 }
                 return Ok(Control::Jump(b.edge(next()?)));
             }
-            if !constructing {
+            if !constructing && constrained.is_none() {
                 if let Some(indexed) = resolver.string_member(method.identity.assembly, token)? {
                     let index = if indexed {
                         let value = b.pop()?;
@@ -1788,7 +1817,10 @@ fn translate(
                     return Ok(Control::Jump(b.edge(next()?)));
                 }
             }
-            if !constructing && resolver.array_initializer(method.identity.assembly, token)? {
+            if !constructing
+                && constrained.is_none()
+                && resolver.array_initializer(method.identity.assembly, token)?
+            {
                 let handle = b.pop()?;
                 let Type::FieldHandle(field) = handle.1 else {
                     return Err("InitializeArray requires a known RVA field handle".into());
@@ -1823,8 +1855,9 @@ fn translate(
                 });
                 return Ok(Control::Jump(b.edge(next()?)));
             }
-            if let Some((kind, constructor, mut signature)) =
-                crate::delegates::member(resolver, method.identity.assembly, token)?
+            if constrained.is_none()
+                && let Some((kind, constructor, mut signature)) =
+                    crate::delegates::member(resolver, method.identity.assembly, token)?
             {
                 if constructor != constructing {
                     return Err(
@@ -1920,8 +1953,9 @@ fn translate(
                 }
                 return Ok(Control::Jump(b.edge(next()?)));
             }
-            if let Some(crate::generics::Construction { ty, constructor }) =
-                resolver.construction(method.identity.assembly, token, &b.method_arguments)?
+            if constrained.is_none()
+                && let Some(crate::generics::Construction { ty, constructor }) =
+                    resolver.construction(method.identity.assembly, token, &b.method_arguments)?
             {
                 if i.opcode != 0x28 {
                     return Err("Activator.CreateInstance requires static call".into());
@@ -1948,7 +1982,17 @@ fn translate(
                 }
                 return Ok(Control::Jump(b.edge(next()?)));
             }
-            let target = resolver.resolve_method(method.identity.assembly, token)?;
+            let mut target = resolver.resolve_method(method.identity.assembly, token)?;
+            let constrained_value = if let Some(Type::Struct(value)) = constrained {
+                target.definition = crate::constrained::value_target(
+                    resolver,
+                    value.identity(),
+                    target.definition,
+                )?;
+                true
+            } else {
+                false
+            };
             let instantiated = resolver.instantiate(&target, &b.method_arguments)?;
             let metadata = resolver.assembly(target.definition.assembly)?;
             if i.opcode == 0x6f {
@@ -2018,13 +2062,37 @@ fn translate(
             } else {
                 None
             };
-            for &ty in signature
+            for (index, &ty) in signature
                 .parameters
                 .iter()
+                .enumerate()
                 .skip(usize::from(constructing))
                 .rev()
             {
-                let value = b.pop()?;
+                let mut value = b.pop()?;
+                if index == 0 {
+                    if let Some(prefix) = constrained {
+                        match prefix {
+                            Type::Object(class)
+                                if value.1 == Type::ReferenceCell(ReferenceCell::Object(class)) =>
+                            {
+                                value = b.value(
+                                    prefix,
+                                    Op::LoadMemory {
+                                        address: value.0,
+                                        bits: 16,
+                                        signed: false,
+                                    },
+                                )?;
+                            }
+                            Type::Struct(shape) if value.1 == Type::StructRef(shape) => {}
+                            _ => return Err(
+                                "Constrained receiver must be a managed pointer to its closed type"
+                                    .into(),
+                            ),
+                        }
+                    }
+                }
                 let value = b.coerce(value, ty)?;
                 arguments.push(value.0);
             }
@@ -2140,7 +2208,7 @@ fn translate(
                 return Ok(Control::Jump(b.edge(next()?)));
             }
             let returns = signature.returns;
-            if i.opcode == 0x6f {
+            if i.opcode == 0x6f && !constrained_value {
                 let receiver = *arguments.first().ok_or("Missing callvirt receiver")?;
                 b.instructions.push(Instruction {
                     result: None,
@@ -2150,6 +2218,7 @@ fn translate(
             }
             let op = Op::Call {
                 target: if i.opcode == 0x6f
+                    && !constrained_value
                     && metadata.method(target.definition.token)?.flags & 0x40 != 0
                 {
                     crate::dispatch::identity(instantiated)
@@ -2180,7 +2249,7 @@ fn translate(
                 });
             }
         }
-        0x00 => {}
+        0x00 | 0xfe16 => {}
         0x02..=0x05 => {
             let index = usize::from(i.opcode - 0x02);
             if index >= method.parameters.len() {

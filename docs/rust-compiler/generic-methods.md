@@ -112,8 +112,9 @@ their user bodies retain original MethodDef/PDB provenance.
 The original runtime-dispatch rejection is reproduced in
 `/tmp/koh-generic-dispatch-red.log`. Initial class and interface checks pass before
 the larger regression recorded in progress.md. Constructed generic declaring
-layouts, boxed value receivers and constrained calls remain outside this implemented
-reference-receiver contract and require further compiler work.
+layouts and boxed value receivers remain unfinished. Supported unboxed value and
+reference [constrained calls](constrained-calls.md) now have their own explicit
+contract; boxing/default-interface value fallback still requires further work.
 Selected library/IR/delegate/default-interface/class-dispatch regression passes
 566/566 in496.601s, exit0 (`/tmp/koh-generic-dispatch-regression.log`). Final22/22
 passes214.867s (`/tmp/koh-generic-dispatch-final.log`), including the added generic

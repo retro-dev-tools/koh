@@ -102,6 +102,68 @@ public static class Program
 
     public static int Expanding() => Expand<int>();
 
+    static int Advance<T>(ref T value, int delta)
+        where T : IMutableCounter => value.Next(delta);
+
+    public static int ConstrainedValues()
+    {
+        var value = new MutableValue { Value = 1 };
+        int first = Advance(ref value, 41);
+        var copy = value;
+        int second = Advance(ref copy, 1);
+        var explicitValue = new ExplicitMutableValue { Value = 20 };
+        int third = Advance(ref explicitValue, 22);
+        return
+            first == 42
+            && second == 43
+            && value.Value == 42
+            && copy.Value == 43
+            && third == 42
+            && explicitValue.Value == 42
+            ? 42
+            : 0;
+    }
+
+    public static int ConstrainedReferences()
+    {
+        var value = new MutableClass { Value = 1 };
+        var alias = value;
+        int first = Advance(ref value, 41);
+        IMutableCounter view = value;
+        int second = Advance(ref view, 1);
+        return first == 42 && second == 43 && alias.Value == 43 ? 42 : 0;
+    }
+
+    public static int ConstrainedNull()
+    {
+        MutableClass value = null;
+        return Advance(ref value, 42);
+    }
+
+    static U ConstrainedForward<T, U>(ref T receiver, U value)
+        where T : IGenericForward => receiver.Forward(value);
+
+    public static int ConstrainedGenerics()
+    {
+        var value = new GenericForwardValue();
+        var explicitValue = new ExplicitGenericForwardValue();
+        var reference = new GenericDerived();
+        var payload = new Payload { Tag = 7, Value = 60000 };
+        Payload first = ConstrainedForward(ref value, payload);
+        Payload second = ConstrainedForward(ref explicitValue, payload);
+        Payload third = ConstrainedForward(ref reference, payload);
+        return
+            first.Tag == 7
+            && first.Value == 60000
+            && second.Value == 60000
+            && third.Value == 60000
+            && value.Calls == 1
+            && explicitValue.Calls == 1
+            && reference.Value == 100
+            ? 42
+            : 0;
+    }
+
     public static int GenericNullCall()
     {
         GenericBase value = null;
@@ -464,6 +526,54 @@ public class GenericForeignDerived : RemoteGenericBase
     public override T Forward<T>(T value)
     {
         Calls += 10;
+        return value;
+    }
+}
+
+public interface IMutableCounter
+{
+    int Next(int delta);
+}
+
+public struct MutableValue : IMutableCounter
+{
+    public int Value;
+
+    public int Next(int delta) => Value += delta;
+}
+
+public struct ExplicitMutableValue : IMutableCounter
+{
+    public int Value;
+
+    int IMutableCounter.Next(int delta) => Value += delta;
+}
+
+public class MutableClass : IMutableCounter
+{
+    public int Value;
+
+    public int Next(int delta) => Value += delta;
+}
+
+public struct GenericForwardValue : IGenericForward
+{
+    public int Calls;
+
+    public T Forward<T>(T value)
+    {
+        Calls++;
+        return value;
+    }
+}
+
+public struct ExplicitGenericForwardValue : IGenericForward
+{
+    public int Calls;
+
+    T IGenericForward.Forward<T>(T value)
+    {
+        Calls++;
         return value;
     }
 }
