@@ -25,4 +25,32 @@ public static class Program
     public static int ExponentGap() => Add(0x42C80000, 0x3F000000);
 
     public static int Sticky() => Add(0x49742400, 0x3E800000);
+
+    public static int Subnormal() => Add(1, 1);
+
+    public static int Transition() => Add(0x007FFFFF, 1);
+
+    public static int TinyCancellation() => Add(0x00800000, 0x807FFFFF);
+
+    public static int NegativeTiny() => Add(0x80000001, 0x80000001);
+
+    public static int NegativeZero() => Add(0x80000000, 0x80000000);
+
+    public static int OppositeZeros() => Add(0x80000000, 0);
+
+    public static int Infinity() => Add(0x7F800000, 0x3F800000);
+
+    public static int OppositeInfinities() => Add(0x7F800000, 0xFF800000);
+
+    public static int QuietNan() => Add(0x7FC12345, 0x3F800000);
+
+    public static int SignalingNan() => Add(0x7FA12345, 0x3F800000);
+
+    public static int Overflow() => Add(0x7F7FFFFF, 0x7F7FFFFF);
+
+    public static int HalfEvenLow() => Add(0x3F800000, 0x33800000);
+
+    public static int HalfEvenHigh() => Add(0x3F800001, 0x33800000);
+
+    public static int HalfBelowOne() => Add(0x3F800000, 0xB3000000);
 }

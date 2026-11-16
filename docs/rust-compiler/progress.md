@@ -8,7 +8,23 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current software-runtime test migration closes23 methods (3CilKohRuntimeTests,
+Current runtime correction fixes inherited AddF32 subnormal/special-value errors
+observed in both managed execution and a Rust-compiled ROM. Raw1+raw1 now returns
+raw2; NaNs are quieted and infinity/zero/overflow/rounding boundaries are checked.
+Expanded14/14 passes64.421s, exit0 (/tmp/koh-softfloat-ieee-first.log):80 actual
+banked ROMs and415 managed observations. Independent Rust oracles and numerical
+review support the correction; sampled coverage is not exhaustive IEEE proof.
+API/compiler/emulator implementations are unchanged apart from this numeric
+runtime body. Float-valued CIL/runtime-key dispatch remain unfinished; ledger
+stays137/565 complete,428 partial/outstanding, zero physically retired.
+See [algorithm rationale and evidence](softfloat-addition.md).
+Formatted final14/14 passes45.734s, exit0
+(`/tmp/koh-softfloat-ieee-final.log`). Rustfmt/CSharpier pass. Hosted baseline
+15d0cff run43968285185 has completed1373/1373 in1953.920s, zero skips, with
+separate rustdoc and .NET fast tests successful. This proves that baseline;
+the queued runtime/test commits require their own subsequent CI evidence.
+
+Previous software-runtime test migration closes23 methods (3CilKohRuntimeTests,
 20SoftFloatDifferentialTests):24 actual banked AddF32 ROMs plus145 independent
 managed-library numeric checks covering every original85 parameter row. The
 12 Rust cases pass12/12 in53.059s, exit0 (/tmp/koh-softfloat-first.log). Review
@@ -21,7 +37,8 @@ The duplicate local15d0cff full run was intentionally interrupted after555 passe
 (one SIGINT,817 not run, exit100), while hosted43968285185 for the same head was
 verified actively running Rust tests with .NET fast tests successful. It is not
 reported as a full pass or a code failure. Hosted full-suite results remain
-pending; the23-method test increment was not present in that baseline snapshot.
+now complete as recorded above; the23-method test increment was not present in
+that baseline snapshot.
 
 Previous accumulator optimization fixes exact Sum(500)=66 in Debug/Release ×
 DMG/CGB without changing the ABI or consuming heap. Eligibility excludes memory,

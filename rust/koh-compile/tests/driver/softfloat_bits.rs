@@ -21,6 +21,20 @@ fn referenced_softfloat_integer_body_matches_independent_ieee_results(
         ("Cancellation", 0x3f800000, 0xbf800000),
         ("ExponentGap", 0x42c80000, 0x3f000000),
         ("Sticky", 0x49742400, 0x3e800000),
+        ("Subnormal", 1, 1),
+        ("Transition", 0x007fffff, 1),
+        ("TinyCancellation", 0x00800000, 0x807fffff),
+        ("NegativeTiny", 0x80000001, 0x80000001),
+        ("NegativeZero", 0x80000000, 0x80000000),
+        ("OppositeZeros", 0x80000000, 0),
+        ("Infinity", 0x7f800000, 0x3f800000),
+        ("OppositeInfinities", 0x7f800000, 0xff800000),
+        ("QuietNan", 0x7fc12345, 0x3f800000),
+        ("SignalingNan", 0x7fa12345, 0x3f800000),
+        ("Overflow", 0x7f7fffff, 0x7f7fffff),
+        ("HalfEvenLow", 0x3f800000, 0x33800000),
+        ("HalfEvenHigh", 0x3f800001, 0x33800000),
+        ("HalfBelowOne", 0x3f800000, 0xb3000000),
     ] {
         let name = format!("Program::{entry}");
         let selected = compile::entry(&resolver, Some(&name)).unwrap();
@@ -68,10 +82,19 @@ fn referenced_softfloat_integer_body_matches_independent_ieee_results(
         let fields: Vec<_> = report.split_whitespace().collect();
         let expected = (f32::from_bits(left) + f32::from_bits(right)).to_bits();
         assert_eq!(
-            (fields[0], fields[1], fields[2], fields[3]),
-            ("00", format!("{expected:08X}").as_str(), "D000", "OK"),
+            (fields[0], fields[2], fields[3]),
+            ("00", "D000", "OK"),
             "{entry}"
         );
+        let actual = u32::from_str_radix(fields[1], 16).unwrap();
+        if f32::from_bits(expected).is_nan() {
+            assert!(
+                f32::from_bits(actual).is_nan() && actual & 0x00400000 != 0,
+                "{entry}"
+            );
+        } else {
+            assert_eq!(actual, expected, "{entry}");
+        }
         assert_eq!(fields[4], "5A".repeat(4096), "{entry} untouched heap");
         if color {
             assert_eq!(fields[5], "6B".repeat(4096), "{entry} untouched bank2");

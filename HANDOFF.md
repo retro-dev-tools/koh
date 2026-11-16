@@ -1248,3 +1248,25 @@ Currentunitdocs/frontendmatrix/roadmapupdated. ReadylogicalLOCALcommit; HOLDPUSH
 untilhosted15d0cff43968285185fullbaselinefinishes toavoidcancelinganotherfullrun.
 No productionchanges. NativefloatCIL/runtime-keyindex stillunfinished; don'tclaim
 allsoftwarefloatoperationsrunontarget (onlyAddF32native;20methodsmanagedasoriginal).
+650c522LOCALcommitcomplete(clean), holdpushCI43968285185same15d0cffstilllive.
+NewunitIEEEsingleAddruntimebugfix: originalAddF32flushessubnormalsandmishandles
+infinity/NaN. Added14boundaryROMentries and2managedgroups(14+256deterministic
+exponent-sweep pairs). All3selectedregressions55858EXIT10017.504s:1+1rawsubnormal
+returned0insteadof2inCLRandactualROM; NaNclassfailureinthesweep. FixonlyAddF32
+algorithm(bitpatternAPIunchanged): effectiveexponent1forzero/subnormal, hiddenbit
+onlynormals, normalizewhileexp>1, encodecorrectsubnormalexponent0, explicitNaN/
+infinity/signedzero; keepRNEguardroundsticky. RemovedstaleclassXMLclaimingflush/
+oldCSharpFrontend architecture. NoFloatCILloweringclaim, othermathstillneedsaudit.
+Current98547live /tmp/koh-softfloat-ieee-first.log selects14casesallold+new,
+80nativeROMs20vectors ×D/RDMGCGB plus415managednumericassertions. Parentownsall
+edits/builds; reviewread-only. Needfinaltests/docs/checks/logicalcommit; holdpush.
+98547terminalEXIT0 first14/14pass64.421s; formattedfinal61412terminalEXIT0
+14/14pass45.734s /tmp/koh-softfloat-ieee-final.log. All80ROMs/415managedchecks,
+alloriginalvectorspreserved. Numericalread-onlyreviewnoconfirmedblockers;
+notexhaustiveproofnorfloatCILclaim. Fmt/CSharpierchecksEXIT0. Newdesign/evidence
+docsoftfloat-addition.mdlinksprimaryRustf32contractforRNE/zero/NaNclassification.
+BaselineCI43968285185isnowTERMINALSUCCESShead15d0cff:download95895GH_EXIT0
+/tmp/koh-ci-15d0cff-completed.log confirms1373/1373pass1953.920szero skips,
+rustdoc4zerotestsand.NETfastPassedsummary. Holdpushgatecleared: commitcurrent
+numericfixthenpushbothlocal650c522+fixinONEbatch; updatePR55/vault/currentCI.
+Noactivelocalbuilds. Ledger137/565428remainingzero retired, fullscopeactive.

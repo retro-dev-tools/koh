@@ -16,6 +16,8 @@ fn runtime() -> Host {
 #[case("f64-comparison", 36)]
 #[case("f64-integer", 14)]
 #[case("width-conversion", 8)]
+#[case("f32-boundaries", 14)]
+#[case("f32-sweep", 256)]
 fn software_runtime_matches_independent_numeric_oracles(
     runtime: &Host,
     #[case] group: &str,
@@ -32,6 +34,52 @@ fn software_runtime_matches_independent_numeric_oracles(
         expected.push(result);
     };
     match group {
+        "f32-boundaries" => {
+            for (a, b) in [
+                (1, 1),
+                (0x007fffff, 1),
+                (0x00800000, 0x807fffff),
+                (0x80000001, 0x80000001),
+                (0x80000000, 0x80000000),
+                (0x80000000, 0),
+                (0x7f800000, 0x3f800000),
+                (0x7f800000, 0xff800000),
+                (0x7fc12345, 0x3f800000),
+                (0x7fa12345, 0x3f800000),
+                (0x7f7fffff, 0x7f7fffff),
+                (0x3f800000, 0x33800000),
+                (0x3f800001, 0x33800000),
+                (0x3f800000, 0xb3000000),
+            ] {
+                add(
+                    "AddF32",
+                    &[u64::from(a), u64::from(b)],
+                    u64::from((f32::from_bits(a) + f32::from_bits(b)).to_bits()),
+                );
+            }
+        }
+        "f32-sweep" => {
+            let mut seed = 0x91e10da5u32;
+            for exponent in 0..256u32 {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                let a = (seed & 0x807fffff) | (exponent << 23);
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                let b = if exponent % 4 == 0 {
+                    a ^ 0x80000000
+                } else {
+                    seed
+                };
+                add(
+                    "AddF32",
+                    &[u64::from(a), u64::from(b)],
+                    u64::from((f32::from_bits(a) + f32::from_bits(b)).to_bits()),
+                );
+            }
+        }
         "f32-arithmetic" => {
             for (op, pairs) in [
                 (
@@ -220,6 +268,15 @@ fn software_runtime_matches_independent_numeric_oracles(
         .collect();
     assert_eq!(results.len(), expected.len());
     for ((query, result), expected) in queries.iter().zip(results).zip(expected) {
-        assert_eq!(result, expected, "{query}");
+        if matches!(group, "f32-boundaries" | "f32-sweep")
+            && f32::from_bits(expected as u32).is_nan()
+        {
+            assert!(
+                f32::from_bits(result as u32).is_nan() && result & 0x00400000 != 0,
+                "{query}"
+            );
+        } else {
+            assert_eq!(result, expected, "{query}");
+        }
     }
 }

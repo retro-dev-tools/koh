@@ -1,25 +1,5 @@
 namespace Koh.GameBoy;
 
-/// <summary>
-/// The IEEE-754 softfloat runtime, ported from <c>Koh.Compiler.Frontends.CSharp.SoftFloatRuntime</c>
-/// (a const string of Koh-subset C# that <c>CSharpFrontend</c> appends to a program using
-/// <c>float</c>/<c>double</c>) into a real, compiled <c>Koh.GameBoy</c> class. Each routine operates on
-/// the raw IEEE bits carried in <c>uint</c>/<c>ulong</c> — no <c>float</c>/<c>double</c> operand types
-/// are used here, so this is ordinary Koh-subset code the CIL frontend can lower from IL like any other
-/// referenced-assembly method. The entry points a source-level float operation resolves to are marked
-/// <c>[KohRuntime("f32.add")]</c> etc.; the CIL frontend's float-op routing to these keys is a later
-/// task — this class exists to be lowerable and bit-correct, nothing calls it yet.
-///
-/// The algorithms are a straight port (not a rewrite) of <c>SoftFloatRuntime.Source</c>: same bit
-/// twiddling, same rounding, same edge cases, so the bit-identity guarantee already pinned there
-/// (finite normal numbers and zero, round-to-nearest-even; infinities/NaNs as operands and subnormal
-/// inputs are out of scope, same as there) carries over unchanged. The original stays untouched in
-/// place — <c>CSharpFrontend</c> still needs it.
-///
-/// <c>MathF</c> (Abs/Truncate/Floor/Ceiling/Round/Min/Max/Sign) from the original source is NOT ported
-/// here: it operates on actual <c>float</c> values (via <c>BitConverter.SingleToUInt32Bits</c>), which
-/// isn't a real Koh IR type yet — wiring float itself into the CIL frontend is later work.
-/// </summary>
 public static class SoftFloat
 {
     // ---- Koh softfloat (IEEE-754 single precision) ----------------------------
@@ -54,16 +34,35 @@ public static class SoftFloat
         int eb = (int)((b >> 23) & 0xFF);
         uint ma = a & 0x7FFFFF;
         uint mb = b & 0x7FFFFF;
-        if (ea == 0)
-        { // zero or subnormal (flushed to zero)
-            if (eb == 0)
-                return (sa & sb) << 31;
+        if (ea == 255)
+        {
+            if (ma != 0)
+                return a | 0x00400000;
+            if (eb == 255)
+            {
+                if (mb != 0)
+                    return b | 0x00400000;
+                if (sa != sb)
+                    return 0x7FC00000;
+            }
+            return a;
+        }
+        if (eb == 255)
+        {
+            if (mb != 0)
+                return b | 0x00400000;
             return b;
         }
+        if (ea == 0)
+            ea = 1;
+        else
+            ma = ma | 0x800000;
         if (eb == 0)
-            return a;
-        uint siga = (ma | 0x800000) << 3;
-        uint sigb = (mb | 0x800000) << 3;
+            eb = 1;
+        else
+            mb = mb | 0x800000;
+        uint siga = ma << 3;
+        uint sigb = mb << 3;
         int exp;
         if (ea > eb)
         {
@@ -98,15 +97,15 @@ public static class SoftFloat
                 sig = sigb - siga;
                 sign = sb;
             }
-            if (sig == 0)
-                return 0;
         }
+        if (sig == 0)
+            return (sa & sb) << 31;
         while (sig >= ((uint)1 << 27))
         {
             sig = ShrStickyF32(sig, 1);
             exp = exp + 1;
         }
-        while (sig != 0 && sig < ((uint)1 << 26))
+        while (sig < ((uint)1 << 26) && exp > 1)
         {
             sig = sig << 1;
             exp = exp - 1;
@@ -124,8 +123,8 @@ public static class SoftFloat
         }
         if (exp >= 255)
             return (sign << 31) | ((uint)0xFF << 23);
-        if (exp <= 0)
-            return sign << 31;
+        if (exp == 1 && sig < 0x800000)
+            exp = 0;
         return (sign << 31) | ((uint)exp << 23) | (sig & 0x7FFFFF);
     }
 

@@ -7,9 +7,10 @@ not include these new cases; current-increment full verification is separate.
 
 This group covers ordinary referenced integer code in `Koh.GameBoy.SoftFloat`.
 It does not establish float/double CIL lowering or KohRuntime dispatch support.
-The current library explicitly excludes general NaN/infinity/subnormal operands;
-that legacy limitation is evidence to audit before choosing the native floating
-contract, not an IEEE correctness guarantee or an approved feature retirement.
+The inherited library excluded general NaN/infinity/subnormal operands. AddF32
+now has a [tested edge correction](softfloat-addition.md); other routines still
+need auditing. Legacy limitations are not a general IEEE contract or approved
+feature retirement.
 
 | Original CilKohRuntimeTests method | Requirement / independent oracle | Disposition and native location |
 | --- | --- | --- |
@@ -63,6 +64,10 @@ Out-of-range integer expectations test the public helper's explicit saturation.
 They do not specify unchecked CIL conversion outside its defined range or make
 that API a permanent compiler convention. Finite samples also do not establish
 general NaN/infinity/subnormal support.
+
+The subsequent AddF32 correction expands the group to14 cases,80 ROMs and415
+managed observations. The original85 rows and145 assertions remain; additional
+numeric coverage does not increase the completed legacy-method count.
 
 Read-only review confirms all source inputs, predicates and signed-bit checks
 remain. No compiler-owned case is deferred; the C# host carries no assertions.
