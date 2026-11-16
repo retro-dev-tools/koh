@@ -8,6 +8,23 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+Current wide-arithmetic batch closes all14 methods in CilWideArithmeticTests:
+all639 original vectors plus unsigned/remainder/mask/fault cases execute through
+real Roslyn Debug/Release and native ELF/ROMs on DMG/CGB. Exact ordered packets
+replace unordered/equality-only checks. The audit corrects signed minimum%-1 to
+the arithmetic fault already used by division, as required by C#'s chosen-overflow
+contract. See [matrix and rationale](wide-arithmetic.md). Current ledger85/565
+complete,480 partial/outstanding, zero physically retired; counts below are earlier
+checkpoints. The rest of the migration, including legacy deletion, remains open.
+
+Final selected regression passes551/551 in328.728s, exit0: all157 compiler-library,
+312 IR and80 SM83 cases plus both arithmetic driver cases. Another276 driver
+cases were deliberately unselected; this is not a full-workspace result.
+Workspace all-target/all-feature check passes9.09s with the existing cubes
+unused-helper warning; separate rustdoc (zero cases) and rustfmt pass.
+The previous pushed63c690b hosted run43919305645 is completed/success;
+those hosted results predate this arithmetic batch.
+
 Current interface increment implements metadata-driven nongeneric interface
 dispatch, explicit/inherited MethodImpl bindings, castclass/isinst and typed
 interface storage/delegates. Valid inherited bodies follow ECMA semantics rather

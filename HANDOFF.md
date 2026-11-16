@@ -815,3 +815,37 @@ Previoushead a152743 hostedrun43913045233 completedSUCCESSbothjobs; primarylog
 zero skips1610.259s+rustdoc+.NETfast. Predatesdefaultunit; donotclaimnewheadCI.
 Alllocalparentsnowterminal. Nextcommit/pushsamePR55/updatebodyandvaulthandoff;
 fullmigrationstaysactive. No speculativeframework,newbackend,orABIchangeadded.
+
+Wide-arithmetic batch startsfromcleanpushed63c690b. Audit source
+Frontends/CilWideArithmeticTests.cs:14methods/33expandedcases,639uniqueoriginal
+resultvectors (17mul32+17div32+19pow2+396shift32+11mul64+11div64+168shift64).
+Plan Rust-driven Roslyn Debug/Release DMGCGB orderedheap-result packets, preserving
+alloldvectors while adding unsigned/rem/mask/faults; runtimeoperandarrays and
+constant-shift helperIL replace privateearly-exit/ABI/phase1arrayworkarounds.
+Independent Rust modular/truncating arithmetic oracle; managedHEXcorroboration;
+completion PC, SP, bank/frame guards and exactorderedbytes. No source-memory
+writes in oldC800/C900stackregion; pinnedmanagedbytearrayresult avoids static ABI.
+Parent owns all edits/builds. No newparallelimplementation. Goalstillfullmigration;
+71complete/494partial remainsuntilactualbatchproof and disposition closure.
+
+Arithmetic initial73542terminalexit10014.992s /tmp/koh-wide-migration-initial.log
+exposedoldRustpolicyremainderMIN%-1=0whiledivisiontraps. PrimaryC#spec12.13.4
+requiresremainderexceptioniffdivisionwouldthrow; ECMAIII.3.55allowsthrowing.
+MovedMIN%-1fromvalidremaindervectorstofaultgroups, preservingalllegacyvectors.
+UpdatednativeIRexpectedfaultred63598exit1003.145s /tmp/koh-wide-remainder-red.log
+reproducedsuccess0notfault. RootCode.divide overflowguardnowappliestosigned
+remainderaswellasdivision;optimizeralreadytreatsdivision/remainderaseffectful.
+Green28442terminal2/2pass46.671s /tmp/koh-wide-remainder-green.log, includesDMG
+actualD/R37groups andall36nativeIRboundary/faultvectors. Docoldzero policyfixed.
+Current98174live /tmp/koh-wide-migration-regression.log:alllib157,IR312,SM8380,
+2drivercolorcases551total. Parentownsalledits/builds; backend_auditmayread-only
+review arithmetic/oraclemodule onrequest. Nootherlocalbuilds. Sourcegroups37,
+25successful,12faultpermode;2275orderedvalidresultspermode,639originalsubset.
+
+98174terminalexit0:551/551pass328.728s,276intentionallyunselecteddrivercases.
+BothcolorcasespassactualRoslynD/R:148ROMexecutions,9100orderedvalues,48faults.
+Read-onlybackendreviewconfirmedall639legacyvectors/counts/oracle/rootguard;
+no correctnessblockers. All14legacy methodsclosed7PORT+7REPLACE:85/565complete,
+480partial/outstanding,zero physicallyretired. Workspacecheck18560exit0 9.09s
+(existingcubeswarning);rustfmt/rustdoc0casesexit0. Previous63c690bhostedrun
+43919305645completedSUCCESS;notcurrentarithmeticCI. Fullmigrationstillactive.

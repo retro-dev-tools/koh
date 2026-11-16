@@ -488,24 +488,24 @@ Inherited fields never overlap, base-typed calls dispatch by runtime receiver, s
 
 ### CilWideArithmeticTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilWideArithmeticTests.cs`. Future Rust test group: `cil_wide_arithmetic`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilWideArithmeticTests.cs`. Native Rust group: `driver::wide_arithmetic`; all14 methods have complete native replacements. See the [disposition matrix and independent oracle](wide-arithmetic.md).
 
 32/64-bit wrapping multiply, signed/unsigned division and masked shifts must match declared CIL semantics across operand boundaries and build modes. Optimizer iteration-count changes need no semantic ABI compatibility.
 
-- **PORT** `WideMultiply_MatchesCSharpInt32Wraparound`.
-- **PORT** `WideMultiply_DebugAndReleaseProduceIdenticalResults`.
-- **PORT** `WideDivide_MatchesCSharpInt32Semantics`.
-- **PORT** `WideDivide_DebugAndReleaseProduceIdenticalResults`.
-- **PORT** `ConstPow2Divide_MatchesCSharpInt32Semantics`.
-- **PORT** `ConstPow2Divide_DebugAndReleaseProduceIdenticalResults`.
-- **PORT** `ConstShift_MatchesCSharpInt32Semantics`.
-- **PORT** `ConstShift_DebugAndReleaseProduceIdenticalResults`.
-- **PORT** `WideMultiply64_MatchesCSharpInt64Wraparound`.
-- **PORT** `WideDivide64_MatchesCSharpInt64Semantics`.
-- **PORT** `WideMultiply64_DebugAndReleaseProduceIdenticalResults`.
-- **PORT** `WideDivide64_DebugAndReleaseProduceIdenticalResults`.
-- **PORT** `ConstShift64_MatchesCSharpInt64Semantics`.
-- **PORT** `ConstShift64_DebugAndReleaseProduceIdenticalResults`.
+- **PORT, complete** `WideMultiply_MatchesCSharpInt32Wraparound`.
+- **REPLACE, complete** `WideMultiply_DebugAndReleaseProduceIdenticalResults`.
+- **PORT, complete** `WideDivide_MatchesCSharpInt32Semantics`.
+- **REPLACE, complete** `WideDivide_DebugAndReleaseProduceIdenticalResults`.
+- **PORT, complete** `ConstPow2Divide_MatchesCSharpInt32Semantics`.
+- **REPLACE, complete** `ConstPow2Divide_DebugAndReleaseProduceIdenticalResults`.
+- **PORT, complete** `ConstShift_MatchesCSharpInt32Semantics`.
+- **REPLACE, complete** `ConstShift_DebugAndReleaseProduceIdenticalResults`.
+- **PORT, complete** `WideMultiply64_MatchesCSharpInt64Wraparound`.
+- **PORT, complete** `WideDivide64_MatchesCSharpInt64Semantics`.
+- **REPLACE, complete** `WideMultiply64_DebugAndReleaseProduceIdenticalResults`.
+- **REPLACE, complete** `WideDivide64_DebugAndReleaseProduceIdenticalResults`.
+- **PORT, complete** `ConstShift64_MatchesCSharpInt64Semantics`.
+- **REPLACE, complete** `ConstShift64_DebugAndReleaseProduceIdenticalResults`.
 
 ### SoftFloatDifferentialTests.cs
 

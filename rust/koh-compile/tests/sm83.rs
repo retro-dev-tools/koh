@@ -1782,7 +1782,7 @@ fn division_boundaries_and_faults_execute(host: &Host) {
             (Binary::DivideSigned, 7, mask - 2, Ok(mask - 1)),
             (Binary::RemainderSigned, 7, mask - 2, Ok(1)),
             (Binary::DivideSigned, sign, 1, Ok(sign)),
-            (Binary::RemainderSigned, sign, mask, Ok(0)),
+            (Binary::RemainderSigned, sign, mask, Err(2)),
             (Binary::DivideSigned, sign, mask, Err(2)),
             (Binary::DivideUnsigned, 1, 0, Err(2)),
             (Binary::RemainderUnsigned, 1, 0, Err(2)),

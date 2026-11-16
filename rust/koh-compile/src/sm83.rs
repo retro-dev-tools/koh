@@ -931,21 +931,19 @@ impl Code<'_> {
         self.bytes(&[0x79, 0xb7]);
         self.jump(0xca, SymbolId(2));
         if signed {
-            if !remainder {
-                let normal = self.label();
-                for byte in 0..width {
-                    self.load_a(quotient + byte);
-                    self.bytes(&[0xfe, if byte == width - 1 { 0x80 } else { 0 }]);
-                    self.jump(0xc2, normal);
-                }
-                for byte in 0..width {
-                    self.load_a(divisor + byte);
-                    self.bytes(&[0xfe, 0xff]);
-                    self.jump(0xc2, normal);
-                }
-                self.jump(0xc3, SymbolId(2));
-                self.mark(normal);
+            let normal = self.label();
+            for byte in 0..width {
+                self.load_a(quotient + byte);
+                self.bytes(&[0xfe, if byte == width - 1 { 0x80 } else { 0 }]);
+                self.jump(0xc2, normal);
             }
+            for byte in 0..width {
+                self.load_a(divisor + byte);
+                self.bytes(&[0xfe, 0xff]);
+                self.jump(0xc2, normal);
+            }
+            self.jump(0xc3, SymbolId(2));
+            self.mark(normal);
             self.load_a(quotient + width - 1);
             self.bytes(&[0xe6, 0x80]);
             self.store_a(sign);

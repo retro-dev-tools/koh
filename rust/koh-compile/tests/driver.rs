@@ -20,6 +20,8 @@ mod symbols;
 mod vblank;
 #[path = "driver/vram.rs"]
 mod vram;
+#[path = "driver/wide_arithmetic.rs"]
+mod wide_arithmetic;
 use support::{Host, dotnet};
 
 #[rstest::fixture]

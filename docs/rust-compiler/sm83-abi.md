@@ -120,7 +120,8 @@ Frame guards run before allocation/writes; a stack failure branches to
 `__koh_trap_stack`. A caller must reserve/check its complete argument/return block
 and the two-byte CALL return address before CALL. Integer divide-by-zero and signed
 division overflow branch to `__koh_trap_arithmetic`. Trap entry does not return.
-Signed remainder of minimum/-1 is zero. Hardware/native stack overflow is not
+Signed remainder of minimum/-1 also faults, matching the chosen division-overflow
+behavior required by C# remainder semantics. Hardware/native stack overflow is not
 allowed to become a successful ROM build or silent WRAM corruption.
 
 Static integer calls and recursion are now exercised by the [call increment](calls.md).

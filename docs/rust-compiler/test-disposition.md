@@ -31,13 +31,24 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: seventy-one legacy methods; zero physically retired.**
+**Native behavioral replacements: eighty-five legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining494 methods still have
+The remaining480 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## Wide arithmetic replacement
+
+All14 `CilWideArithmeticTests` methods are complete: seven PORT numeric contracts
+and seven REPLACE unordered/equality-only assertions with ordered independently
+expected packets. All639 original vectors and33 parameter-expanded executions
+are covered by two rstest cases, each comparing actual Roslyn Debug/Release.
+The expanded matrix checks9100 ordered values and48 faults across148 DMG/CGB ROM
+executions. See the [per-method disposition and semantic correction](wide-arithmetic.md).
+No legacy definitions are physically removed in this increment and no test is
+deferred; compiler-owned C# sources still await final whole-project deletion.
 
 ## Interface replacement
 
