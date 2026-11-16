@@ -3451,22 +3451,34 @@ fn native_driver_emits_one_linkable_deterministic_elf(
         koh_objects::write_elf(&compile::object(&resolver, None).unwrap()).unwrap()
     );
     let output_path = directory.path().join("native game object.o");
-    for _ in 0..2 {
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
-            .arg(&assembly_path)
-            .arg("-o")
-            .arg(&output_path)
-            .arg("--reference")
-            .arg(&assembly_path)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(std::fs::read(&output_path).unwrap(), elf);
-        assert_eq!(std::fs::read(&assembly_path).unwrap(), bytes);
+    let pdb = std::fs::read(assembly_path.with_extension("pdb")).unwrap();
+    let debug_object = compile::object_with_debug(&resolver, None, &[Some(&pdb)]).unwrap();
+    assert!(debug_object.sections.iter().any(|s| !s.lines.is_empty()));
+    let debug_elf = koh_objects::write_elf(&debug_object).unwrap();
+    for debug in [false, true] {
+        for _ in 0..2 {
+            let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"));
+            command
+                .arg(&assembly_path)
+                .arg("-o")
+                .arg(&output_path)
+                .arg("--reference")
+                .arg(&assembly_path);
+            if !debug {
+                command.arg("--no-pdb");
+            }
+            let output = command.output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(
+                std::fs::read(&output_path).unwrap(),
+                if debug { &debug_elf } else { &elf }.as_slice()
+            );
+            assert_eq!(std::fs::read(&assembly_path).unwrap(), bytes);
+        }
     }
     let object = koh_objects::read_elf(&elf).unwrap();
     let linked = koh_link::link(&[object], &koh_link::LinkOptions::default()).unwrap();
