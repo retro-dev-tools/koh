@@ -290,3 +290,39 @@ live and owns its exportbuilddirectory; do not mutate export fixtures mid-run.
 First record/push this documentation checkpoint and update PR55 (not merge),
 then transfer scoped graphics diff and verify actualworktree. Pending source
 changes in export are independent of the verified callback1193 snapshot.
+
+Checkpoint docs committed/pushed63cca81f398a2229658a4c9fe441fa0031c24999.
+PR55 read back draft/unmerged with1193pass and62/565ledger. Then18scoped graphics
+files transferred from export to actualworktree after cleanstatus assertion.
+Current worktree verification LIVE session49275,/tmp/koh-vramwrite-worktree.log,
+12selected new IR/SM83/phase/JRPG cases. Broad export396 run still LIVE42962.
+No additional build in either targetdirectory until its run is terminal.
+No graphics commit yet; actualworktree graphics/doc/tests now dirty by design.
+
+## Graphics/JRPG unit verified for commit
+
+All local handles above are now terminal. Actualworktree12/12 passes275.699s,
+exit0. Isolated broad396/396 passes472.676s,exit0, including IR/SM83, existing
+bounded copies, SDK2048four and JRPGtwo. Added deterministic Slime battle to
+exporttest:2/2 pass57.366s; transferred finaltest and renamed to
+sdk_jrpg_dialogue_and_battle_preserve_hero_state, actualworktree2/2 pass56.038s.
+Review followup independently confirms seed0002 sequence0302,C143,93F3,2C46,
+4E41; heroattacks5/5, enemy4,HP16,Exp5 and returnOverworld. No blocking findings;
+reviewer did not run tests. Checks/source evidence owned by parent.
+
+Actualunchanged Gbjrpg.csproj ordinaryReleasebuild with outputpath overrides
+only succeeds2.92s,0warnings0errors,131072-byteROM,headerC0 and ELF32LE object.
+Log:/tmp/koh-jrpg-guarded-sdk-build.log. Allfeature/alltargetcheck succeeds10.66s
+with existing cube-helper warning; rustdoc fourcrates/0cases passes,exit0.
+Logs:/tmp/koh-vramwrite-check.log,/tmp/koh-vramwrite-rustdoc.log. Rustfmtcheckpass.
+190 authored Rust/C#/project source hashes captured for posthookcomparison:
+/tmp/koh-vramwrite-tested-sources.json. Unrelated maincheckout battle.png still
+fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454.
+
+Ledger64/565 complete,501 outstanding,0retired. Close only JRPGcompile/header;
+playthrough/capture methods stillpartial due art/OAM/palette/artifact assertions.
+Sample README removes obsolete3byteblob/layout conventions and points to native
+acceptance; samplesources/assets unchanged. Explicit IME-disabled contract stays.
+Next commit/push scoped graphics/JRPG unit, verify sourcehashes/remotehead, update
+existing draftPR55 checklist/evidence. Newhead hosted/full-workspace validation
+remains required;1193fullpass belongs precedingcallback snapshot. No merge.

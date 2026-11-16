@@ -92,8 +92,9 @@ pass10/10 in61.192s; returned callback factories pass4/4 in30.469s. Expanded
 Debug/DMG normal cases pass10/10 in60.268s. Those are selected checkpoints;
 `/tmp/koh-delegate-workspace.log` records the final full run:1,193/1,193
 passed in2,764.108s, zero skipped, exit0. All44 frozen sources still match.
-Separate rustdoc passes for four crates/zero doctests. The source-method ledger
-is now62/565 complete,503 outstanding and zero physically retired.
+Separate rustdoc passes for four crates/zero doctests. At this callback checkpoint the source-method ledger
+is62/565 complete,503 outstanding and zero physically retired; later increments
+are recorded in test-disposition.md.
 
 Review caught enum identity being erased by storage normalization; raw nominal
 comparison fixes both instance interning and target binding. Forged enum/byte

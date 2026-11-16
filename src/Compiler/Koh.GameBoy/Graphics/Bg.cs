@@ -42,11 +42,13 @@ public static unsafe class Bg
     /// <summary>CGB only: set one cell's per-tile attribute byte (VRAM bank 1) — flip/priority/palette,
     /// see <see cref="TileAttr"/>. Silent no-op on DMG (no bank 1 to switch into). Direct-to-VRAM; per-frame
     /// LCD-on attribute shadowing is out of scope (see <see cref="MapWriter"/>'s remarks).</summary>
+    /// <remarks>Nonempty CGB writes leave interrupts disabled.</remarks>
     public static void SetAttr(byte col, byte row, byte attr) =>
         MapWriter.SetAttr(0, col, row, attr);
 
     /// <summary>CGB only: set a <paramref name="w"/> x <paramref name="h"/> rect of one attribute byte.
     /// Silent no-op on DMG.</summary>
+    /// <remarks>Nonempty CGB writes leave interrupts disabled.</remarks>
     public static void FillAttr(byte col, byte row, byte w, byte h, byte attr) =>
         MapWriter.FillAttr(0, col, row, w, h, attr);
 }

@@ -1,41 +1,55 @@
-# JRPG acceptance status
+# JRPG native acceptance
 
-Incomplete. The unchanged sample now builds through the ordinary SDK Release
-pipeline, producing a131072-byte ROM. Existing emulator visual checks show the
-title, overworld and a BAT encounter. They do not establish game acceptance.
-Captures are temporary artifacts, not updated sample assets.
+The unchanged CGB-only game is built and executed by
+`tests/sdk/game.rs::sdk_jrpg_dialogue_and_battle_preserve_hero_state`, using rstest
+Debug/Release cases and the existing C# GameHost/emulator. The test copies actual
+C# sources and PNG assets into an isolated SDK project. It does not modify the
+sample, tracked screenshots or encounter/combat code. The Roslyn DLL reaches the
+native compiler, canonical ELF round-trip and Rust linker; SDK and independently
+linked ROM bytes must match. The CGB-only header is checked explicitly.
 
-## Native acceptance to implement
+## Observable checks
 
-Reuse `tests/sdk/game.rs` and its existing GameHost external-process fixture.
-It already runs the real boot ROM, drives input, rejects runtime aborts, records
-VRAM-write violations and dumps WRAM, VRAM, palettes and framebuffer pixels.
-Resolve static symbols and field offsets from compiler metadata/layout rather
-than assuming legacy addresses or inspecting private C# compiler structures.
+- Real boot ROM completes; runtime aborts and any mode-3 VRAM writes fail.
+- Title/overworld scene identities, initial Hero coordinates1,1, HP20, attack5,
+  level1, zero experience and maximum HP20 match independent expectations.
+- A left move reaches0,1 and preserves Hero identity/stats. An independent
+  16-bit xorshift calculation predicts whether that move produces an encounter
+  and which enemy type is selected; native RNG state must match.
+- A separate execution seeds the game RNG to2D2D through the test-only memory
+  driver, then walks three cells right without encounters. Attempting the NPC's
+  occupied cell is blocked and does not consume another random roll.
+- All three exact dialogue strings appear in tilemap glyphs, in order. The last
+  A press invokes the stored callback and returns to the overworld with the same
+  Hero object, coordinates4,1 and unchanged stats.
+- Seed0002 then drives an actual Slime encounter at3,1. The independent sequence
+  0302,C143,93F3,2C46,4E41 implies two attacks of5 and one enemy attack of4.
+  Snapshots require enemy HP8 then3, Hero HP20 then16, five experience, retained
+  Hero identity and return to the overworld. Enemy name glyphs must spell SLIME.
 
-- Build actual sample sources/assets in Debug/Release on CGB, round-trip
-  canonical ELF and compare SDK ROM with independently invoked Rust linker.
-  The sample declares KohCgbOnly and authors color palettes unconditionally;
-  preserve that product contract rather than forcing a monochrome game variant.
-  Other samples and compiler fixtures retain DMG acceptance coverage.
-- Assert initial Hero coordinates1,1, HP20 and level1, title text, uploaded asset
-  bytes and four hero OBJ quadrants. Add OAM capture to the fixture if necessary.
-- Drive single-cell movement, checking exact coordinate deltas and unchanged
-  HP/level. Check collision against bounds, trees, walls, water and NPC occupancy
-  using independently specified map cells; correlate OAM with the resulting cell.
-- Account for encounters explicitly: inspect state before the move and compute
-  expected PRNG transition with an independent16-bit reference, or select and
-  document a deterministic input schedule. Do not disable encounters in the
-  sample or increase settling budgets to hide incorrect behavior.
-- Reach the NPC and assert each exact dialogue string in order. After the last
-  page, verify the retained callback returns to the overworld and preserves Hero
-  identity, coordinates and stats. This is required sample-level callback proof.
-- Assert a complete battle: independently calculate attack damage, enemy turn,
-  heal/run behavior and experience/level transition for the observed enemy and
-  PRNG state. A screenshot of the menu alone does not satisfy this requirement.
-- Check text tile bytes and selected independently decoded source-asset pixels;
-  do not use old compiler output or curated screenshots as correctness oracles.
+Seed writes initialize entropy only; the game still runs its own random-roll,
+collision, virtual dispatch, battle and scene code. Symbols and field offsets
+come from native metadata/layout, not legacy compiler addresses. Captures include
+WRAM/VRAM/palettes/framebuffer; full-image equality is not an acceptance oracle.
 
-The initial manual walk reaches an encounter before NPC dialogue. That is not a
-dialogue pass. Existing postboot LCDC defaults are not hardware specifications;
-keep the real boot path and explicit runtime/hardware assertions in acceptance.
+The expanded dialogue check found the old attribute writer racing the PPU:
+157Debug/239Release dropped-write attempts. The
+[guarded VRAM-store fix](vram-write.md) retains the exact zero-violation assertion;
+settling budgets were not increased to conceal the defect. Its explicit interrupt
+restriction is part of the current graphics contract.
+
+## Remaining coverage
+
+The sample deliberately has no DMG graphics path; other games and compiler
+fixtures cover DMG. These cases do not yet prove all terrain/boundary collisions,
+hero OAM quadrants or independently decoded art pixels, heal/run branches,
+other enemies, level-up/victory/defeat, debugger breakpoints, physical hardware
+or the whole compiler migration. Existing emulator defaults and old compiler
+results are not correctness specifications. Curated sample assets stay unchanged.
+
+Isolated initial movement checks2/2 pass360.652s; cleaned dialogue checks2/2
+pass178.562s; battle extension2/2 pass57.366s, all exit0. The PR-worktree dialogue
+checkpoint passes12/12 selected tests in275.699s. Final PR-worktree battle rerun passes2/2 in56.038s,exit0. The broader
+isolated396-case regression passes472.676s,exit0. These are selected checks,
+not a new full-workspace/cross-platform result; consult progress.md for the
+committed evidence checkpoint.

@@ -1874,6 +1874,14 @@ fn translate(
                         },
                         il_offset: b.offset,
                     }),
+                    Intrinsic::VramWrite => b.instructions.push(Instruction {
+                        result: None,
+                        op: Op::VramWrite {
+                            address: arguments[0],
+                            value: arguments[1],
+                        },
+                        il_offset: b.offset,
+                    }),
                     Intrinsic::MemoryFill => b.instructions.push(Instruction {
                         result: None,
                         op: Op::MemoryFill {

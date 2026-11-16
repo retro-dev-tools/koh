@@ -8,7 +8,27 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Latest committed increment: [native delegates and callbacks](delegates.md). Focused
+Latest graphics increment: [guarded VRAM stores](vram-write.md) fixes the old
+library's live-attribute retry race without changing sample sources or relaxing
+zero mode-3-write assertions. [JRPG native acceptance](jrpg-acceptance.md) now
+checks real SDK Debug/Release builds, boot, movement, NPC collision, three
+exact dialogue pages, retained callback return and one seeded Slime victory.
+Successful nonempty CGB attribute writes explicitly leave interrupts disabled;
+IME preservation/reentrancy is not claimed. Phase checks sample two dot positions
+per scanline, not all PPU phases. Independent review found no blocking defect.
+
+Actual-worktree checks pass12/12 in275.699s and final battle cases2/2 in56.038s;
+isolated broader regression passes396/396 in472.676s, including existing bounded
+copies,2048 SDK gameplay and all IR/SM83 cases. All-target/all-feature workspace
+check passes10.66s with the existing cube-helper warning; separate rustdoc passes
+four crates/zero cases. The actual unchanged JRPG project builds through normal
+native discovery in2.92s, zero warnings/errors, producing131072-byte CGB-only ROM
+and ELF32/SM83. These are functional/build observations, not host-performance
+comparisons. Two more source methods close:64/565 complete,501 outstanding,
+zero physically retired. New-head full-workspace/hosted validation, remaining
+JRPG art/OAM/capture assertions and whole-migration gates remain required.
+
+Previous committed increment: [native delegates and callbacks](delegates.md). Focused
 Debug/Release and DMG/CGB tests execute stored static, captured, instance and
 virtual callbacks, returned closures, reference arrays and wide/byref results.
 Malformed metadata, nominal signature mismatches and null binding/invocation

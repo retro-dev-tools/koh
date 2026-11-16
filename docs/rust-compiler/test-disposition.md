@@ -31,13 +31,38 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: sixty-two legacy methods; zero physically retired.**
+**Native behavioral replacements: sixty-four legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining503 methods still have
+The remaining501 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## JRPG compilation/header replacements and partial gameplay
+
+Two of the four `Samples/GbJrpgTests.cs` methods now have complete native
+replacements in `tests/sdk/game.rs::sdk_jrpg_dialogue_and_battle_preserve_hero_state`.
+Both rstest Debug/Release cases are discoverable by nextest and pass in the PR
+worktree:2/2 in56.038s,exit0. Existing graphics consumers and all IR/SM83 cases
+also pass the isolated396-case regression; the new primitive/phase/dialogue
+checkpoint passes12/12 in the actual worktree. See [scope](jrpg-acceptance.md).
+
+| Source method | Independent/public requirement | Decision and replacement |
+| --- | --- | --- |
+| Sample_CompilesUnmodified_NoDiagnostics_ValidIr | Real C# sample and PNG-generated Art compile in both Roslyn modes | REPLACE complete: SDK builds actual copied sources/assets, native compiler verifies IR and emits canonical ELF; round-trip ELF and ROM execution replace C# verifier classes |
+| Sample_RomHeader_IsCgbExclusive | Explicit CGB-only cartridge intent reaches header byte0143=C0 | PORT complete: SDK property forwarding and independently relinked compiler output both produce identical ROM with exact C0 flag |
+
+`Sample_CgbPlaythrough_WalksTalksAndCallsBack` remains partial: native cases now
+assert movement, NPC collision, three exact dialogue pages, retained Hero and
+callback return, plus independently expected Slime battle outcomes. Its original
+terrain/palette/OAM/no-residue assertions still need native traceability.
+`Sample_CaptureAcceptanceScreenshots` also remains partial: native snapshots are
+isolated temporary artifacts, not yet the complete persistent four-scene capture
+policy or reviewed image invariants. No compiler-owned behavior is deferred;
+these two methods are still included in the outstanding total. No legacy source
+is physically retired, no sample asset is modified and no public API is made a
+permanent convention. Seed setup changes entropy, not the game's encounter code.
 
 ## Callback replacements
 

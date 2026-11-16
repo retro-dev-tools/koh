@@ -15,6 +15,7 @@ pub(crate) enum Intrinsic {
     MemoryFill,
     MemoryCopy,
     VBlankCopy,
+    VramWrite,
     HBlankStream(u16),
     CpuControl(crate::ir::CpuControl),
     OamDma,
@@ -356,6 +357,22 @@ pub(crate) fn intrinsic(
             return Err("Invalid Koh hblankstream intrinsic contract: expected static void(byte*, byte, byte) and a display register".into());
         }
         return Ok(Some(Intrinsic::HBlankStream(address as u16)));
+    }
+    if kind == "vramwrite" {
+        use clrmeta::ElementType;
+        if address != -1
+            || signature.calling_convention.0 != 0
+            || signature.sentinel.is_some()
+            || signature.return_type != TypeSig::Primitive(ElementType::Void)
+            || signature.params
+                != [
+                    TypeSig::Ptr(Box::new(TypeSig::Primitive(ElementType::U1))),
+                    TypeSig::Primitive(ElementType::U1),
+                ]
+        {
+            return Err("Invalid Koh vramwrite intrinsic contract: expected address-less static void(byte*, byte)".into());
+        }
+        return Ok(Some(Intrinsic::VramWrite));
     }
     if matches!(kind, "memfill" | "memcopy" | "vblankcopy") {
         use clrmeta::ElementType;

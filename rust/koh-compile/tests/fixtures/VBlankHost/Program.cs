@@ -27,6 +27,15 @@ foreach (int dot in new[] { 0, 452 })
         gb.Cpu.Registers.Pc = 0x3000;
         gb.StepInstruction();
     }
+    if (args.Length > 4 && args[4] == "off")
+    {
+        while (gb.Ppu.LY < 144)
+        {
+            gb.Cpu.Registers.Pc = 0x3000;
+            gb.StepInstruction();
+        }
+        gb.Mmu.DebugWrite(0xFF40, 0);
+    }
     gb.Cpu.Registers.Pc = site;
     var trace = new Writes(gb);
     gb.Mmu.Hook = trace;

@@ -2353,3 +2353,38 @@ fn roslyn_reachable_calls_and_recursion_execute(host: &Host, #[case] configurati
         "{error}"
     );
 }
+
+#[rstest::rstest]
+#[case(0)]
+#[case(20)]
+fn vram_write_guards_addresses_with_large_frames(host: &Host, #[case] locals: usize) {
+    let mut f = function(Type::I32, Op::Constant(42));
+    f.parameters = vec![Type::Native, Type::I32];
+    f.locals = vec![Type::I64; locals];
+    f.blocks[0].parameters = vec![(0, Type::Native), (1, Type::I32)];
+    f.blocks[0].instructions = vec![
+        Instruction {
+            result: None,
+            op: Op::VramWrite {
+                address: 0,
+                value: 1,
+            },
+            il_offset: 1,
+        },
+        Instruction {
+            result: Some((2, Type::I32)),
+            op: Op::Constant(42),
+            il_offset: 2,
+        },
+    ];
+    f.blocks[0].terminator.kind = Control::Return(Some(2));
+    let cases = [0x7fff, 0x8000, 0x9fff, 0xa000, 0xffff].map(|address| {
+        let result = if (0x8000..0xa000).contains(&address) {
+            Ok(42)
+        } else {
+            Err(9)
+        };
+        (f.clone(), vec![address, 0x16d], result)
+    });
+    run(host, &cases);
+}

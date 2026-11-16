@@ -376,3 +376,378 @@ fn sdk_2048_scene_game_obeys_rules_and_draws_tiles(#[case] configuration: &str, 
     }
     assert!(previous.iter().filter(|&&value| value != 0).count() > 2);
 }
+
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn sdk_jrpg_dialogue_and_battle_preserve_hero_state(#[case] configuration: &str) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh SDK JRPG ")
+        .tempdir()
+        .unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let source = root.join("samples/csharp/gb-jrpg");
+    for entry in std::fs::read_dir(&source).unwrap() {
+        let entry = entry.unwrap();
+        if entry
+            .path()
+            .extension()
+            .is_some_and(|extension| extension == "cs")
+        {
+            std::fs::copy(entry.path(), directory.path().join(entry.file_name())).unwrap();
+        }
+    }
+    std::fs::create_dir(directory.path().join("art")).unwrap();
+    for entry in std::fs::read_dir(source.join("art")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            directory.path().join("art").join(entry.file_name()),
+        )
+        .unwrap();
+    }
+    let project = directory.path().join("Game.csproj");
+    std::fs::write(&project, r#"<Project>
+<Import Project="$(KohRoot)src/Compiler/Koh.Sdk/Sdk/Sdk.props" />
+<PropertyGroup><TargetFramework>net10.0</TargetFramework><RootNamespace>Koh.Samples.GbJrpg</RootNamespace><KohCgbOnly>true</KohCgbOnly></PropertyGroup>
+<Import Project="$(KohRoot)src/Compiler/Koh.Sdk/Sdk/Sdk.targets" />
+</Project>"#).unwrap();
+    let rom = directory.path().join("game.gb");
+    let object = directory.path().join("game.o");
+    let built = build(
+        &project,
+        configuration,
+        &[
+            format!("-p:KohRoot={}/", root.display()),
+            format!("-p:KohRomPath={}", rom.display()),
+            format!("-p:KohObjectPath={}", object.display()),
+            format!(
+                "-p:KohCompilerExecutable={}",
+                env!("CARGO_BIN_EXE_koh-compile")
+            ),
+        ],
+    );
+    assert!(built.status.success(), "{}", report(&built));
+    let elf = koh_objects::read_elf(&std::fs::read(&object).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[elf],
+        &koh_link::LinkOptions {
+            cgb: koh_link::CgbMode::Only,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(&rom).unwrap(), linked.rom);
+    assert_eq!(linked.rom[0x143], 0xc0);
+    let symbol = |name: &str| {
+        linked
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == name)
+            .unwrap()
+            .value as usize
+    };
+    let host = support::build_fixture_host("GameHost");
+    let script = directory.path().join("input.txt");
+    std::fs::write(&script, "1200:dump:title\n1300:press:Start\n1310:release:Start\n1600:dump:initial\n1700:press:Left\n1702:release:Left\n1900:dump:moved\n").unwrap();
+    let executed = support::dotnet()
+        .arg(&host.dll)
+        .arg(&rom)
+        .arg(format!("{:x}", symbol("__koh_abort")))
+        .arg(&script)
+        .output()
+        .unwrap();
+    assert!(executed.status.success(), "{}", report(&executed));
+    let output = String::from_utf8(executed.stdout).unwrap();
+    let fields: Vec<_> = output.split_whitespace().collect();
+    assert_eq!(fields.len(), 4, "{output}");
+    assert!(fields[0].parse::<usize>().unwrap() < 600, "{output}");
+    assert_eq!(&fields[1..], &["1901", "0", "Cgb"]);
+    let bin = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0"));
+    let game = std::fs::read(bin.join("Game.dll")).unwrap();
+    let library = std::fs::read(bin.join("Koh.GameBoy.dll")).unwrap();
+    let resolver = Resolver::new(&[&game, &library]).unwrap();
+    let overworld = definition(&resolver, 0, "OverworldScene");
+    let hero_type = definition(&resolver, 0, "Hero");
+    let hero_static = symbol(&sm83::static_symbol(field(&resolver, overworld, "Hero")));
+    let current_static = symbol(&sm83::static_symbol(field(
+        &resolver,
+        definition(&resolver, 1, "Game"),
+        "_current",
+    )));
+    let memory = |label: &str| {
+        std::fs::read(directory.path().join(format!("game.gb.{label}.wram"))).unwrap()
+    };
+    let title = memory("title");
+    assert_eq!(
+        word(&title, word(&title, current_static)),
+        symbol(&sm83::class_symbol(Some(definition(
+            &resolver,
+            0,
+            "TitleScene"
+        ))))
+    );
+    let initial = memory("initial");
+    assert_eq!(
+        word(&initial, word(&initial, current_static)),
+        symbol(&sm83::class_symbol(Some(overworld)))
+    );
+    let hero = word(&initial, hero_static);
+    assert_eq!(
+        word(&initial, hero),
+        symbol(&sm83::class_symbol(Some(hero_type)))
+    );
+    let scalar = |memory: &[u8], name: &str| {
+        let address = hero + offset(&resolver, hero_type, name) - 0xc000;
+        i32::from_le_bytes(memory[address..address + 4].try_into().unwrap())
+    };
+    for (name, expected) in [
+        ("X", 1),
+        ("Y", 1),
+        ("Hp", 20),
+        ("MaxHp", 20),
+        ("Attack", 5),
+        ("Level", 1),
+        ("Exp", 0),
+    ] {
+        assert_eq!(scalar(&initial, name), expected, "initial {name}");
+    }
+    let moved = memory("moved");
+    assert_eq!(word(&moved, hero_static), hero);
+    for (name, expected) in [
+        ("X", 0),
+        ("Y", 1),
+        ("Hp", 20),
+        ("MaxHp", 20),
+        ("Attack", 5),
+        ("Level", 1),
+        ("Exp", 0),
+    ] {
+        assert_eq!(scalar(&moved, name), expected, "moved {name}");
+    }
+    let rng_static = symbol(&sm83::static_symbol(field(
+        &resolver,
+        definition(&resolver, 1, "Rng"),
+        "_state",
+    )));
+    let next = |mut state: u16| {
+        if state == 0 {
+            state = 0x2d2d;
+        }
+        state ^= state.wrapping_shl(7);
+        state ^= state >> 9;
+        state ^= state.wrapping_shl(8);
+        state
+    };
+    let mut expected_rng = next(word(&initial, rng_static) as u16);
+    let expected_scene = if expected_rng >> 8 < 16 {
+        expected_rng = next(expected_rng);
+        let roll = (expected_rng >> 8) % 16;
+        let name = match roll {
+            0..=5 => "Slime",
+            6..=10 => "Bat",
+            11..=14 => "Ghost",
+            _ => "Drake",
+        };
+        let battle = definition(&resolver, 0, "BattleScene");
+        let scene = word(&moved, current_static);
+        let enemy = word(&moved, scene + offset(&resolver, battle, "_enemy"));
+        assert_eq!(
+            word(&moved, enemy),
+            symbol(&sm83::class_symbol(Some(definition(&resolver, 0, name))))
+        );
+        battle
+    } else {
+        overworld
+    };
+    assert_eq!(word(&moved, rng_static), usize::from(expected_rng));
+    assert_eq!(
+        word(&moved, word(&moved, current_static)),
+        symbol(&sm83::class_symbol(Some(expected_scene)))
+    );
+    let mut actions = format!(
+        "1300:press:Start\n1310:release:Start\n1600:dump:dialogueInitial\n1601:write:{rng_static:04X}:2D2D\n"
+    );
+    for (index, (button, label)) in [
+        ("Right", "walk1"),
+        ("Right", "walk2"),
+        ("Right", "walk3"),
+        ("Right", "blockedNpc"),
+        ("A", "page0"),
+        ("A", "page1"),
+        ("A", "page2"),
+        ("A", "closed"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let frame = 1700 + index * 300;
+        actions.push_str(&format!(
+            "{frame}:press:{button}\n{}:release:{button}\n{}:dump:{label}\n",
+            frame + 2,
+            frame + 200
+        ));
+    }
+    actions.push_str(&format!("4100:write:{rng_static:04X}:0200\n4200:press:Left\n4202:release:Left\n4400:dump:battle\n4500:press:A\n4502:release:A\n4700:dump:enemyTurn\n4800:press:A\n4802:release:A\n5000:dump:won\n"));
+    std::fs::write(&script, actions).unwrap();
+    let executed = support::dotnet()
+        .arg(&host.dll)
+        .arg(&rom)
+        .arg(format!("{:x}", symbol("__koh_abort")))
+        .arg(&script)
+        .output()
+        .unwrap();
+    assert!(executed.status.success(), "{}", report(&executed));
+    let output = String::from_utf8(executed.stdout).unwrap();
+    let fields: Vec<_> = output.split_whitespace().collect();
+    assert_eq!(fields.len(), 4, "{output}");
+    assert_eq!(&fields[1..], &["5001", "0", "Cgb"]);
+    let initial = memory("dialogueInitial");
+    let dialogue_hero = word(&initial, hero_static);
+    let dialogue = definition(&resolver, 0, "DialogueScene");
+    let mut rng = 0x2d2d;
+    for (index, label) in [
+        "walk1",
+        "walk2",
+        "walk3",
+        "blockedNpc",
+        "page0",
+        "page1",
+        "page2",
+        "closed",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let state = memory(label);
+        if index < 3 {
+            rng = next(rng);
+            assert!(rng >> 8 >= 16);
+        }
+        assert_eq!(word(&state, rng_static), usize::from(rng), "{label}: RNG");
+        assert_eq!(
+            word(&state, hero_static),
+            dialogue_hero,
+            "{label}: Hero identity"
+        );
+        let read = |name: &str| {
+            let address = dialogue_hero + offset(&resolver, hero_type, name) - 0xc000;
+            i32::from_le_bytes(state[address..address + 4].try_into().unwrap())
+        };
+        for (name, expected) in [
+            ("X", (index + 2).min(4) as i32),
+            ("Y", 1),
+            ("Hp", 20),
+            ("MaxHp", 20),
+            ("Attack", 5),
+            ("Level", 1),
+            ("Exp", 0),
+        ] {
+            assert_eq!(read(name), expected, "{label}: {name}");
+        }
+        let expected_scene = if (4..=6).contains(&index) {
+            dialogue
+        } else {
+            overworld
+        };
+        assert_eq!(
+            word(&state, word(&state, current_static)),
+            symbol(&sm83::class_symbol(Some(expected_scene))),
+            "{label}: scene"
+        );
+        if (4..=6).contains(&index) {
+            let line = [
+                "THIS IS MILLMERE.",
+                "SLIMES BY THE POND",
+                "THE OLD MILL FELL.",
+            ][index - 4];
+            let font_static = symbol(&sm83::static_symbol(field(
+                &resolver,
+                definition(&resolver, 0, "Assets"),
+                "FontBase",
+            )));
+            let font = state[font_static - 0xc000];
+            assert_eq!(font, 46);
+            let vram =
+                std::fs::read(directory.path().join(format!("game.gb.{label}.vram"))).unwrap();
+            for (column, character) in line.bytes().enumerate() {
+                assert_eq!(
+                    vram[0x1800 + 14 * 32 + 1 + column],
+                    font + character - b' ',
+                    "{label}: glyph{column}"
+                );
+            }
+        }
+    }
+    let battle_type = definition(&resolver, 0, "BattleScene");
+    let enemy_type = definition(&resolver, 0, "Enemy");
+    let slime_type = definition(&resolver, 0, "Slime");
+    let battle = memory("battle");
+    let scene = word(&battle, current_static);
+    let enemy = word(&battle, scene + offset(&resolver, battle_type, "_enemy"));
+    assert_eq!(
+        word(&battle, enemy),
+        symbol(&sm83::class_symbol(Some(slime_type)))
+    );
+    assert_eq!(
+        word(&battle, scene + offset(&resolver, battle_type, "_hero")),
+        dialogue_hero
+    );
+    for (label, scene_type, hp, experience, rng, enemy_hp) in [
+        ("battle", battle_type, 20, 0, 0xc143, Some(8)),
+        ("enemyTurn", battle_type, 16, 0, 0x2c46, Some(3)),
+        ("won", overworld, 16, 5, 0x4e41, None),
+    ] {
+        let state = memory(label);
+        assert_eq!(
+            word(&state, hero_static),
+            dialogue_hero,
+            "{label}: Hero identity"
+        );
+        assert_eq!(
+            word(&state, word(&state, current_static)),
+            symbol(&sm83::class_symbol(Some(scene_type))),
+            "{label}: scene"
+        );
+        assert_eq!(word(&state, rng_static), rng, "{label}: RNG");
+        for (name, expected) in [
+            ("X", 3),
+            ("Y", 1),
+            ("Hp", hp),
+            ("MaxHp", 20),
+            ("Attack", 5),
+            ("Level", 1),
+            ("Exp", experience),
+        ] {
+            let address = dialogue_hero + offset(&resolver, hero_type, name) - 0xc000;
+            assert_eq!(
+                i32::from_le_bytes(state[address..address + 4].try_into().unwrap()),
+                expected,
+                "{label}: {name}"
+            );
+        }
+        if let Some(expected) = enemy_hp {
+            let address = enemy + offset(&resolver, enemy_type, "Hp") - 0xc000;
+            assert_eq!(
+                i32::from_le_bytes(state[address..address + 4].try_into().unwrap()),
+                expected,
+                "{label}: enemyHP"
+            );
+            let vram =
+                std::fs::read(directory.path().join(format!("game.gb.{label}.vram"))).unwrap();
+            for (column, character) in b"SLIME".iter().enumerate() {
+                assert_eq!(
+                    vram[0x1800 + 7 * 32 + 8 + column],
+                    46 + character - b' ',
+                    "{label}: enemyname"
+                );
+            }
+        }
+    }
+}

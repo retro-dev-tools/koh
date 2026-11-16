@@ -3208,3 +3208,65 @@ fn local_storage_and_integer_operations_are_typed(#[case] ty: Type) {
     f.blocks[0].instructions[3].result = Some((3, Type::I64));
     assert!(verify(&f).is_err());
 }
+
+#[rstest]
+#[case(Type::Native, Type::I32, true)]
+#[case(Type::I32, Type::I32, false)]
+#[case(Type::Native, Type::I64, false)]
+#[case(Type::ByRef(Scalar::U8), Type::I32, false)]
+fn vram_write_types_effects_and_remapping(
+    #[case] address: Type,
+    #[case] value: Type,
+    #[case] valid: bool,
+) {
+    let mut f = diamond();
+    f.parameters = vec![address, value];
+    f.returns = None;
+    f.locals = vec![Type::I32];
+    f.blocks = vec![Block {
+        parameters: vec![(0, address), (1, value)],
+        instructions: vec![Instruction {
+            result: None,
+            op: Op::VramWrite {
+                address: 0,
+                value: 1,
+            },
+            il_offset: 99,
+        }],
+        terminator: Terminator {
+            kind: Control::Return(None),
+            il_offset: 100,
+        },
+    }];
+    if !valid {
+        assert!(verify(&f).unwrap_err().contains("VRAM write requires"));
+        return;
+    }
+    f.blocks[0].instructions = vec![
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 1 },
+            il_offset: 0,
+        },
+        instruction(2, Type::I32, Op::LoadLocal(0)),
+        Instruction {
+            result: None,
+            op: Op::VramWrite {
+                address: 0,
+                value: 2,
+            },
+            il_offset: 99,
+        },
+    ];
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    let write = f.blocks[0]
+        .instructions
+        .iter()
+        .find(|instruction| matches!(instruction.op, Op::VramWrite { .. }))
+        .unwrap();
+    assert_eq!(write.il_offset, 99);
+    assert_eq!(write.op.operands().collect::<Vec<_>>(), vec![0, 1]);
+    koh_compile::sm83::emit(&f).unwrap();
+    f.blocks[0].instructions.last_mut().unwrap().result = Some((3, Type::I32));
+    assert!(verify(&f).is_err());
+}

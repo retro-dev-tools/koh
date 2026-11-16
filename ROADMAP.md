@@ -20,14 +20,13 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   Native copy/fill and corrected VBlank polling let all eight double-buffered/
   full-frame Debug/Release × DMG/CGB cases pass structural captures. CGB uses
   bounded1024-byte DMA bursts; raw CPU copy has explicit ordered semantics.
-  Full Linux Rust workspace/all-features passes924/924, plus separate rustdoc;
+  Callback checkpoint Linux workspace/all-features passes1193/1193, plus separate rustdoc;
   actual SDK build/run checks pass. Final selected-bank probes pass4/4.
-  Sixty-two legacy methods have complete replacements;503 remain partial/
+  Sixty-four legacy methods have complete replacements;501 remain partial/
   outstanding, none deleted. Racing-beam now passes all four native configurations
   with actual SCX/scanline traces; the shared all256-phase CLR sweep now has
   Rust-owned assertions in Debug/Release and its redundant C# verifier is removed.
-  The924-test workspace result predates the raster/phase increments; the raster
-  regression passed380/380 and the full phase/cube target passes76/76. The
+  Earlier raster regression passed380/380 and the phase/cube target passes76/76. The
   existing headless emulator captures the SDK-built racing ROM with zero mode3
   writes. This CLR sweep complements native ROM tests; it is not all-phase
   native or Canvas-renderer execution.
@@ -51,10 +50,13 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   budgets, with6160 phase/count/frame probes. The1086-case workspace run has
   1084 passes and two LCD-off setup failures; both corrected tests pass2/2 with
   unchanged compiler sources. Do not call that original command green.
-  JRPG's next verified build blocker is its rectangular byte[,]
-  map; [requirements](docs/rust-compiler/rectangular-arrays.md) distinguish CLI
-  semantics from legacy layout and readonly-array folding assumptions. Interface
-  dispatch and the other whole-migration gates remain required.
+  Rank-two arrays and stored/virtual callbacks now compile the unchanged JRPG.
+  Guarded VRAM stores replace its racy attribute retry loop; normal SDK builds
+  and Debug/Release CGB dialogue/Slime-battle assertions pass. New primitive
+  checks include9856 sampled phase probes and396 broader regressions. The
+  [contract](docs/rust-compiler/vram-write.md) explicitly leaves interrupts
+  disabled for nonempty CGB attribute writes. Remaining JRPG art/OAM/capture
+  assertions, interface dispatch and whole-migration gates remain required.
   Metadata commitb4caf55 hosted Rust suites pass1012 Linux/macOS
   and1010 Windows cases; those results predate the object-core increment.
   Full current-head workspace/hosted acceptance, source debugging, broader

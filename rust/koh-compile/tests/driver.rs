@@ -8,6 +8,8 @@ mod rectangular;
 mod support;
 #[path = "driver/vblank.rs"]
 mod vblank;
+#[path = "driver/vram.rs"]
+mod vram;
 use support::{Host, dotnet};
 
 #[rstest::fixture]

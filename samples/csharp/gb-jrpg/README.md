@@ -7,12 +7,19 @@ villager through paged dialogue, rolls random encounters into a menu-driven turn
 levels, victory and defeat — authored with no regard for what the compiler supported at the time,
 per the ideal-code methodology of
 [`docs/superpowers/specs/2026-07-19-ideal-game-api-design.md`](../../../docs/superpowers/specs/2026-07-19-ideal-game-api-design.md).
-It compiles unmodified; `dotnet build` emits `jrpg.gb` (header `0xC0` — CGB only, no monochrome
-fallback), and `tests/Compiler/Koh.Compiler.Tests/Samples/GbJrpgTests.cs` boots it on the emulator in CGB
-mode and plays it through (walk → fight whatever the encounter roll throws at it → talk → dialogue
-callback). Acceptance captures are written under the test binary directory at
-`TestResults/gb-jrpg/<run-id>/`. The images below in [`screenshots/`](screenshots/) are
-curated documentation assets; update them deliberately from a reviewed test capture.
+It builds unmodified through the native Rust compiler/linker. `dotnet build` emits
+`jrpg.gb` (header `0xC0`: CGB only, no monochrome fallback).
+[Native Rust acceptance](../../../rust/koh-compile/tests/sdk/game.rs) builds the
+actual sources and PNG assets in Debug and Release, boots the existing C# emulator,
+and checks movement, NPC collision, all dialogue pages, the retained close
+callback and a seeded Slime victory with exact HP/experience/RNG state. It also
+requires zero mode-3 VRAM writes. See the
+[acceptance scope](../../../docs/rust-compiler/jrpg-acceptance.md) for remaining
+coverage; this does not claim every combat branch or pixel-perfect art validation.
+Native snapshots use temporary test directories. The images below in
+[`screenshots/`](screenshots/) are curated documentation assets and are never
+written by those tests. Update them deliberately from reviewed captures.
+
 
 | Title | Overworld | Dialogue | Battle |
 |---|---|---|---|
@@ -28,10 +35,12 @@ Art and design were produced by a team of specialized agents (level designer, te
 
 | Construct in this game | What it forced |
 |---|---|
-| `static readonly byte[,] Map` + `Map[y, x]` through parameters (`World.cs`) | Rank-2 rectangular arrays: Roslyn emits `newobj T[0...,0...]::.ctor` and `Get`/`Set` calls on the array type (no CIL opcodes, no resolvable definitions); now laid out `[u16 d0][u16 d1][row-major payload]` with the reference at the payload, row stride read from payload−2 on untraceable arrays; ROM-folded for `static readonly` literals |
-| `static readonly string[] Lines` dialogue table (`Actors.cs`) | `ldelem.ref`/`stelem.ref` — reference elements as 2-byte pointers |
-| `new DialogueScene(Lines, () => ...)` — a stored `Action` close-callback invoked later through a field (`Scenes.cs`) | Enabler E3, stored delegates: a delegate crossing a provenance-erasing boundary materializes into a 3-byte arena blob `[u8 targetId][u16 env]`; an untraceable `Invoke` switches over the closed-world `CilDelegateRegistry` — direct calls only, and the traceable LINQ/lambda fast path unchanged |
-| `interface IInteractable` on the villager, `Enemy` hierarchy with virtual stats | Already covered by M3's closed-world dispatch (sealed receivers devirtualize; the hierarchy tags handle the rest) |
+| `static readonly byte[,] Map` + `Map[y, x]` (`World.cs`) | Checked mutable rank-two arrays, per-dimension bounds and row-major indexing; see [native contract](../../../docs/rust-compiler/rectangular-arrays.md) |
+| `static readonly string[] Lines` (`Actors.cs`) | Typed reference arrays and UTF-16 string length/indexing |
+| `new DialogueScene(Lines, () => ...)` (`Scenes.cs`) | Stored callbacks retain their target and captures through constructor fields; native banked invocation and callback return are exercised by the game test |
+| `Enemy`/`Scene` hierarchies with virtual methods | Runtime class dispatch, inherited behavior and state through scene transitions |
+| `interface IInteractable` on the villager | Declared by the game, but the current sample calls the concrete Villager; this sample alone does not establish interface-call support |
+
 
 ## Art: the PNG tile pipeline (no tile bytes in source)
 

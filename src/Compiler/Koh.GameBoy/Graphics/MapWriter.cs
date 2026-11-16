@@ -373,10 +373,8 @@ internal static unsafe class MapWriter
     private static ushort FlushRun(byte* dst, byte* src, ushort n) =>
         throw new PlatformNotSupportedException();
 
-    /// <summary>Set one cell's CGB attribute byte (VRAM bank 1). Silent no-op on DMG. Direct-to-VRAM (see
-    /// the class remarks: per-frame attribute shadowing is out of scope for this pass); still gated on
-    /// <see cref="Ppu.WaitForVramAccess"/>, which returns immediately once the LCD is off, so an
-    /// init/LCD-off attribute pass writes freely.</summary>
+    /// <summary>Set one CGB attribute; DMG no-op.</summary>
+    /// <remarks>CGB writes leave interrupts disabled.</remarks>
     internal static void SetAttr(byte map, byte col, byte row, byte attr)
     {
         if (!Video.IsCgb)
@@ -387,9 +385,8 @@ internal static unsafe class MapWriter
         Cgb.SelectVramBank(0);
     }
 
-    /// <summary>Rect of one CGB attribute byte (VRAM bank 1). Silent no-op on DMG. Selects bank 1 once for
-    /// the whole rect and restores bank 0 afterward. Same direct-VRAM / out-of-scope-for-shadow stance as
-    /// <see cref="SetAttr"/>.</summary>
+    /// <summary>Fill CGB attributes; DMG no-op.</summary>
+    /// <remarks>Nonempty CGB writes leave interrupts disabled.</remarks>
     internal static void FillAttr(byte map, byte col, byte row, byte w, byte h, byte attr)
     {
         if (!Video.IsCgb)
@@ -402,22 +399,9 @@ internal static unsafe class MapWriter
         Cgb.SelectVramBank(0);
     }
 
-    /// <summary>One live attribute write that actually LANDS. "WaitForVramAccess then store" races
-    /// mode 3: the wait can return at the tail of an accessible window and the store arrive after
-    /// rendering resumed — the PPU (real hardware and the emulator alike) silently DROPS such a
-    /// write, which showed up as deterministic attribute holes (a whole column of wall cells stuck
-    /// on the wrong palette in the JRPG sample). Write-then-verify converges instead: a dropped
-    /// store reads back 0xFF (mode-3 VRAM reads) or the old byte, and the loop re-gates and
-    /// rewrites in the next window. With the LCD off both the gate and the race are no-ops and the
-    /// first store sticks.</summary>
-    private static void WriteAttrVerified(byte* cell, byte attr)
-    {
-        do
-        {
-            Ppu.WaitForVramAccess();
-            *cell = attr;
-        } while (*cell != attr);
-    }
+    /// <summary>VRAM store; interrupts disabled.</summary>
+    [KohIntrinsic("vramwrite")]
+    private static void WriteAttrVerified(byte* cell, byte attr) => *cell = attr;
 
     private static ushort Index(byte col, byte row) => (ushort)((ushort)row * 32 + col);
 }

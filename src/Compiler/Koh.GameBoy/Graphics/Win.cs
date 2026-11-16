@@ -37,6 +37,7 @@ public static unsafe class Win
     /// <summary>CGB only: set one cell's per-tile attribute byte (VRAM bank 1). Silent no-op on DMG.
     /// Direct-to-VRAM; per-frame LCD-on attribute shadowing is out of scope (see <see cref="MapWriter"/>'s
     /// remarks).</summary>
+    /// <remarks>Nonempty CGB writes leave interrupts disabled.</remarks>
     public static void SetAttr(byte col, byte row, byte attr) =>
         MapWriter.SetAttr(1, col, row, attr);
 }

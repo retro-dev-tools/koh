@@ -420,6 +420,10 @@ pub enum Op {
         source: u32,
         count: u32,
     },
+    VramWrite {
+        address: u32,
+        value: u32,
+    },
     CpuControl(CpuControl),
     OamDma(u32),
     StringLiteral(Vec<u16>),
@@ -598,6 +602,7 @@ impl Op {
             }
             Self::ExtractField { value, .. } => [Some(value), None],
             Self::StoreMemory { address, value, .. }
+            | Self::VramWrite { address, value }
             | Self::MemoryFill { address, value, .. }
             | Self::HBlankStream {
                 source: address,
@@ -1238,6 +1243,16 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             || !is_hblank_register(register)
                         {
                             return Err("HBlank stream requires native source, int32 line/count and a display register".into());
+                        }
+                        None
+                    }
+                    Op::VramWrite { address, value } => {
+                        if check(address, position)? != Type::Native
+                            || check(value, position)? != Type::I32
+                        {
+                            return Err(
+                                "VRAM write requires native address and int32 byte storage".into(),
+                            );
                         }
                         None
                     }

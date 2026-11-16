@@ -1270,7 +1270,10 @@ pub(crate) fn emit_with_strings(
         .any(|i| {
             matches!(
                 i.op,
-                Op::MemoryFill { .. } | Op::MemoryCopy { .. } | Op::VBlankCopy { .. }
+                Op::MemoryFill { .. }
+                    | Op::MemoryCopy { .. }
+                    | Op::VBlankCopy { .. }
+                    | Op::VramWrite { .. }
             )
         });
     code.guard(
@@ -1465,6 +1468,22 @@ pub(crate) fn emit_with_strings(
                     ]);
                     code.jump(0xc2, next);
                     code.mark(done);
+                }
+                Op::VramWrite { address, value } => {
+                    code.indirect(slot(address));
+                    code.bytes(&[0xc5]);
+                    code.load_a(slot(value) + 2);
+                    code.bytes(&[0x57, 0xe1, 0x7c, 0xfe, 0x80]);
+                    let hardware = code.import("__koh_trap_hardware".into());
+                    code.jump(0xda, hardware);
+                    code.bytes(&[0xfe, 0xa0]);
+                    code.jump(0xd2, hardware);
+                    code.bytes(&[0xf3]);
+                    let accessible = code.label();
+                    code.mark(accessible);
+                    code.bytes(&[0xf0, 0x41, 0xe6, 2]);
+                    code.jump(0xc2, accessible);
+                    code.bytes(&[0x7a, 0x77]);
                 }
                 Op::VBlankCopy {
                     destination: target,

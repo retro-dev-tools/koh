@@ -291,6 +291,10 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     address,
                     value: stored,
                     ..
+                }
+                | Op::VramWrite {
+                    address,
+                    value: stored,
                 } => {
                     value(address);
                     value(stored);

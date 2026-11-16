@@ -31,6 +31,14 @@ for (int frame = 0; frame <= last; frame++)
     var current = actions.Where(action => int.Parse(action[0]) == frame).ToArray();
     foreach (var action in current.Where(action => action[1] != "dump"))
     {
+        if (action[1] == "write")
+        {
+            ushort address = Convert.ToUInt16(action[2], 16);
+            var bytes = Convert.FromHexString(action[3]);
+            for (int index = 0; index < bytes.Length; index++)
+                gb.Mmu.DebugWrite(checked((ushort)(address + index)), bytes[index]);
+            continue;
+        }
         var button = Enum.Parse<JoypadButton>(action[2]);
         if (action[1] == "press")
             gb.JoypadPress(button);
