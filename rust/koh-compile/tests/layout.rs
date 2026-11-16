@@ -444,6 +444,77 @@ fn definition(resolver: &Resolver<'_>, name: &str) -> Definition {
 }
 
 #[rstest]
+#[case(false)]
+#[case(true)]
+fn value_depth_is_independent_of_cache_order(#[case] cached: bool) {
+    let mut source = String::from("public struct V0 { public object Value; }\n");
+    for index in 1..65 {
+        source.push_str(&format!(
+            "public struct V{index} {{ public V{} Value; }}\n",
+            index - 1
+        ));
+    }
+    let image = compile_class_layout_source(&source);
+    let resolver = Resolver::new(&[&image]).unwrap();
+    if cached {
+        for index in 0..64 {
+            layout::value(&resolver, definition(&resolver, &format!("V{index}"))).unwrap();
+        }
+    }
+    let result = layout::value(&resolver, definition(&resolver, "V64"));
+    assert!(
+        result.is_err(),
+        "65-level value hierarchy accepted, cached={cached}"
+    );
+    assert!(result.unwrap_err().contains("nesting"));
+    let valid = layout::value(&resolver, definition(&resolver, "V63")).unwrap();
+    assert_eq!(valid.bytes, 2);
+    assert!(valid.contains_references);
+}
+
+#[test]
+fn managed_reference_metadata_scans_have_a_shared_budget() {
+    let mut source = String::from("public class Node {}\n");
+    for index in 0..1024 {
+        source.push_str(&format!("public class G{index}<T> {{}}\n"));
+    }
+    source.push_str("public struct References {\n");
+    for index in 0..1024 {
+        source.push_str(&format!("public Node F{index};\n"));
+    }
+    source.push_str("}\n");
+    let image = compile_class_layout_source(&source);
+    let resolver = Resolver::new(&[&image]).unwrap();
+    let result = layout::value(&resolver, definition(&resolver, "References"));
+    let error = result
+        .err()
+        .expect("Repeated generic-table scans must exhaust the shared reference budget");
+    assert!(
+        error.contains("reference") && error.contains("budget"),
+        "{error}"
+    );
+}
+
+#[rstest]
+#[case(
+    "[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit)] public struct Value { [System.Runtime.InteropServices.FieldOffset(0)] public object Reference; [System.Runtime.InteropServices.FieldOffset(0)] public int Alias; }",
+    "Explicit"
+)]
+#[case(
+    "[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit)] public struct Value { [System.Runtime.InteropServices.FieldOffset(0)] public object Reference; [System.Runtime.InteropServices.FieldOffset(8)] public byte Tail; }",
+    "Explicit"
+)]
+#[case("public ref struct Value { public ref int Reference; }", "byref")]
+fn unsupported_managed_value_shapes_diagnose(#[case] source: &str, #[case] expected: &str) {
+    let image = compile_class_layout_source(source);
+    let resolver = Resolver::new(&[&image]).unwrap();
+    let error = layout::value(&resolver, definition(&resolver, "Value"))
+        .err()
+        .expect("Unsupported reference layout must diagnose");
+    assert!(error.contains(expected), "{error}");
+}
+
+#[rstest]
 #[case("Empty", 1, 1, &[])]
 #[case("Plain", 16, 8, &[0,2,4,8])]
 #[case("Packed", 15, 1, &[0,1,3,7])]
@@ -454,7 +525,8 @@ fn definition(resolver: &Resolver<'_>, name: &str) -> Definition {
 #[case("WithEnum", 4, 2, &[0,2])]
 #[case("OddSequential", 5, 4, &[0])]
 #[case("OddExplicit", 5, 4, &[0])]
-fn roslyn_unmanaged_layouts_have_independent_offsets(
+#[case("WithReference", 2, 2, &[0])]
+fn roslyn_value_layouts_have_independent_offsets(
     images: &[Vec<u8>; 2],
     #[case] name: &str,
     #[case] bytes: u16,
@@ -466,6 +538,7 @@ fn roslyn_unmanaged_layouts_have_independent_offsets(
         let identity = definition(&resolver, name);
         let value = layout::value(&resolver, identity).unwrap();
         assert_eq!(value.identity, identity);
+        assert_eq!(value.contains_references, name == "WithReference");
         assert_eq!((value.bytes, value.alignment), (bytes, alignment), "{name}");
         assert_eq!(
             value
@@ -484,7 +557,6 @@ fn roslyn_unmanaged_layouts_have_independent_offsets(
 }
 
 #[rstest]
-#[case("WithReference", "reference")]
 #[case("Generic`1", "generic")]
 #[case("Automatic", "AutoLayout")]
 #[case("Inline", "InlineArray")]

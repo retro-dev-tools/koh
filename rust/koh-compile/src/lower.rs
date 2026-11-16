@@ -150,6 +150,14 @@ pub(crate) fn owner_type(
     })
 }
 
+fn value_type(layout: &crate::layout::Layout) -> Result<ValueType, String> {
+    if layout.contains_references {
+        ValueType::with_references(layout.identity, layout.bytes)
+    } else {
+        ValueType::new(layout.identity, layout.bytes)
+    }
+}
+
 fn bound_type(
     resolver: &crate::resolve::Resolver<'_>,
     assembly: usize,
@@ -158,7 +166,7 @@ fn bound_type(
     let shape = |encoded| -> Result<ValueType, String> {
         let identity = resolver.resolve_type(assembly, crate::resolve::type_token(encoded)?)?;
         let layout = crate::layout::value(resolver, identity)?;
-        ValueType::new(layout.identity, layout.bytes)
+        value_type(&layout)
     };
     match ty {
         clrmeta::TypeSig::Primitive(clrmeta::ElementType::Object) => {
@@ -1623,7 +1631,7 @@ fn translate(
                     Type::StructRef(shape),
                     Op::LocalAddress {
                         local,
-                        storage: Storage::Struct(shape),
+                        storage: FieldStorage::Value(Storage::Struct(shape)),
                     },
                 )?;
                 arguments.insert(0, address.0);
@@ -1711,7 +1719,7 @@ fn translate(
             };
             let ty = *locals.get(index).ok_or("Invalid local address index")?;
             let storage = if let Type::Struct(value) = ty {
-                Storage::Struct(value)
+                FieldStorage::Value(Storage::Struct(value))
             } else if let Some(resolver) = resolver {
                 let image = resolver.assembly(method.identity.assembly)?;
                 let types = if argument {
@@ -1724,7 +1732,7 @@ fn translate(
                 } else {
                     image.local_types(method.identity.token)?
                 };
-                bound_storage(
+                field_storage(
                     resolver,
                     method.identity.assembly,
                     types
@@ -1732,7 +1740,7 @@ fn translate(
                         .ok_or("Missing addressed storage signature")?,
                 )?
             } else {
-                Storage::Scalar(match ty {
+                FieldStorage::Value(Storage::Scalar(match ty {
                     Type::I32 => Scalar::I32,
                     Type::I64 => Scalar::I64,
                     Type::Native => Scalar::NativeSigned,
@@ -1747,7 +1755,7 @@ fn translate(
                     | Type::StructRef(_) => {
                         return Err("Nested managed references are unsupported".into());
                     }
-                })
+                }))
             };
             let value = b.value(
                 storage.reference_type(),
@@ -1953,13 +1961,13 @@ fn translate(
                 return Ok(Control::Jump(b.edge(next()?)));
             }
             let layout = crate::layout::value(resolver, owner)?;
-            let shape = ValueType::new(layout.identity, layout.bytes)?;
+            let shape = value_type(&layout)?;
             let field = layout
                 .fields
                 .iter()
                 .find(|f| f.identity == target.definition)
                 .ok_or("Field is not in aggregate layout")?;
-            let storage = bound_storage(resolver, target.definition.assembly, &field.signature)?;
+            let storage = field_storage(resolver, target.definition.assembly, &field.signature)?;
             if receiver.1 == Type::Struct(shape) && i.opcode == 0x7b {
                 let value = b.value(
                     storage.stack_type(),
@@ -2006,7 +2014,7 @@ fn translate(
                         Op::LoadMemory {
                             address: address.0,
                             bits: storage.bytes() * 8,
-                            signed: matches!(storage, Storage::Scalar(scalar) if scalar.signed()),
+                            signed: matches!(storage, FieldStorage::Value(Storage::Scalar(scalar)) if scalar.signed()),
                         },
                     )?;
                     b.stack.push(value);
@@ -2120,6 +2128,39 @@ fn translate(
                         address: address.0,
                         bits,
                         signed,
+                    },
+                )?;
+                b.stack.push(value);
+            }
+        }
+        0x50 | 0x51 => {
+            let stored = if i.opcode == 0x51 {
+                Some(b.pop()?)
+            } else {
+                None
+            };
+            let address = b.pop()?;
+            let Type::ReferenceCell(cell) = address.1 else {
+                return Err("Indirect reference access requires a typed reference cell".into());
+            };
+            if let Some(value) = stored {
+                let value = b.coerce(value, cell.stack_type())?;
+                b.instructions.push(Instruction {
+                    result: None,
+                    op: Op::StoreMemory {
+                        address: address.0,
+                        value: value.0,
+                        bits: 16,
+                    },
+                    il_offset: b.offset,
+                });
+            } else {
+                let value = b.value(
+                    cell.stack_type(),
+                    Op::LoadMemory {
+                        address: address.0,
+                        bits: 16,
+                        signed: false,
                     },
                 )?;
                 b.stack.push(value);

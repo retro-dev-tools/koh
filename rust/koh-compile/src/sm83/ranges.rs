@@ -49,14 +49,14 @@ pub(super) fn analyze(function: &Function) -> Widths {
             let index = local as usize;
             let maximum = if matches!(
                 storage,
-                Storage::Scalar(
+                crate::ir::FieldStorage::Value(Storage::Scalar(
                     Scalar::Bool
                         | Scalar::U8
                         | Scalar::Char
                         | Scalar::U16
                         | Scalar::U32
                         | Scalar::U64
-                )
+                ))
             ) {
                 mask(storage.bytes() * 8)
             } else {

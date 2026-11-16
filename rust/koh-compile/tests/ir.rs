@@ -3,6 +3,105 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 
 #[rstest]
+#[case("typed", true)]
+#[case("raw-load", false)]
+#[case("raw-store", false)]
+#[case("raw-field", false)]
+#[case("unmanaged-field", false)]
+#[case("unmanaged-extract", false)]
+fn managed_aggregates_require_typed_storage(#[case] scenario: &str, #[case] valid: bool) {
+    let id = Definition {
+        assembly: 0,
+        token: 0x02000002,
+    };
+    let managed = ValueType::with_references(id, 2).unwrap();
+    let unmanaged = ValueType::new(id, 2).unwrap();
+    let owner = if scenario.starts_with("unmanaged") {
+        unmanaged
+    } else {
+        managed
+    };
+    let address = if scenario.starts_with("raw") {
+        Type::Native
+    } else {
+        Type::StructRef(owner)
+    };
+    let storage = FieldStorage::Array(Storage::Scalar(Scalar::U8));
+    let mut f = diamond();
+    f.parameters = vec![address];
+    f.locals.clear();
+    f.returns = None;
+    let instructions = match scenario {
+        "raw-store" => vec![
+            instruction(1, Type::Struct(owner), Op::ZeroStruct),
+            Instruction {
+                result: None,
+                op: Op::StoreMemory {
+                    address: 0,
+                    value: 1,
+                    bits: 16,
+                },
+                il_offset: 0,
+            },
+        ],
+        "raw-field" | "unmanaged-field" => vec![instruction(
+            1,
+            storage.reference_type(),
+            Op::FieldAddress {
+                address: 0,
+                owner,
+                offset: 0,
+                storage,
+            },
+        )],
+        "unmanaged-extract" => vec![
+            instruction(1, Type::Struct(owner), Op::ZeroStruct),
+            instruction(
+                2,
+                storage.stack_type(),
+                Op::ExtractField {
+                    value: 1,
+                    offset: 0,
+                    storage,
+                },
+            ),
+        ],
+        _ => vec![
+            instruction(
+                1,
+                Type::Struct(owner),
+                Op::LoadMemory {
+                    address: 0,
+                    bits: 16,
+                    signed: false,
+                },
+            ),
+            instruction(
+                2,
+                storage.stack_type(),
+                Op::ExtractField {
+                    value: 1,
+                    offset: 0,
+                    storage,
+                },
+            ),
+        ],
+    };
+    f.blocks = vec![Block {
+        parameters: vec![(0, address)],
+        instructions,
+        terminator: Terminator {
+            il_offset: 0,
+            kind: Control::Return(None),
+        },
+    }];
+    assert_eq!(verify(&f).is_ok(), valid, "{scenario}");
+    if valid {
+        koh_compile::sm83::emit(&f).unwrap();
+    }
+}
+
+#[rstest]
 #[case(Type::Null, true)]
 #[case(Type::Native, false)]
 #[case(Type::I32, false)]
@@ -791,7 +890,7 @@ fn local_forwarding_preserves_effects_and_traps(#[case] barrier: u8) {
             Type::ByRef(Scalar::I32),
             Op::LocalAddress {
                 local: 0,
-                storage: Storage::Scalar(Scalar::I32),
+                storage: FieldStorage::Value(Storage::Scalar(Scalar::I32)),
             },
         ),
     ];
@@ -1283,7 +1382,7 @@ fn aggregate_field(native: bool, nested: bool, offset: u16) -> Function {
                 address: 0,
                 owner,
                 offset,
-                storage,
+                storage: FieldStorage::Value(storage),
             },
         )],
         terminator: Terminator {
@@ -1353,7 +1452,7 @@ fn derived_struct_field_references_cannot_escape_frame(#[case] nested: bool) {
             Type::StructRef(owner),
             Op::LocalAddress {
                 local: 0,
-                storage: Storage::Struct(owner),
+                storage: FieldStorage::Value(Storage::Struct(owner)),
             },
         ),
         field,
@@ -1453,7 +1552,7 @@ fn local_forwarding_requires_all_paths_and_unaliased_storage(
             Type::ByRef(Scalar::I32),
             Op::LocalAddress {
                 local: 0,
-                storage: Storage::Scalar(Scalar::I32),
+                storage: FieldStorage::Value(Storage::Scalar(Scalar::I32)),
             },
         ));
     }
@@ -1818,7 +1917,7 @@ fn pinning_cannot_hide_a_managed_frame_reference_escape() {
                 Type::ByRef(Scalar::U8),
                 Op::LocalAddress {
                     local: 1,
-                    storage: Storage::Scalar(Scalar::U8),
+                    storage: FieldStorage::Value(Storage::Scalar(Scalar::U8)),
                 },
             ),
         ],
@@ -2164,7 +2263,7 @@ fn frame_reference() -> Function {
                     Type::ByRef(Scalar::I32),
                     Op::LocalAddress {
                         local: 0,
-                        storage: Storage::Scalar(Scalar::I32),
+                        storage: FieldStorage::Value(Storage::Scalar(Scalar::I32)),
                     },
                 ),
             ],
@@ -2287,7 +2386,7 @@ fn local_addresses_validate_index_and_storage(
     f.blocks[0].terminator.kind = Control::Return(None);
     f.blocks[0].instructions.last_mut().unwrap().op = Op::LocalAddress {
         local,
-        storage: Storage::Scalar(scalar),
+        storage: FieldStorage::Value(Storage::Scalar(scalar)),
     };
     f.blocks[0].instructions.last_mut().unwrap().result = Some((2, result));
     assert_eq!(verify(&f).is_ok(), valid);

@@ -1,5 +1,96 @@
 # PR #55 handoff
 
+## Active uncommitted unit — reference-bearing values
+
+LATEST CHECKPOINT (supersedes intermediate statuses below): managed-value code
+review reports no CIL/layout/backend blocker. Trusted IR projections are documented
+explicitly. Final selected regression347/347 passes229.390s, exit0,208filtered,
+/tmp/koh-managed-values-final-regression.log. Workspace all-feature/all-target
+check succeeds8.45s (existing cube-helper warning); separate rustdoc succeeds
+four crates/zero cases. Ordinary2048v2 SDK Release build succeeds31.59s,131072B.
+Manual title/play captures work but do not establish complete sample acceptance.
+
+New Rust SDK acceptance and GameHost remain a SEPARATE UNCOMMITTED unit. It runs
+actual sources throughSDK, ordinaryELF/linker and realboot C#emulator. Exactboard
+rules, tile bytes andpixels pass both CGBconfigs; bothDMGconfigs fail. Final
+diagnostic /tmp/koh-2048-dmg-flush-diagnostic.log exit100 confirms DirtyBg=1,
+MinIdxBg=140,MaxIdxBg=1023 atinitialcapture after300frames sinceStart. Clear has
+notdrained; titletext/partialtiles remain. Preserveframe/pixelassertions; fixroot
+DMGflushthroughput. Four independent merge-oracle cases pass. Temporary test
+disable_cleanup(true) and eprintln diagnostics MUST be removed before thatunit's
+commit. Captures retained under /tmp/koh SDK 2048 DTziHZ andWTbSXW. Alllocal
+sessions terminal (including18161,12627,85436,10038); no concurrentbuildlive.
+
+Prior d834811 native hostedrun43793974254 completed success; managed43793974256
+failed actual SDK builds for2048v2/JRPG atmanagedstruct rejection. Ubuntu log
+job133058482990 confirms rootcause. Currentdirtymanagedvalues address thatgap;
+do not claimnewheadhostedproof. Ledger48/565complete,517outstanding. Next fixDMG
+flush andfinish native2048 acceptance includingtitle/HUD and eightdirections,
+then scene-transition ordering/JRPG and remaining fullmigration gates.
+
+Base remains pushed d834811. Native managed-value implementation is dirty:
+Layout/ValueType carry contains-references, FieldAddress/ExtractField/LocalAddress
+reuse FieldStorage for scalar/struct/object/string/array cells, and ldind.ref/
+stind.ref require typed cells. Managed struct loads/stores cannot use raw native
+addresses; unmanaged shapes cannot fabricate reference fields. Existing numeric
+storage-width analysis was adapted to match only FieldStorage::Value scalars.
+Sequential managed layouts work; explicit managed layouts and byref fields
+diagnose pending scoped/overlap support. No asset API has been changed.
+
+ManagedValues fixture Main checks exact12-int observations across value copies,
+shared array/string/class refs, nested/static/array/class-owned structs and SVBK2.
+AssetCount uses real TileAsset.Define; RecursiveArray supports a struct containing
+its own array type without layout recursion; ReferenceAliases tests field/local
+reference-cell loads/stores. Four entries ×4 configs =16 ROM probes. Initial
+8 probes passed4/4 in17.602s; reference-cell red4/4 at opcode0051, then updated
+16-probe run passes4/4 in18.505s (/tmp/koh-managed-refcells-first.log).
+Scoped fixture formatting happened afterward; final rerun is still needed.
+
+First broader335-case selection had334 passes/1 stale rejection of WithReference.
+Replaced that with exact2-byte/align2 layout and contains-references assertion.
+New resource tests reproduced cached value-depth bypass and uncharged generic-
+table scans:1pass/2fail in5.084s. Cumulative cached depth plus a resolver-wide
+reference work budget fix them; selected14/14 passes43.019s, exit0.
+Logs /tmp/koh-managed-values-{regression,bounds-red,bounds-green}.log.
+New explicit-layout/ref-field negatives and final alias changes need broad rerun.
+
+SDK2048v2 build is LIVE session3177, /tmp/koh-managed-values-2048-sdk.log;
+root native SDK target may be compiling. Do not launch another shared build or
+edit production sources until terminal. All previous handles terminal.
+Next: review this unit, finish diagnostics/layout/ABI regressions, inspect actual
+SDK next behavior. Keep full goal, test ledger48/565 and single draft PR55 intact.
+
+## Current checkpoint — dispatch pushed
+
+Pushed d834811c98af0bc3b135518c9954842e6a01bd15. Remote branch and PR55 head,
+master base, open/draft/unmerged status verified; live checklist updated.
+All13 tested source hashes match after the CSharpier hook. All local process
+handles terminal; only this post-push handoff refresh is uncommitted.
+Fresh native CI43793974254 and managed CI43793974256 confirmed in progress.
+Prior419803b native CI failed on the stale forged-framework wording assertion;
+fixed assertion now checks exact identity/key/member/IL rejection, not callvirt.
+
+Full workspace run1047 cases:1045passed,2stale assertions failed,0skipped,
+1487.093s, exit100. Final focused283/283 in43.495s, exit0, includes both fixes
+and exact unsigned-byte/per-type dispatch packets. Workspace check and separate
+rustdoc pass. Do not claim original full command green; monitor new hosted logs.
+36 virtual ROM probes across4 configurations force separate ROM banks including
+257+, with wide/byref calls, descriptor casts, slots/newslot/base calls, null,
+constructor-time state, transitive allocation and dead override checks.
+Review's duplicate-override issue reproduced D/R and is fixed; re-review clear.
+Test ledger48/565 complete,517 outstanding, zero physically retired.
+
+Next: reference-bearing value structs exposed by2048v2 Assets::Load IL_0005;
+preserve value-copy versus reference-alias semantics, reject invalid byref and
+overlap shapes, reuse typed field storage rather than forcing asset API toclass.
+Also add real framework scene-transition acceptance before claiming Scene/Game
+behavior. Public APIs remain evidence, not design conventions. Interfaces/
+delegates/generics/float/IRQs, source/PDB/KDBG+correct stack integration, all test
+closure, C# compiler deletion and final performance/release/host validation remain.
+Keep one draft PR55; do not merge. Preserve main-worktree battle.png edits.
+
+## Earlier dispatch implementation checkpoints
+
 ## Dispatch verification ready for commit
 
 Full1047-case workspace run finished exit100 in1487.093s:1045passed, two stale

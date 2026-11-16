@@ -202,7 +202,7 @@ fn aggregate_values_copy_initialize_and_cross_calls(host: &Host, #[case] bytes: 
         Type::StructRef(shape),
         Op::LocalAddress {
             local: 0,
-            storage: Storage::Struct(shape),
+            storage: FieldStorage::Value(Storage::Struct(shape)),
         },
     );
     let mut valid = value(&mut code, Type::I32, Op::Constant(1));
@@ -214,7 +214,7 @@ fn aggregate_values_copy_initialize_and_cross_calls(host: &Host, #[case] bytes: 
                 address: local,
                 owner: shape,
                 offset,
-                storage,
+                storage: FieldStorage::Value(storage),
             },
         );
         let actual = value(
@@ -252,7 +252,7 @@ fn aggregate_values_copy_initialize_and_cross_calls(host: &Host, #[case] bytes: 
                 address: 0,
                 owner: shape,
                 offset,
-                storage,
+                storage: FieldStorage::Value(storage),
             },
         );
         let data = value(&mut code, scalar_ty, Op::Constant(pattern(offset)));
@@ -321,7 +321,7 @@ fn aggregate_values_copy_initialize_and_cross_calls(host: &Host, #[case] bytes: 
         Op::ExtractField {
             value: returned,
             offset: bytes - child.bytes(),
-            storage: Storage::Struct(child),
+            storage: FieldStorage::Value(Storage::Struct(child)),
         },
     );
     let address = value(
@@ -331,7 +331,7 @@ fn aggregate_values_copy_initialize_and_cross_calls(host: &Host, #[case] bytes: 
             address: 1,
             owner: shape,
             offset: bytes - child.bytes(),
-            storage: Storage::Struct(child),
+            storage: FieldStorage::Value(Storage::Struct(child)),
         },
     );
     store(
@@ -348,7 +348,7 @@ fn aggregate_values_copy_initialize_and_cross_calls(host: &Host, #[case] bytes: 
         Op::ExtractField {
             value: returned,
             offset: 0,
-            storage: Storage::Scalar(Scalar::I8),
+            storage: FieldStorage::Value(Storage::Scalar(Scalar::I8)),
         },
     );
     let expected = value(
@@ -382,7 +382,7 @@ fn aggregate_values_copy_initialize_and_cross_calls(host: &Host, #[case] bytes: 
                 address: 1,
                 owner: shape,
                 offset,
-                storage,
+                storage: FieldStorage::Value(storage),
             },
         );
         let actual = value(
@@ -492,7 +492,7 @@ fn null_struct_field_reference_traps_before_offset(host: &Host, #[case] offset: 
                         address: 0,
                         owner: shape,
                         offset,
-                        storage: Storage::Scalar(Scalar::U32),
+                        storage: FieldStorage::Value(Storage::Scalar(Scalar::U32)),
                     },
                     il_offset: 0,
                 },
@@ -1440,7 +1440,7 @@ fn partial_local_aliases_preserve_high_bits_and_carry(
             Type::ByRef(scalar),
             Op::LocalAddress {
                 local: 0,
-                storage: Storage::Scalar(scalar),
+                storage: FieldStorage::Value(Storage::Scalar(scalar)),
             },
         ),
         instruction(2, Type::I32, Op::Constant(rewritten)),

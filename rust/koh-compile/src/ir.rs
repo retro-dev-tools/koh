@@ -9,6 +9,7 @@ pub(crate) use stack::allocations as stack_allocations;
 pub struct ValueType {
     identity: Definition,
     bytes: u16,
+    references: bool,
 }
 
 impl ValueType {
@@ -19,7 +20,21 @@ impl ValueType {
         if !(1..=4096).contains(&bytes) {
             return Err("Value type storage must be 1 through 4096 bytes".into());
         }
-        Ok(Self { identity, bytes })
+        Ok(Self {
+            identity,
+            bytes,
+            references: false,
+        })
+    }
+
+    pub fn with_references(identity: Definition, bytes: u16) -> Result<Self, String> {
+        let mut value = Self::new(identity, bytes)?;
+        value.references = true;
+        Ok(value)
+    }
+
+    pub fn contains_references(self) -> bool {
+        self.references
     }
 
     pub fn identity(self) -> Definition {
@@ -227,6 +242,13 @@ pub enum FieldStorage {
 }
 
 impl FieldStorage {
+    pub fn contains_references(self) -> bool {
+        match self {
+            Self::Array(_) | Self::Value(Storage::Object(_) | Storage::String) => true,
+            Self::Value(Storage::Struct(value)) => value.references,
+            Self::Value(Storage::Scalar(_)) => false,
+        }
+    }
     pub fn bytes(self) -> u16 {
         match self {
             Self::Value(storage) => storage.bytes(),
@@ -345,12 +367,12 @@ pub enum Op {
         address: u32,
         owner: ValueType,
         offset: u16,
-        storage: Storage,
+        storage: FieldStorage,
     },
     ExtractField {
         value: u32,
         offset: u16,
-        storage: Storage,
+        storage: FieldStorage,
     },
     StackAllocate {
         bytes: u32,
@@ -372,7 +394,7 @@ pub enum Op {
     },
     LocalAddress {
         local: u32,
-        storage: Storage,
+        storage: FieldStorage,
     },
     InitializerAddress(Definition),
     StaticAddress {
@@ -446,17 +468,21 @@ impl Op {
     fn value_types(&self) -> impl Iterator<Item = ValueType> {
         let (owner, storage) = match *self {
             Self::FieldAddress { owner, storage, .. } => (Some(owner), Some(storage)),
-            Self::ExtractField { storage, .. }
-            | Self::LocalAddress { storage, .. }
-            | Self::NewArray {
+            Self::ExtractField { storage, .. } | Self::LocalAddress { storage, .. } => {
+                (None, Some(storage))
+            }
+            Self::NewArray {
                 element: storage, ..
-            } => (None, Some(storage)),
+            } => (None, Some(FieldStorage::Value(storage))),
             _ => (None, None),
         };
         [
             owner,
             match storage {
-                Some(Storage::Struct(value)) => Some(value),
+                Some(
+                    FieldStorage::Value(Storage::Struct(value))
+                    | FieldStorage::Array(Storage::Struct(value)),
+                ) => Some(value),
                 _ => None,
             },
         ]
@@ -1018,6 +1044,17 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         storage,
                     } => {
                         let pointer = check(address, position)?;
+                        if storage.contains_references() && !owner.references {
+                            return Err(
+                                "Reference field requires a reference-bearing struct layout".into(),
+                            );
+                        }
+                        if owner.references && pointer == Type::Native {
+                            return Err(
+                                "Reference-bearing struct fields require a typed struct reference"
+                                    .into(),
+                            );
+                        }
                         if pointer != Type::Native && pointer != Type::StructRef(owner) {
                             return Err("Field address owner type mismatch".into());
                         }
@@ -1041,6 +1078,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         let Type::Struct(owner) = check(value, position)? else {
                             return Err("Field extraction requires aggregate value".into());
                         };
+                        if storage.contains_references() && !owner.references {
+                            return Err(
+                                "Reference extraction requires a reference-bearing struct layout"
+                                    .into(),
+                            );
+                        }
                         if offset
                             .checked_add(storage.bytes())
                             .is_none_or(|end| end > owner.bytes)
@@ -1250,6 +1293,13 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             );
                         }
                         let ty = result.ok_or("Memory load has no result")?;
+                        if matches!(ty, Type::Struct(value) if value.references && check(address, position)? != Type::StructRef(value))
+                        {
+                            return Err(
+                                "Reference-bearing struct loads require a typed struct reference"
+                                    .into(),
+                            );
+                        }
                         if matches!(ty, Type::Object(_) | Type::Array(_) | Type::String)
                             && !matches!(check(address, position)?, Type::ReferenceCell(cell) if ty == cell.stack_type())
                         {
@@ -1295,6 +1345,20 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             );
                         }
                         let stored = check(value, position)?;
+                        if matches!(stored, Type::Object(_) | Type::Array(_) | Type::String)
+                            && !matches!(check(address, position)?, Type::ReferenceCell(cell) if cell.stack_type() == stored)
+                        {
+                            return Err(
+                                "Managed-reference stores require a typed reference cell".into()
+                            );
+                        }
+                        if matches!(stored, Type::Struct(value) if value.references && check(address, position)? != Type::StructRef(value))
+                        {
+                            return Err(
+                                "Reference-bearing struct stores require a typed struct reference"
+                                    .into(),
+                            );
+                        }
                         if matches!(check(address, position)?, Type::ByRef(scalar) if scalar.stack_type() != stored)
                             || matches!(check(address, position)?, Type::ReferenceCell(cell) if cell.stack_type() != stored)
                             || matches!(check(address, position)?, Type::StructRef(value) if Type::Struct(value) != stored)

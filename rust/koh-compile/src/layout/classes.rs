@@ -104,7 +104,12 @@ impl Classes<'_, '_> {
                 element_type: element,
                 ..
             } => {
-                self.field_size(assembly, element, depth + 1)?;
+                Build {
+                    resolver: self.resolver,
+                    active: HashSet::new(),
+                    fields: 0,
+                }
+                .reference(assembly, element, depth + 1)?;
                 Ok(2)
             }
             TypeSig::ByRef(_) | TypeSig::Pinned(_) => {
@@ -114,7 +119,7 @@ impl Classes<'_, '_> {
                 Err("Class field generic shapes require instantiated lowering".into())
             }
             _ => {
-                let (size, _) = Build {
+                let (size, _, _, _) = Build {
                     resolver: self.resolver,
                     active: HashSet::new(),
                     fields: 0,

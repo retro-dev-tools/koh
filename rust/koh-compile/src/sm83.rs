@@ -1540,7 +1540,8 @@ pub(crate) fn emit_with_strings(
                     let copied = width.min(storage.bytes());
                     code.copy(source, destination, copied);
                     if copied < width {
-                        if matches!(storage, Storage::Scalar(scalar) if scalar.signed()) {
+                        if matches!(storage, crate::ir::FieldStorage::Value(Storage::Scalar(scalar)) if scalar.signed())
+                        {
                             code.load_a(source + copied - 1);
                             code.bytes(&[0x87, 0x9f]);
                         } else {

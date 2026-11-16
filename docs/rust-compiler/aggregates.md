@@ -1,8 +1,8 @@
-# Unmanaged value types
+# Value types
 
-The native compiler supports nongeneric unmanaged value types with sequential
-or explicit layout. This increment includes actual Koh.GameBoy Sprite execution;
-it does not complete the compiler migration. The SDK still uses the C# compiler.
+The native compiler supports nongeneric value types with sequential layout and
+unmanaged values with explicit layout. The SDK uses the native compiler. This
+does not complete the compiler migration.
 
 ## Layout and representation
 
@@ -20,7 +20,14 @@ initial rounding bug. Production compilation never executes input assemblies.
 Canonical identities use assembly and type definition, rather than field names
 or size. The cached reader bounds values at4096bytes, fields at4096/type,
 nesting at64, dependency traversal at1048576 and cache entries at16384.
-Reference fields, generic shapes, AutoLayout and InlineArray diagnose explicitly.
+Generic shapes, AutoLayout and InlineArray diagnose explicitly. Sequential class,
+string and array fields occupy two-byte reference cells. Nested inline values
+propagate the reference-storage marker. Copies duplicate inline bytes while
+retaining shared referenced allocations. Explicit managed layouts and scoped
+byref fields diagnose until overlap and scoped lifetime semantics are supported.
+Reference signature validation does not recursively lay out referenced array
+element values, allowing a value type to contain an array of itself. Cached
+inline nesting still observes the same64-level bound in either cache order.
 The limits bound parsing; actual frame/ROM capacity can reject smaller programs.
 
 IR Struct stores inline bytes; StructRef stores a typed16-bit reference.

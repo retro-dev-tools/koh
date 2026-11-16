@@ -8,7 +8,27 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [native class virtual dispatch](virtual-dispatch.md). Typed
+Latest increment: sequential reference-bearing value structs and typed reference
+cells. Inline copies retain independent scalar storage and shared class/string/
+array referents; nested, static, class-owned and array-element values execute.
+`ldind.ref`/`stind.ref` retain cell types. Explicit managed layouts and scoped
+byref fields diagnose. Cache-order depth and reference-signature work limits
+have negative regressions. Final selected regression:347/347 passed in229.390s,
+including16 ManagedValues ROM probes across Debug/Release and DMG/CGB. Workspace
+all-feature/all-target check succeeds in8.45s with the existing cube-helper warning.
+IR field projections remain trusted metadata declarations, not a sandbox for
+arbitrary hand-authored IR; see [IR contract](ir.md).
+
+Ordinary2048v2 Release SDK build now succeeds, producing131072 bytes in31.59s.
+Manual emulator runs display its title and scripted gameplay. New native-owned
+SDK acceptance is still uncommitted: both CGB configurations pass exact board
+state, single-merge/spawn rules, tile bytes and board pixels. Both DMG cases fail
+exact pixels: after300 settling frames the clear's dirty range still begins at
+140 of1024, leaving title text and partial tiles. Do not claim sample acceptance
+or increase settling budgets to conceal the flush throughput defect. The test
+reference's four independent merge cases pass. Test ledger remains48/565.
+
+Previous increment: [native class virtual dispatch](virtual-dispatch.md). Typed
 synthetic dispatch functions preserve newslot/override/base-call semantics,
 constructor-time dispatch, null checks and transitive class reachability.
 Four D/R × DMG/CGB configurations execute36 ROM probes with separate banks

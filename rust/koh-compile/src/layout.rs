@@ -20,6 +20,8 @@ pub struct Layout {
     pub bytes: u16,
     pub alignment: u8,
     pub fields: Vec<Field>,
+    pub contains_references: bool,
+    depth: u8,
 }
 
 pub fn value(resolver: &Resolver<'_>, identity: Definition) -> Result<Arc<Layout>, String> {
@@ -50,6 +52,9 @@ impl Build<'_, '_> {
             .resolver
             .resolve_type(identity.assembly, identity.token)?;
         if let Some(layout) = self.resolver.value_layouts.borrow().get(&identity) {
+            if self.active.len() + usize::from(layout.depth) > 64 {
+                return Err("Struct layout cycle or nesting exceeds64".into());
+            }
             return Ok(Arc::clone(layout));
         }
         if self.active.len() >= 64 || !self.active.insert(identity) {
@@ -66,7 +71,7 @@ impl Build<'_, '_> {
         Ok(layout)
     }
 
-    fn shape(&mut self, assembly: usize, ty: &TypeSig) -> Result<(u32, u32), String> {
+    fn shape(&mut self, assembly: usize, ty: &TypeSig) -> Result<(u32, u32, bool, u8), String> {
         let bytes = match ty {
             TypeSig::Primitive(ElementType::Boolean | ElementType::I1 | ElementType::U1) => 1,
             TypeSig::Primitive(
@@ -95,18 +100,102 @@ impl Build<'_, '_> {
                     return self.shape(assembly, &self.resolver.enum_storage(assembly, *encoded)?);
                 }
                 let layout = self.value(identity)?;
-                return Ok((u32::from(layout.bytes), u32::from(layout.alignment)));
+                return Ok((
+                    u32::from(layout.bytes),
+                    u32::from(layout.alignment),
+                    layout.contains_references,
+                    layout.depth,
+                ));
             }
             TypeSig::Class(_)
             | TypeSig::SzArray(_)
             | TypeSig::Array { .. }
-            | TypeSig::ByRef(_)
             | TypeSig::Primitive(ElementType::Object | ElementType::String) => {
-                return Err("Managed reference fields are unsupported in unmanaged structs".into());
+                self.reference(assembly, ty, 0)?;
+                return Ok((2, 2, true, 0));
+            }
+            TypeSig::ByRef(_) | TypeSig::Pinned(_) => {
+                return Err("Managed byref fields require scoped/ref-struct lowering".into());
             }
             _ => return Err(format!("Unsupported unmanaged struct field type {ty:?}")),
         };
-        Ok((bytes, bytes))
+        Ok((bytes, bytes, false, 0))
+    }
+
+    fn reference_work(&self, amount: usize) -> Result<(), String> {
+        let work = self
+            .resolver
+            .reference_layout_work
+            .get()
+            .checked_add(amount)
+            .filter(|&work| work <= 1_048_576)
+            .ok_or("Struct reference layout dependency budget exceeded")?;
+        self.resolver.reference_layout_work.set(work);
+        Ok(())
+    }
+
+    fn reference(&mut self, assembly: usize, ty: &TypeSig, depth: usize) -> Result<(), String> {
+        self.reference_work(1)?;
+        if depth >= 64 {
+            return Err("Struct reference field nesting exceeds64".into());
+        }
+        match ty {
+            TypeSig::Primitive(ElementType::Void) => {
+                return Err("Void array elements are invalid".into());
+            }
+            TypeSig::Primitive(
+                ElementType::Boolean
+                | ElementType::Char
+                | ElementType::I1
+                | ElementType::U1
+                | ElementType::I2
+                | ElementType::U2
+                | ElementType::I4
+                | ElementType::U4
+                | ElementType::I8
+                | ElementType::U8
+                | ElementType::IntPtr
+                | ElementType::UIntPtr
+                | ElementType::R4
+                | ElementType::R8
+                | ElementType::Object
+                | ElementType::String,
+            ) => {}
+            TypeSig::Ptr(inner) => self.resolver.validate_type(assembly, inner, 0)?,
+            TypeSig::Class(encoded) | TypeSig::ValueType(encoded) => {
+                let id = self
+                    .resolver
+                    .resolve_type(assembly, type_token(*encoded)?)?;
+                let metadata = self.resolver.assembly(id.assembly)?.metadata();
+                let row = id.token & 0xffffff;
+                self.reference_work(metadata.generic_params.len())?;
+                if metadata
+                    .generic_params
+                    .iter()
+                    .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == row)
+                {
+                    return Err("Struct reference fields require instantiated generic types".into());
+                }
+                let definition = &metadata.type_defs[row as usize - 1];
+                let value = definition.extends.table == Some(TableId::TypeRef)
+                    && matches!(
+                        framework_type(metadata, 0x01000000 | definition.extends.row)?,
+                        Some(("System", "ValueType" | "Enum"))
+                    );
+                if value != matches!(ty, TypeSig::ValueType(_)) {
+                    return Err(
+                        "Struct reference field has invalid class/value signature kind".into(),
+                    );
+                }
+            }
+            TypeSig::SzArray(inner)
+            | TypeSig::Array {
+                element_type: inner,
+                ..
+            } => self.reference(assembly, inner, depth + 1)?,
+            _ => return Err("Unsupported struct reference field shape".into()),
+        }
+        Ok(())
     }
 
     fn build(&mut self, identity: Definition) -> Result<Layout, String> {
@@ -183,6 +272,8 @@ impl Build<'_, '_> {
         let mut bytes = 0u32;
         let mut alignment = 1u32;
         let mut fields = Vec::new();
+        let mut contains_references = false;
+        let mut depth = 1u8;
         for index in ty.field_list..end {
             self.fields += 1;
             if self.fields > 1_048_576 {
@@ -209,7 +300,20 @@ impl Build<'_, '_> {
                     .get(field.signature)
                     .map_err(|e| e.to_string())?,
             )?;
-            let (size, natural) = self.shape(identity.assembly, &signature)?;
+            let (size, natural, references, child_depth) =
+                self.shape(identity.assembly, &signature)?;
+            depth = depth.max(
+                child_depth
+                    .checked_add(1)
+                    .filter(|&value| value <= 64)
+                    .ok_or("Struct layout nesting exceeds64")?,
+            );
+            contains_references |= references;
+            if explicit && references {
+                return Err(
+                    "Explicit layouts containing managed references are unsupported".into(),
+                );
+            }
             let field_alignment = natural.min(packing);
             alignment = alignment.max(field_alignment);
             let offset = if explicit {
@@ -250,6 +354,8 @@ impl Build<'_, '_> {
             bytes: bytes as u16,
             alignment: alignment as u8,
             fields,
+            contains_references,
+            depth,
         })
     }
 }

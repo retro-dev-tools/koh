@@ -8,7 +8,7 @@ legalization. Promoting locals to SSA is optional optimization, not a correctnes
 prerequisite. A stack-machine IR would leave merge/type errors implicit; reproducing
 the old C# IR would import assumptions about widths and static frames.
 
-`LocalAddress` produces a typed primitive reference into stable invocation storage.
+`LocalAddress` produces a typed reference into stable invocation storage.
 Narrow metadata storage is normalized on both local loads and stores; padded high
 bytes are not an alias invariant. [Reference checks](local-references.md) reject
 current-frame returns, preserve borrowed aliases and distinguish managed null from
@@ -31,6 +31,21 @@ fabricate an object directly or through an object array. Static identities have
 one compatible reference-cell shape across the program, preventing equal-width
 aliases from changing their class or numeric/reference kind. Constructors and
 direct calls retain ordinary verified function signatures and source IL offsets.
+
+Sequential value structs can contain class, string and array references, including
+inline nested structs. Their identity includes a reference-storage marker;
+whole-value copies retain independent scalar storage and shared reference cells.
+`FieldAddress`, `ExtractField` and `LocalAddress` carry scalar/value or array
+storage explicitly. Managed aggregate loads/stores require exact typed references;
+raw native addresses cannot project their reference fields. `ldind.ref` and
+`stind.ref` require matching reference cells. Explicit managed layouts and scoped
+byref fields currently diagnose rather than guessing overlap or lifetime rules.
+
+Field projections are trusted declarations from validated CLI metadata. The
+verifier checks their types, extents and reference-storage categories, but does
+not independently authenticate every offset against a canonical field registry.
+Hand-authored Rust IR is not an untrusted input format or a memory sandbox;
+metadata lowering must provide the actual field identity, offset and storage.
 
 Virtual sites target generated FE functions with ordinary verified signatures.
 `IsClass` tests exact descriptor identity; `CastClass` preserves null and checks

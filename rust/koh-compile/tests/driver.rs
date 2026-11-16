@@ -11,6 +11,60 @@ fn host() -> Host {
 }
 
 #[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn managed_value_copies_share_references_and_preserve_fields(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "ManagedValues");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for entry in ["Main", "AssetCount", "RecursiveArray", "ReferenceAliases"] {
+        let object = compile::object(&resolver, Some(&format!("Program::{entry}")))
+            .unwrap_or_else(|e| panic!("{entry}: {e}"));
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(
+            &fields[..4],
+            &["00", "0000002A", "D000", "OK"],
+            "{entry}: {report}"
+        );
+        if entry == "Main" {
+            let mut expected = 12u16.to_le_bytes().to_vec();
+            for value in [13i32, 99, 7, 8, 2, 79, 17, 99, 27, 13, 11, 8] {
+                expected.extend(value.to_le_bytes());
+            }
+            assert_heap_snapshot(&fields[4][..expected.len() * 2], &expected, entry);
+        }
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], entry);
+        }
+    }
+}
+
+#[rstest]
 #[case("Debug", false, 1)]
 #[case("Release", false, 257)]
 #[case("Debug", true, 257)]

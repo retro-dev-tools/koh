@@ -35,6 +35,7 @@ pub struct Resolver<'a> {
     pub(crate) class_layouts:
         RefCell<HashMap<Definition, std::sync::Arc<crate::layout::ClassLayout>>>,
     pub(crate) class_layout_work: std::cell::Cell<usize>,
+    pub(crate) reference_layout_work: std::cell::Cell<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -457,6 +458,7 @@ impl<'a> Resolver<'a> {
             value_layouts: RefCell::new(HashMap::new()),
             class_layouts: RefCell::new(HashMap::new()),
             class_layout_work: std::cell::Cell::new(0),
+            reference_layout_work: std::cell::Cell::new(0),
         })
     }
 
