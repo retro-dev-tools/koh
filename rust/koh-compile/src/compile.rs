@@ -149,7 +149,9 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
     }
     loop {
         while let Some(identity) = queue.pop_front() {
-            let function = if identity.token >> 24 == 0xff {
+            let function = if identity.token >> 24 == 0xfc {
+                crate::delegates::function(resolver, identity)?
+            } else if identity.token >> 24 == 0xff {
                 crate::initialize::function(resolver, identity)?
             } else {
                 crate::lower::assembly_method(resolver, identity)?
@@ -181,7 +183,8 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
                             return Err("Reachable literal data exceeds 16 MiB budget".into());
                         }
                     }
-                    if let Op::Call { target, .. } = instruction.op {
+                    if let Op::Call { target, .. } | Op::NewDelegate { target, .. } = instruction.op
+                    {
                         if seen.insert(target) {
                             if seen.len() > 4096 {
                                 return Err("Reachable method count exceeds 4096".into());
@@ -193,9 +196,13 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
                                         crate::dispatch::declaration(target),
                                         format!(
                                             "{} IL_{:04x}",
-                                            resolver
-                                                .assembly(identity.assembly)?
-                                                .method_name(identity.token)?,
+                                            if identity.token >> 24 == 0xfc {
+                                                format!("Callback {:?}", identity)
+                                            } else {
+                                                resolver
+                                                    .assembly(identity.assembly)?
+                                                    .method_name(identity.token)?
+                                            },
                                             instruction.il_offset
                                         ),
                                     ),

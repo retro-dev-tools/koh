@@ -70,6 +70,13 @@ impl Classes<'_, '_> {
         if depth >= 64 {
             return Err("Class field type nesting exceeds64".into());
         }
+        if self
+            .resolver
+            .delegate_signature_type(assembly, ty)?
+            .is_some()
+        {
+            return Ok(2);
+        }
         match ty {
             TypeSig::Primitive(ElementType::Object | ElementType::String) => Ok(2),
             TypeSig::Primitive(ElementType::R4) => Ok(4),

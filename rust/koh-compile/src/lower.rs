@@ -87,7 +87,7 @@ fn scalar(ty: &clrmeta::TypeSig) -> Result<Scalar, String> {
     })
 }
 
-fn storage_type(
+pub(crate) fn storage_type(
     resolver: &crate::resolve::Resolver<'_>,
     assembly: usize,
     ty: &clrmeta::TypeSig,
@@ -197,11 +197,14 @@ fn value_type(layout: &crate::layout::Layout) -> Result<ValueType, String> {
     }
 }
 
-fn bound_type(
+pub(crate) fn bound_type(
     resolver: &crate::resolve::Resolver<'_>,
     assembly: usize,
     ty: &clrmeta::TypeSig,
 ) -> Result<Type, String> {
+    if let Some(kind) = crate::delegates::bind(resolver, assembly, ty)? {
+        return Ok(Type::Delegate(kind));
+    }
     let shape = |encoded| -> Result<ValueType, String> {
         let identity = resolver.resolve_type(assembly, crate::resolve::type_token(encoded)?)?;
         let layout = crate::layout::value(resolver, identity)?;
@@ -219,11 +222,14 @@ fn bound_type(
         clrmeta::TypeSig::ByRef(inner) => match **inner {
             clrmeta::TypeSig::ValueType(encoded) => Ok(Type::StructRef(shape(encoded)?)),
             clrmeta::TypeSig::Class(_)
+            | clrmeta::TypeSig::GenericInst { .. }
             | clrmeta::TypeSig::Primitive(clrmeta::ElementType::Object) => {
-                let Type::Object(class) = bound_type(resolver, assembly, inner)? else {
-                    return Err("Invalid object reference cell".into());
+                let cell = match bound_type(resolver, assembly, inner)? {
+                    Type::Object(class) => ReferenceCell::Object(class),
+                    Type::Delegate(kind) => ReferenceCell::Delegate(kind),
+                    _ => return Err("Invalid object reference cell".into()),
                 };
-                Ok(Type::ReferenceCell(ReferenceCell::Object(class)))
+                Ok(Type::ReferenceCell(cell))
             }
             clrmeta::TypeSig::Primitive(clrmeta::ElementType::String) => {
                 Ok(Type::ReferenceCell(ReferenceCell::String))
@@ -261,6 +267,7 @@ fn bound_storage(
     let signature = storage_type(resolver, assembly, signature)?;
     match bound_type(resolver, assembly, &signature)? {
         Type::Object(class) => Ok(Storage::Object(class)),
+        Type::Delegate(kind) => Ok(Storage::Delegate(kind)),
         Type::String => Ok(Storage::String),
         Type::Struct(value) => Ok(Storage::Struct(value)),
         _ => Ok(Storage::Scalar(scalar(&signature)?)),
@@ -308,7 +315,7 @@ fn common_class(
     Err("Inconsistent class ancestry".into())
 }
 
-fn field_storage(
+pub(crate) fn field_storage(
     resolver: &crate::resolve::Resolver<'_>,
     assembly: usize,
     signature: &clrmeta::TypeSig,
@@ -547,6 +554,7 @@ struct Builder<'r, 'a> {
     edge_arguments: usize,
     pinned: HashSet<usize>,
     constructions: HashMap<u32, (u32, ValueType)>,
+    delegate_sequences: HashMap<u32, bool>,
     instructions: Vec<Instruction>,
     stack: Vec<(u32, Type)>,
     offset: u32,
@@ -554,7 +562,11 @@ struct Builder<'r, 'a> {
 
 impl Builder<'_, '_> {
     fn coerce(&mut self, value: (u32, Type), ty: Type) -> Result<(u32, Type), String> {
-        if value.1 == Type::Null && matches!(ty, Type::Array(_, _) | Type::String | Type::Object(_))
+        if value.1 == Type::Null
+            && matches!(
+                ty,
+                Type::Delegate(_) | Type::Array(_, _) | Type::String | Type::Object(_)
+            )
         {
             self.value(ty, Op::Constant(0))
         } else if value.1 == ty {
@@ -782,6 +794,7 @@ fn lower_inner(
         edge_arguments: 0,
         pinned: pinned.iter().copied().collect(),
         constructions: HashMap::new(),
+        delegate_sequences: crate::delegates::construction_sequences(&cil),
         instructions: vec![],
         stack: vec![],
         offset: 0,
@@ -901,13 +914,22 @@ fn lower_inner(
                         changed |= *old != merged;
                         *old = merged;
                     } else if *old == Type::Null
-                        && matches!(new, Type::Array(_, _) | Type::String | Type::Object(_))
+                        && matches!(
+                            new,
+                            Type::Delegate(_) | Type::Array(_, _) | Type::String | Type::Object(_)
+                        )
                     {
                         *old = new;
                         changed = true;
                     } else if *old != new
                         && !(new == Type::Null
-                            && matches!(old, Type::Array(_, _) | Type::String | Type::Object(_)))
+                            && matches!(
+                                old,
+                                Type::Delegate(_)
+                                    | Type::Array(_, _)
+                                    | Type::String
+                                    | Type::Object(_)
+                            ))
                     {
                         return Err(format!(
                             "IL_{:04x}: Incompatible evaluation stacks at merge IL_{:04x}",
@@ -1073,6 +1095,42 @@ fn translate(
         Ok(())
     };
     match i.opcode {
+        0xfe06 | 0xfe07 => {
+            let Operand::Token(token) = i.operand else {
+                return Err("Missing method-pointer token".into());
+            };
+            let resolver = resolver.ok_or("Method pointer requires metadata resolution")?;
+            let resolved = resolver.resolve_method(method.identity.assembly, token)?;
+            if !resolved.type_arguments.is_empty() || !resolved.method_arguments.is_empty() {
+                return Err("Generic method-pointer target requires instantiated lowering".into());
+            }
+            let image = resolver.assembly(resolved.definition.assembly)?;
+            let flags = image.method(resolved.definition.token)?.flags;
+            let virtual_pointer = i.opcode == 0xfe07;
+            if virtual_pointer && flags & 0x10 != 0 {
+                return Err("ldvirtftn requires an instance method".into());
+            }
+            if !virtual_pointer && flags & 0x400 != 0 {
+                return Err("ldftn cannot bind an abstract method".into());
+            }
+            if virtual_pointer {
+                let receiver = b.pop()?;
+                let owner = owner_type(resolver, resolved.definition)?;
+                let receiver = b.coerce(receiver, Type::Object(class_type(resolver, owner)?))?;
+                b.instructions.push(Instruction {
+                    result: None,
+                    op: Op::CheckObject(receiver.0),
+                    il_offset: b.offset,
+                });
+            }
+            let target = if virtual_pointer && flags & 0x40 != 0 {
+                crate::dispatch::identity(resolved.definition)
+            } else {
+                resolved.definition
+            };
+            let value = b.value(Type::MethodHandle(target), Op::MethodHandle(target))?;
+            b.stack.push(value);
+        }
         0x72 => {
             let Operand::Token(token) = i.operand else {
                 return Err("Missing ldstr token".into());
@@ -1341,7 +1399,10 @@ fn translate(
             if explicit.is_some_and(|ty| ty != element)
                 || (explicit.is_none()
                     && if reference {
-                        !matches!(element, Storage::Object(_) | Storage::String)
+                        !matches!(
+                            element,
+                            Storage::Delegate(_) | Storage::Object(_) | Storage::String
+                        )
                     } else {
                         element.bytes() * 8 != u16::from(default.bits())
                             || element.stack_type() != default.stack_type()
@@ -1622,6 +1683,97 @@ fn translate(
                     },
                     il_offset: b.offset,
                 });
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
+            if let Some((kind, constructor, mut signature)) =
+                crate::delegates::member(resolver, method.identity.assembly, token)?
+            {
+                if constructor != constructing {
+                    return Err(
+                        "Delegate constructor requires newobj; Invoke requires call/callvirt"
+                            .into(),
+                    );
+                }
+                if constructor {
+                    let pointer = b.pop()?;
+                    let Type::MethodHandle(target) = pointer.1 else {
+                        return Err("Delegate constructor requires a typed method handle".into());
+                    };
+                    let receiver = b.pop()?;
+                    if b.delegate_sequences.get(&b.offset).copied()
+                        != Some(target.token >> 24 == 0xfe)
+                    {
+                        return Err("Delegate construction requires a verified ldftn/newobj or dup/ldvirtftn/newobj sequence without branches into its interior".into());
+                    }
+                    let declared = if target.token >> 24 == 0xfe {
+                        crate::dispatch::declaration(target)
+                    } else {
+                        target
+                    };
+                    let instance = resolver
+                        .assembly(declared.assembly)?
+                        .method_signature(declared.token)?
+                        .calling_convention
+                        .has_this();
+                    if !instance && receiver.1 != Type::Null {
+                        return Err(
+                            "Closed static delegates require explicit argument binding".into()
+                        );
+                    }
+                    if instance && !matches!(receiver.1, Type::Object(_) | Type::Null) {
+                        return Err("Instance delegate requires an object target".into());
+                    }
+                    let target = crate::delegates::callback(resolver, kind, target)?;
+                    let receiver = if instance {
+                        let owner = owner_type(resolver, declared)?;
+                        let receiver =
+                            b.coerce(receiver, Type::Object(class_type(resolver, owner)?))?;
+                        b.instructions.push(Instruction {
+                            result: None,
+                            op: Op::CheckObject(receiver.0),
+                            il_offset: b.offset,
+                        });
+                        receiver
+                    } else {
+                        receiver
+                    };
+                    let receiver = b.coerce(receiver, Type::Object(ClassType::root()))?;
+                    signature
+                        .parameters
+                        .insert(0, Type::Object(ClassType::root()));
+                    let value = b.value(
+                        Type::Delegate(kind),
+                        Op::NewDelegate {
+                            kind,
+                            target,
+                            signature,
+                            receiver: receiver.0,
+                        },
+                    )?;
+                    b.stack.push(value);
+                } else {
+                    signature.parameters.insert(0, Type::Delegate(kind));
+                    let mut arguments = Vec::with_capacity(signature.parameters.len());
+                    for &ty in signature.parameters.iter().rev() {
+                        let value = b.pop()?;
+                        arguments.push(b.coerce(value, ty)?.0);
+                    }
+                    arguments.reverse();
+                    let op = Op::InvokeDelegate {
+                        signature: signature.clone(),
+                        arguments,
+                    };
+                    if let Some(ty) = signature.returns {
+                        let value = b.value(ty, op)?;
+                        b.stack.push(value);
+                    } else {
+                        b.instructions.push(Instruction {
+                            result: None,
+                            op,
+                            il_offset: b.offset,
+                        });
+                    }
+                }
                 return Ok(Control::Jump(b.edge(next()?)));
             }
             let target = resolver.resolve_method(method.identity.assembly, token)?;
@@ -1957,12 +2109,14 @@ fn translate(
                     Type::I64 => Scalar::I64,
                     Type::Native => Scalar::NativeSigned,
                     Type::ByRef(_)
+                    | Type::Delegate(_)
                     | Type::Object(_)
                     | Type::ReferenceCell(_)
                     | Type::Array(_, _)
                     | Type::String
                     | Type::Null
                     | Type::FieldHandle(_)
+                    | Type::MethodHandle(_)
                     | Type::Struct(_)
                     | Type::StructRef(_) => {
                         return Err("Nested managed references are unsupported".into());
@@ -2300,6 +2454,8 @@ fn translate(
                 Type::ReferenceCell(ReferenceCell::Object(class))
             } else if ty == Type::String {
                 Type::ReferenceCell(ReferenceCell::String)
+            } else if let Type::Delegate(kind) = ty {
+                Type::ReferenceCell(ReferenceCell::Delegate(kind))
             } else if let Type::Array(element, kind) = ty {
                 Type::ReferenceCell(ReferenceCell::Array(element, kind))
             } else if i.opcode == 0x7f {

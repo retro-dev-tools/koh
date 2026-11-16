@@ -39,6 +39,49 @@ remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
 
+## Callback replacement pending final regression
+
+The following11 source methods have focused native behavioral replacements.
+They are not yet added to the completed-method total above: the final1193-case
+workspace regression is still running. All targets below are Rust rstest cases
+in `rust/koh-compile/tests/driver/delegates.rs`, discoverable by nextest, using
+real Roslyn DLLs in Debug/Release and the existing emulator on DMG/CGB.
+No source method is physically retired and no compiler behavior is deferred.
+
+Quantification from the source files: CilDelegateTests has8 methods,8 Arguments
+rows and22 Assert.That call sites; CilStoredDelegateTests has3 methods,6 Arguments
+rows and2 shared-helper Assert.That call sites. These24 call sites are not24
+independent scenarios: helpers, loops and parameterization expand execution.
+The11-method matrix below is the completion unit; literal6/13 or verdict-register
+values are replaced by independently specified arithmetic outcomes and bounded
+ROM completion. The private `__heap` global-name assertion, direct-call IR
+assertion are intentionally removed. Slot/blob terminology in test names and
+comments does not become a native ABI requirement.
+They do not constrain correct closure lifetime, dispatch or returned values.
+
+| Source method in Frontends | Behavioral contract and independent expectation | Decision and native trace |
+| --- | --- | --- |
+| CilDelegateTests.NoCaptureLambda_VerifiesCleanAndInvokesResolvedTarget | Noncapturing callback computes5+1=6 | PORT: `delegates_preserve_stored_targets_captures_and_virtual_binding`, FunctionTargets |
+| CilDelegateTests.NoCaptureLambda_DebugAndReleaseProduceIdenticalObservableState | Both IL configurations produce the independently known value, rather than merely agreeing | REPLACE: same FunctionTargets endpoint; exact result checked separately in each configuration |
+| CilDelegateTests.CapturingLambda_VerifiesCleanAndInvokesResolvedTarget | Returned closure retains39 and computes39+3=42 after its factory returns | PORT: same native target, ReturnedAndArray; mutable capture additionally exercised by CapturedTarget |
+| CilDelegateTests.CapturingLambda_DebugAndReleaseProduceIdenticalObservableState | Capture lifetime and mutation preserve independently expected values in each build mode | REPLACE: ReturnedAndArray and CapturedTarget; remove equality-only oracle |
+| CilDelegateTests.DelegateThroughParameter_LowersViaBlobDispatch | Passing a callback preserves target, capture and scalar return | REPLACE: FunctionTargets invokes captured and noncaptured functions through ApplyFunction; blob representation is private |
+| CilDelegateTests.CallvirtOnSealedDeclaringType_DevirtualizesToDirectCall | Sealed override executes and computes42 | REPLACE: `sealed_virtual_tokens_execute_the_override`, explicit sealed callvirt token; direct-call IR shape is private |
+| CilDelegateTests.VirtualMethodGroupDelegate_IsDiagnosedNotSilentlyMisresolved | Base-typed receiver invokes the derived override, producing42 rather than21 | REPLACE: InstanceTarget; obsolete unsupported diagnostic replaced by actual virtual execution |
+| CilDelegateTests.VirtualMethodGroupDelegate_ResolvesToSealedOverrideWhenTokenIsSealed | Explicit sealed ldvirtftn token binds the override and produces42 | PORT: `sealed_virtual_tokens_execute_the_override`, ldvirtftn mutation of actual Roslyn DLL |
+| CilStoredDelegateTests.ActionThroughCtorField_TwoTargetsOneField_DispatchPerBlob | Two constructor-stored callbacks retain distinct targets and captures | REPLACE: ConstructorFields checks42,49, then43 after capture mutation; descriptor layout is private |
+| CilStoredDelegateTests.FuncThroughParameter_ReturnValuesMergeThroughSlot | Indirect callback results survive parameter passage and control flow | REPLACE: FunctionTargets plus ReturnedAndArray; exact values, normal ABI and bank guards preserve return behavior without requiring the legacy return-slot convention |
+| CilStoredDelegateTests.StaticDelegateField_ReassignmentSwitchesTarget | Static field reassignment changes subsequent invocations | PORT: StaticLambdas checks1+10+10=21; StaticTarget independently checks7+35=42 |
+
+Independent basis: C# closure/delegate semantics, ECMA-335 verified method-pointer
+construction and SM83 observable memory/register behavior. Every public behavior
+above has an exact expected result; private IR classes, devirtualization choices,
+blob encoding and merge-slot representation are not contracts. Additional native
+coverage checks null binding/invocation, metadata validation, nominal generic
+identity, banks257+, wide/byref returns and live frame offsets above127. See
+[callback contract and completed focused logs](delegates.md). The full feature
+contract, remaining legacy groups and whole migration remain open.
+
 ## Rectangular-array replacement
 
 `Frontends/CilMdArrayTests.RectangularArrays_RomFoldHeapCtorAndHeaderPath` maps

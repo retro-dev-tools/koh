@@ -1,4 +1,4 @@
-use super::{Function, Op};
+use super::{Function, Op, Type};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 fn bank_write(op: &Op, constants: &HashMap<u32, u64>) -> bool {
@@ -34,6 +34,17 @@ pub(super) fn verify_banks(functions: &[Function]) -> Result<(), String> {
         return Ok(());
     }
     let mut callers: HashMap<_, Vec<_>> = HashMap::new();
+    let mut delegate_targets = HashMap::<_, HashSet<_>>::new();
+    for instruction in functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+    {
+        if let Op::NewDelegate { kind, target, .. } = instruction.op {
+            delegate_targets.entry(kind).or_default().insert(target);
+        }
+    }
+    let mut indirect_edges = 0usize;
     let mut writes = HashSet::new();
     let mut pending = VecDeque::new();
     let mut constants_by_function = Vec::with_capacity(functions.len());
@@ -98,6 +109,17 @@ pub(super) fn verify_banks(functions: &[Function]) -> Result<(), String> {
             if let Op::Call { target, .. } = i.op {
                 callers.entry(target).or_default().push(function.identity);
             }
+            if let Op::InvokeDelegate { ref signature, .. } = i.op {
+                if let Some(Type::Delegate(kind)) = signature.parameters.first() {
+                    for &target in delegate_targets.get(kind).into_iter().flatten() {
+                        indirect_edges += 1;
+                        if indirect_edges > 1_048_576 {
+                            return Err("Delegate bank dependencies exceed1048576".into());
+                        }
+                        callers.entry(target).or_default().push(function.identity);
+                    }
+                }
+            }
             if bank_write(&i.op, &constants) && writes.insert(function.identity) {
                 pending.push_back(function.identity);
             }
@@ -131,7 +153,20 @@ pub(super) fn verify_banks(functions: &[Function]) -> Result<(), String> {
                     }
                 }
                 let writes_bank = bank_write(&i.op, constants)
-                    || matches!(i.op, Op::Call { target, .. } if writes.contains(&target));
+                    || matches!(i.op, Op::Call { target, .. } if writes.contains(&target))
+                    || match &i.op {
+                        Op::InvokeDelegate { signature, .. } => {
+                            match signature.parameters.first() {
+                                Some(Type::Delegate(kind)) => delegate_targets
+                                    .get(kind)
+                                    .into_iter()
+                                    .flatten()
+                                    .any(|target| writes.contains(target)),
+                                _ => false,
+                            }
+                        }
+                        _ => false,
+                    };
                 if writes_bank && !active.is_empty() {
                     return Err(format!(
                         "Assembly {} method 0x{:08x} IL_{:04x}: Explicit WRAM bank writes reachable from a pinned method while a pin may be active are unsupported; select the bank outside its pinned scopes",

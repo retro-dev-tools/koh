@@ -83,6 +83,7 @@ fn pure(op: &Op) -> bool {
         Op::Constant(_)
             | Op::ZeroStruct
             | Op::FieldHandle(_)
+            | Op::MethodHandle(_)
             | Op::StringLiteral(_)
             | Op::LoadLocal(_)
             | Op::Convert { .. }
@@ -308,7 +309,8 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                 | Op::Convert { value: id, .. }
                 | Op::StoreLocal { value: id, .. }
                 | Op::StorePinned { value: id, .. } => value(id),
-                Op::Call { arguments, .. } => {
+                Op::NewDelegate { receiver, .. } => value(receiver),
+                Op::Call { arguments, .. } | Op::InvokeDelegate { arguments, .. } => {
                     for id in arguments {
                         value(id);
                     }
@@ -319,6 +321,7 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                 | Op::Constant(_)
                 | Op::ZeroStruct
                 | Op::FieldHandle(_)
+                | Op::MethodHandle(_)
                 | Op::LocalAddress { .. }
                 | Op::StaticAddress { .. }
                 | Op::InitializerAddress(_)

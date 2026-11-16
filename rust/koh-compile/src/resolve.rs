@@ -3,8 +3,10 @@ use clrmeta::{CodedIndex, Metadata, MethodSig, TableId, TypeSig};
 use std::cell::RefCell;
 use std::collections::HashMap;
 mod arrays;
+mod delegates;
 mod index;
 pub(crate) use arrays::{ArrayMethod, ArrayQuery};
+pub use delegates::DelegateDefinition;
 use index::Index;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -38,6 +40,9 @@ pub struct Resolver<'a> {
         RefCell<HashMap<Definition, std::sync::Arc<crate::layout::ClassLayout>>>,
     pub(crate) class_layout_work: std::cell::Cell<usize>,
     pub(crate) reference_layout_work: std::cell::Cell<usize>,
+    pub(crate) delegate_types: RefCell<Vec<crate::delegates::BoundDelegate>>,
+    pub(crate) delegate_type_work: std::cell::Cell<usize>,
+    pub(crate) callbacks: RefCell<Vec<crate::delegates::Callback>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -140,6 +145,15 @@ fn identity(metadata: &Metadata) -> Result<Identity, String> {
     })
 }
 
+fn framework_key(name: &str) -> Option<[u8; 8]> {
+    Some(match name {
+        "System.Runtime" => [0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a],
+        "System.Private.CoreLib" => [0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e],
+        "mscorlib" => [0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89],
+        _ => return None,
+    })
+}
+
 pub(crate) fn framework_type(
     metadata: &Metadata,
     token: u32,
@@ -153,11 +167,8 @@ pub(crate) fn framework_type(
     }
     let reference = row(&metadata.assembly_refs, coded(ty.resolution_scope)?, 0x23)?;
     let string = |index| metadata.strings.get(index).map_err(|e| e.to_string());
-    let expected = match string(reference.name)? {
-        "System.Runtime" => [0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a],
-        "System.Private.CoreLib" => [0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e],
-        "mscorlib" => [0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89],
-        _ => return Ok(None),
+    let Some(expected) = framework_key(string(reference.name)?) else {
+        return Ok(None);
     };
     if reference.flags & 0x0f00 != 0
         || !string(reference.culture)?.is_empty()
@@ -348,6 +359,9 @@ impl<'a> Resolver<'a> {
             "UIntPtr" => ElementType::UIntPtr,
             "Object" => ElementType::Object,
             "String" => ElementType::String,
+            _ if self.delegate_type(assembly, token)?.is_some() => {
+                return Ok(TypeSig::Class(((token & 0xffffff) << 2) | 1));
+            }
             _ => return Err("Array element is not a supported integer primitive".into()),
         }))
     }
@@ -461,6 +475,9 @@ impl<'a> Resolver<'a> {
             class_layouts: RefCell::new(HashMap::new()),
             class_layout_work: std::cell::Cell::new(0),
             reference_layout_work: std::cell::Cell::new(0),
+            delegate_types: RefCell::new(Vec::new()),
+            delegate_type_work: std::cell::Cell::new(0),
+            callbacks: RefCell::new(Vec::new()),
         })
     }
 
@@ -1077,7 +1094,7 @@ impl<'a> Resolver<'a> {
         Ok(true)
     }
 
-    fn types_equal(
+    pub(crate) fn types_equal(
         &self,
         left_assembly: usize,
         left: &TypeSig,

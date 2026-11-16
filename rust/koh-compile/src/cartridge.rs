@@ -240,6 +240,7 @@ pub(crate) fn emit(
                 crate::ir::Op::NewArray { .. }
                     | crate::ir::Op::NewRectangle { .. }
                     | crate::ir::Op::NewObject(_)
+                    | crate::ir::Op::NewDelegate { .. }
                     | crate::ir::Op::ArenaAllocate(_)
                     | crate::ir::Op::ArenaReset
             )

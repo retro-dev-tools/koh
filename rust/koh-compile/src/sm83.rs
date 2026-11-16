@@ -258,6 +258,7 @@ impl Code {
                 | Type::StructRef(_)
                 | Type::Array(_, _)
                 | Type::String
+                | Type::Delegate(_)
                 | Type::Null
                 | Type::Object(_)
                 | Type::ReferenceCell(_)
@@ -1234,7 +1235,10 @@ pub(crate) fn emit_with_strings(
         .any(|i| {
             matches!(
                 i.op,
-                Op::NewArray { .. } | Op::NewRectangle { .. } | Op::NewObject(_)
+                Op::NewArray { .. }
+                    | Op::NewRectangle { .. }
+                    | Op::NewObject(_)
+                    | Op::NewDelegate { .. }
             )
         })
         .then(|| code.label());
@@ -1365,6 +1369,32 @@ pub(crate) fn emit_with_strings(
                         0x4d,
                     ]);
                     code.save_word(destination);
+                }
+                Op::NewDelegate {
+                    target, receiver, ..
+                } => {
+                    let temp = layout.arithmetic;
+                    code.constant(temp + 20, 2, 2);
+                    code.constant(temp + 6, 2, 6);
+                    code.constant(temp + 8, 2, 6);
+                    if aligned {
+                        code.constant(temp + 10, 2, 0);
+                    }
+                    code.jump(0xcd, allocator.ok_or("Missing delegate allocator")?);
+                    code.copy(slot(receiver), temp, 2);
+                    code.heap_bank(temp + 24);
+                    code.indirect(temp + 12);
+                    code.bytes(&[0x03, 0x03]);
+                    let callee = code.import(symbol(target));
+                    code.jump(0x21, callee);
+                    code.bytes(&[0x7d, 0x02, 0x03, 0x7c, 0x02, 0x03]);
+                    code.jump(0x21, callee);
+                    code.patches.last_mut().unwrap().expression = RelocationExpr::Bank(callee);
+                    code.bytes(&[0x7d, 0x02, 0x03, 0x7c, 0x02, 0x03]);
+                    code.address(temp);
+                    code.bytes(&[0x2a, 0x02, 0x03, 0x7e, 0x02]);
+                    code.restore_bank(temp + 24);
+                    code.copy(temp + 12, destination, 2);
                 }
                 Op::NewObject(class) => {
                     let temp = layout.arithmetic;
@@ -1563,7 +1593,7 @@ pub(crate) fn emit_with_strings(
                         code.save_word(destination);
                     }
                 }
-                Op::FieldHandle(_) => {}
+                Op::FieldHandle(_) | Op::MethodHandle(_) => {}
                 Op::ZeroStruct => code.constant(destination, width, 0),
                 Op::FieldAddress {
                     address, offset, ..
@@ -1895,11 +1925,37 @@ pub(crate) fn emit_with_strings(
                     }
                 }
                 Op::Call {
-                    target,
+                    target: _,
+                    ref signature,
+                    ref arguments,
+                }
+                | Op::InvokeDelegate {
                     ref signature,
                     ref arguments,
                 } => {
-                    let initialized = if banked && target.token >> 24 == 0xff {
+                    let indirect = matches!(instruction.op, Op::InvokeDelegate { .. });
+                    let target = if let Op::Call { target, .. } = instruction.op {
+                        target
+                    } else {
+                        function.identity
+                    };
+                    let temp = layout.arithmetic;
+                    if indirect {
+                        code.indirect(slot(arguments[0]));
+                        code.check_reference(layout.values[&arguments[0]].1);
+                        code.heap_bank(temp + 24);
+                        for (offset, saved) in [(2, temp), (4, temp + 2), (6, temp + 4)] {
+                            code.indirect(slot(arguments[0]));
+                            code.bytes(&[0x60, 0x69]);
+                            for _ in 0..offset {
+                                code.bytes(&[0x23]);
+                            }
+                            code.bytes(&[0x2a, 0x4f, 0x46]);
+                            code.save_word(saved);
+                        }
+                        code.restore_bank(temp + 24);
+                    }
+                    let initialized = if !indirect && banked && target.token >> 24 == 0xff {
                         let constructor = Definition {
                             assembly: target.assembly,
                             token: 0x06000000 | (target.token & 0xffffff),
@@ -1930,11 +1986,17 @@ pub(crate) fn emit_with_strings(
                     code.guard(size + 2);
                     code.adjust_sp(-i32::from(size));
                     let mut offset = abi_return + cookie;
-                    for (&value, &ty) in arguments.iter().zip(&signature.parameters) {
+                    for (index, (&value, &ty)) in
+                        arguments.iter().zip(&signature.parameters).enumerate()
+                    {
                         let bytes = ty.bits() / 8;
                         code.extend(
                             Slot {
-                                offset: slot(value) + size,
+                                offset: if indirect && index == 0 {
+                                    temp + 4 + size
+                                } else {
+                                    slot(value) + size
+                                },
                                 bytes: place(value).bytes,
                             },
                             offset,
@@ -1942,17 +2004,34 @@ pub(crate) fn emit_with_strings(
                         );
                         offset += bytes;
                     }
-                    let callee = code.import(symbol(target));
+                    let callee = if indirect {
+                        SymbolId(0)
+                    } else {
+                        code.import(symbol(target))
+                    };
                     if banked {
                         code.jump(0x01, SymbolId(0));
                         code.patches.last_mut().unwrap().expression = RelocationExpr::BankCurrent;
                         code.address(2);
                         code.bytes(&[0x71, 0x23, 0x70]);
-                        code.jump(0x11, callee);
-                        code.patches.last_mut().unwrap().expression = RelocationExpr::Bank(callee);
-                        code.jump(0x01, callee);
+                        if indirect {
+                            code.indirect(temp + size);
+                            code.address(temp + 2 + size);
+                            code.bytes(&[0x5e, 0x23, 0x56]);
+                        } else {
+                            code.jump(0x11, callee);
+                            code.patches.last_mut().unwrap().expression =
+                                RelocationExpr::Bank(callee);
+                            code.jump(0x01, callee);
+                        }
                         let trampoline = code.import("__koh_far_call".into());
                         code.jump(0xcd, trampoline);
+                    } else if indirect {
+                        code.indirect(temp + size);
+                        let returned = code.label();
+                        code.jump(0x21, returned);
+                        code.bytes(&[0xe5, 0x60, 0x69, 0xe9]);
+                        code.mark(returned);
                     } else {
                         code.jump(0xcd, callee);
                     }

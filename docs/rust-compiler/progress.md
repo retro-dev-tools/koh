@@ -8,7 +8,33 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Latest increment: [rank2 rectangular arrays](rectangular-arrays.md), including
+Pending increment: [native delegates and callbacks](delegates.md). Focused
+Debug/Release and DMG/CGB tests execute stored static, captured, instance and
+virtual callbacks, returned closures, reference arrays and wide/byref results.
+Malformed metadata, nominal signature mismatches and null binding/invocation
+have explicit checks. The unchanged JRPG Release SDK build now succeeds,
+producing a131072-byte ROM. Existing emulator visual smoke checks reach the title
+at600frames and the overworld after Start at600/release602 and900total frames;
+both processes exit0. These captures do not prove movement, collision, dialogue
+or game-state semantics; Rust-owned gameplay acceptance is outstanding. The
+callback increment is tracked separately from the pending final1193-case
+workspace/all-features regression; its focused evidence is in delegates.md.
+The first attempt terminated143 after414passes without a test-failure report or
+summary; its log is preserved. The identical command was restarted after checking
+that its processes had stopped and all44 frozen source hashes still matched.
+The51/565 completed-method ledger has not yet incorporated this increment.
+
+Hosted native validation for pushed deab1b2 is now verified from completed job
+logs in workflow43833072527: Linux1120/1120 in1075.379s (job133182850276),
+macOS1120/1120 in1597.915s (job133182850362), Windows1118/1118 in2065.902s
+(job133182850038), zero skipped in each full run. Separate rustdoc passes on
+all three hosts. The artifact smoke selection also passes1test per host, with
+14 intentionally unselected tests; it is not the full-suite count. These results
+include rectangular arrays but predate the callback unit. Managed
+solution CI still fails at the JRPG callback on that pushed commit; the local
+native callback build/smoke evidence above does not establish hosted acceptance.
+
+Previous increment: [rank2 rectangular arrays](rectangular-arrays.md), including
 mutable initializers, checked row-major addressing, queries, borrowed references
 and aggregate/reference elements. Final selected30 cases pass183.953s; the
 earlier shared allocator/IR regression passes349 cases, with four obsolete

@@ -59,7 +59,7 @@ pub(super) fn verify(function: &Function) -> Result<(), String> {
                 match &instruction.op {
                     Op::FieldAddress { address, .. } => edge(u64::from(*address), u64::from(id))?,
                     Op::LoadLocal(index) => edge(local(*index), u64::from(id))?,
-                    Op::Call { arguments, .. } => {
+                    Op::Call { arguments, .. } | Op::InvokeDelegate { arguments, .. } => {
                         for argument in arguments {
                             if references.contains(argument) {
                                 edge(u64::from(*argument), u64::from(id))?;

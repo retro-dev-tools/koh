@@ -89,7 +89,32 @@ impl ClassType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DelegateType {
+    identity: Definition,
+    instance: u16,
+}
+
+impl DelegateType {
+    pub fn new(identity: Definition, instance: u16) -> Result<Self, String> {
+        if identity.token >> 24 != 2
+            || identity.token & 0xffffff == 0
+            || !(1..=4096).contains(&instance)
+        {
+            return Err("Delegate type requires a TypeDef identity and instance1..4096".into());
+        }
+        Ok(Self { identity, instance })
+    }
+    pub fn identity(self) -> Definition {
+        self.identity
+    }
+    pub fn instance(self) -> u16 {
+        self.instance
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Type {
+    Delegate(DelegateType),
     Object(ClassType),
     ReferenceCell(ReferenceCell),
     I32,
@@ -100,12 +125,14 @@ pub enum Type {
     String,
     Null,
     FieldHandle(Definition),
+    MethodHandle(Definition),
     Struct(ValueType),
     StructRef(ValueType),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReferenceCell {
+    Delegate(DelegateType),
     Object(ClassType),
     String,
     Array(Storage, ArrayKind),
@@ -114,6 +141,7 @@ pub enum ReferenceCell {
 impl ReferenceCell {
     pub fn stack_type(self) -> Type {
         match self {
+            Self::Delegate(kind) => Type::Delegate(kind),
             Self::Object(class) => Type::Object(class),
             Self::String => Type::String,
             Self::Array(element, kind) => Type::Array(element, kind),
@@ -205,10 +233,11 @@ impl Type {
         match self {
             Self::Struct(value) => value.bytes * 8,
             Self::StructRef(_) => 16,
-            Self::FieldHandle(_) => 0,
+            Self::FieldHandle(_) | Self::MethodHandle(_) => 0,
             Self::I32 => 32,
             Self::I64 => 64,
             Self::Native
+            | Self::Delegate(_)
             | Self::ByRef(_)
             | Self::Array(_, _)
             | Self::String
@@ -221,6 +250,7 @@ impl Type {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Storage {
+    Delegate(DelegateType),
     Object(ClassType),
     String,
     Scalar(Scalar),
@@ -230,13 +260,14 @@ pub enum Storage {
 impl Storage {
     pub fn bytes(self) -> u16 {
         match self {
-            Self::Object(_) | Self::String => 2,
+            Self::Object(_) | Self::String | Self::Delegate(_) => 2,
             Self::Scalar(value) => u16::from(value.bits() / 8),
             Self::Struct(value) => value.bytes,
         }
     }
     pub fn stack_type(self) -> Type {
         match self {
+            Self::Delegate(kind) => Type::Delegate(kind),
             Self::Object(class) => Type::Object(class),
             Self::String => Type::String,
             Self::Scalar(value) => value.stack_type(),
@@ -245,6 +276,7 @@ impl Storage {
     }
     pub fn reference_type(self) -> Type {
         match self {
+            Self::Delegate(kind) => Type::ReferenceCell(ReferenceCell::Delegate(kind)),
             Self::Object(class) => Type::ReferenceCell(ReferenceCell::Object(class)),
             Self::String => Type::ReferenceCell(ReferenceCell::String),
             Self::Scalar(value) => Type::ByRef(value),
@@ -262,7 +294,8 @@ pub enum FieldStorage {
 impl FieldStorage {
     pub fn contains_references(self) -> bool {
         match self {
-            Self::Array(_, _) | Self::Value(Storage::Object(_) | Storage::String) => true,
+            Self::Array(_, _)
+            | Self::Value(Storage::Object(_) | Storage::String | Storage::Delegate(_)) => true,
             Self::Value(Storage::Struct(value)) => value.references,
             Self::Value(Storage::Scalar(_)) => false,
         }
@@ -343,6 +376,16 @@ pub enum Op {
         class: ClassType,
     },
     NewObject(ClassType),
+    NewDelegate {
+        kind: DelegateType,
+        target: Definition,
+        signature: Signature,
+        receiver: u32,
+    },
+    InvokeDelegate {
+        signature: Signature,
+        arguments: Vec<u32>,
+    },
     Upcast {
         value: u32,
         class: ClassType,
@@ -401,6 +444,7 @@ pub enum Op {
         bytes: u32,
     },
     FieldHandle(Definition),
+    MethodHandle(Definition),
     InitializeArray {
         array: u32,
         bytes: Vec<u8>,
@@ -532,6 +576,7 @@ impl Op {
     pub fn operands(&self) -> impl Iterator<Item = u32> + '_ {
         let pair = match *self {
             Self::NewRectangle { rows, columns, .. } => [Some(rows), Some(columns)],
+            Self::NewDelegate { receiver, .. } => [Some(receiver), None],
             Self::RectangleAddress { array, row, .. } => [Some(array), Some(row)],
             Self::ArrayDimension { array, dimension } => [Some(array), Some(dimension)],
             Self::ArenaAllocate(bytes)
@@ -581,9 +626,11 @@ impl Op {
             | Self::NewObject(_)
             | Self::CpuControl(_)
             | Self::Call { .. }
+            | Self::InvokeDelegate { .. }
             | Self::StringLiteral(_)
             | Self::ZeroStruct
             | Self::FieldHandle(_)
+            | Self::MethodHandle(_)
             | Self::InitializerAddress(_)
             | Self::Constant(_)
             | Self::StaticAddress { .. }
@@ -591,7 +638,9 @@ impl Op {
             | Self::LoadLocal(_) => [None, None],
         };
         let arguments = match self {
-            Self::Call { arguments, .. } => arguments.as_slice(),
+            Self::Call { arguments, .. } | Self::InvokeDelegate { arguments, .. } => {
+                arguments.as_slice()
+            }
             _ => &[],
         };
         let count = match *self {
@@ -754,6 +803,7 @@ pub fn verify_program(functions: &[Function]) -> Result<(), String> {
     }
     let mut definitions = HashMap::new();
     let mut aggregates = HashMap::new();
+    let mut delegate_signatures = HashMap::new();
     static_fields(functions)?;
     for function in functions {
         verify(function)?;
@@ -765,7 +815,35 @@ pub fn verify_program(functions: &[Function]) -> Result<(), String> {
     for function in functions {
         for block in &function.blocks {
             for instruction in &block.instructions {
+                let delegate = match &instruction.op {
+                    Op::NewDelegate {
+                        kind, signature, ..
+                    } => Some((*kind, signature)),
+                    Op::InvokeDelegate { signature, .. } => match signature.parameters.first() {
+                        Some(Type::Delegate(kind)) => Some((*kind, signature)),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some((kind, signature)) = delegate {
+                    let invoke = Signature {
+                        parameters: signature.parameters[1..].to_vec(),
+                        returns: signature.returns,
+                    };
+                    if delegate_signatures
+                        .insert(kind, invoke.clone())
+                        .is_some_and(|old| old != invoke)
+                    {
+                        return Err(
+                            "Delegate Invoke signature differs between uses of one nominal type"
+                                .into(),
+                        );
+                    }
+                }
                 if let Op::Call {
+                    target, signature, ..
+                }
+                | Op::NewDelegate {
                     target, signature, ..
                 } = &instruction.op
                 {
@@ -898,7 +976,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
         .iter()
         .chain(&function.locals)
         .chain(function.returns.iter())
-        .any(|ty| matches!(ty, Type::Null | Type::FieldHandle(_)))
+        .any(|ty| {
+            matches!(
+                ty,
+                Type::Null | Type::FieldHandle(_) | Type::MethodHandle(_)
+            )
+        })
     {
         return Err(
             "Null/metadata handles are evaluation-stack types, not declared storage".into(),
@@ -1217,6 +1300,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         Some(Type::Native)
                     }
+                    Op::MethodHandle(target) => {
+                        if !matches!(target.token >> 24, 6 | 0xfe) || target.token & 0xffffff == 0 {
+                            return Err("Invalid method handle identity".into());
+                        }
+                        Some(Type::MethodHandle(target))
+                    }
                     Op::FieldHandle(field) => {
                         if field.token >> 24 != 4 || field.token & 0xffffff == 0 {
                             return Err("Invalid field handle identity".into());
@@ -1398,8 +1487,10 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                     .into(),
                             );
                         }
-                        if matches!(ty, Type::Object(_) | Type::Array(_, _) | Type::String)
-                            && !matches!(check(address, position)?, Type::ReferenceCell(cell) if ty == cell.stack_type())
+                        if matches!(
+                            ty,
+                            Type::Delegate(_) | Type::Object(_) | Type::Array(_, _) | Type::String
+                        ) && !matches!(check(address, position)?, Type::ReferenceCell(cell) if ty == cell.stack_type())
                         {
                             return Err(
                                 "Managed-reference load requires a typed reference cell".into()
@@ -1421,6 +1512,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                     | (
                                         16,
                                         Type::Native
+                                            | Type::Delegate(_)
                                             | Type::Array(_, _)
                                             | Type::String
                                             | Type::Object(_)
@@ -1443,8 +1535,10 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             );
                         }
                         let stored = check(value, position)?;
-                        if matches!(stored, Type::Object(_) | Type::Array(_, _) | Type::String)
-                            && !matches!(check(address, position)?, Type::ReferenceCell(cell) if cell.stack_type() == stored)
+                        if matches!(
+                            stored,
+                            Type::Delegate(_) | Type::Object(_) | Type::Array(_, _) | Type::String
+                        ) && !matches!(check(address, position)?, Type::ReferenceCell(cell) if cell.stack_type() == stored)
                         {
                             return Err(
                                 "Managed-reference stores require a typed reference cell".into()
@@ -1473,6 +1567,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                     | (
                                         16,
                                         Type::Native
+                                            | Type::Delegate(_)
                                             | Type::Array(_, _)
                                             | Type::String
                                             | Type::Object(_)
@@ -1483,16 +1578,62 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         None
                     }
+                    Op::NewDelegate {
+                        kind,
+                        ref signature,
+                        receiver,
+                        ..
+                    } => {
+                        if check(receiver, position)? != Type::Object(ClassType::root())
+                            || signature.parameters.first()
+                                != Some(&Type::Object(ClassType::root()))
+                        {
+                            return Err(
+                                "Delegate construction requires a canonical receiver ABI".into()
+                            );
+                        }
+                        if signature.parameters.len() > 1024
+                            || signature
+                                .parameters
+                                .iter()
+                                .chain(signature.returns.iter())
+                                .any(|ty| {
+                                    matches!(
+                                        ty,
+                                        Type::Null | Type::FieldHandle(_) | Type::MethodHandle(_)
+                                    )
+                                })
+                        {
+                            return Err("Invalid delegate callable ABI signature".into());
+                        }
+                        Some(Type::Delegate(kind))
+                    }
                     Op::Call {
                         ref signature,
                         ref arguments,
                         ..
+                    }
+                    | Op::InvokeDelegate {
+                        ref signature,
+                        ref arguments,
                     } => {
+                        if matches!(instruction.op, Op::InvokeDelegate { .. })
+                            && !matches!(signature.parameters.first(), Some(Type::Delegate(_)))
+                        {
+                            return Err(
+                                "Delegate invocation requires a typed delegate receiver".into()
+                            );
+                        }
                         if signature
                             .parameters
                             .iter()
                             .chain(signature.returns.iter())
-                            .any(|ty| matches!(ty, Type::Null | Type::FieldHandle(_)))
+                            .any(|ty| {
+                                matches!(
+                                    ty,
+                                    Type::Null | Type::FieldHandle(_) | Type::MethodHandle(_)
+                                )
+                            })
                         {
                             return Err(
                                 "Metadata-only values cannot use the machine call ABI".into()
@@ -1515,12 +1656,13 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                 "Aggregate constants require explicit storage operations".into()
                             );
                         }
-                        if matches!(ty, Type::FieldHandle(_)) {
+                        if matches!(ty, Type::FieldHandle(_) | Type::MethodHandle(_)) {
                             return Err("Field handles require metadata identity".into());
                         }
                         if matches!(
                             ty,
                             Type::ByRef(_)
+                                | Type::Delegate(_)
                                 | Type::Object(_)
                                 | Type::ReferenceCell(_)
                                 | Type::StructRef(_)
@@ -1562,14 +1704,19 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         if matches!(check(left, position)?, Type::Struct(_)) {
                             return Err("Aggregate comparison is unsupported".into());
                         }
-                        if matches!(check(left, position)?, Type::FieldHandle(_)) {
+                        if matches!(
+                            check(left, position)?,
+                            Type::FieldHandle(_) | Type::MethodHandle(_)
+                        ) {
                             return Err("Metadata handle comparison is unsupported".into());
                         }
                         if check(left, position)? != check(right, position)? {
                             return Err("Comparison operand type mismatch".into());
                         }
-                        if matches!(check(left, position)?, Type::String | Type::Object(_))
-                            && op != Comparison::Equal
+                        if matches!(
+                            check(left, position)?,
+                            Type::Delegate(_) | Type::String | Type::Object(_)
+                        ) && op != Comparison::Equal
                             && !(op == Comparison::GreaterUnsigned
                                 && (zeroes.contains(&left) || zeroes.contains(&right)))
                         {
@@ -1594,10 +1741,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         if matches!(
                             check(value, position)?,
                             Type::Array(_, _)
+                                | Type::Delegate(_)
                                 | Type::String
                                 | Type::Object(_)
                                 | Type::Null
                                 | Type::FieldHandle(_)
+                                | Type::MethodHandle(_)
                         ) {
                             return Err("Managed reference conversion is unsupported".into());
                         }

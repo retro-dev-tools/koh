@@ -1,6 +1,11 @@
 # CIL frontend migration audit
 
-Source inspection only. No builds or tests were run for this audit. No listed case has been migrated, and none establishes Rust coverage. Dispositions below are proposals for replacement acceptance, not completed work. No compiler-owned behavior is deferred to another migration. TileSheetConverterTests belongs to the integration audit.
+The original audit was source inspection only. Later completed replacements are
+explicitly marked and linked below; unmarked dispositions remain proposals and
+do not establish Rust coverage. The authoritative completion count and evidence
+are in [test disposition status](test-disposition.md). No compiler-owned behavior
+is deferred to another migration. TileSheetConverterTests belongs to the
+integration audit.
 
 ## Inventory and disposition rules
 
@@ -50,7 +55,13 @@ A constructor string argument must survive field storage and later length/index 
 
 Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilDelegateTests.cs`. Future Rust test group: `cil_delegate`.
 
-Captured/noncaptured callbacks, parameter passage and sealed virtual method groups must invoke the correct receiver and target in both Roslyn build modes. Unsupported open virtual method groups must fail clearly; direct calls and blob dispatch are optional mechanisms.
+Captured/noncaptured callbacks, parameter passage and sealed virtual method
+groups must invoke the correct receiver and target in both Roslyn build modes.
+The legacy virtual-group diagnostic is replaced by valid virtual execution;
+open-instance adaptation remains an explicit unsupported shape. Direct calls
+and blob dispatch are optional mechanisms. All8 methods have focused native
+replacements [pending final regression](test-disposition.md#callback-replacement-pending-final-regression);
+they are not yet in the completed-method total.
 
 - **PORT** `NoCaptureLambda_VerifiesCleanAndInvokesResolvedTarget`.
 - **PORT** `NoCaptureLambda_DebugAndReleaseProduceIdenticalObservableState`.
@@ -369,6 +380,11 @@ Mutable fields persist across calls, array initialization retains content, const
 Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStoredDelegateTests.cs`. Future Rust test group: `cil_stored_delegate`.
 
 Callbacks stored through constructor/instance/static fields and parameters keep target/environment identity, merge return values and respect reassignment. Target IDs and three-byte blobs are internal ABI choices.
+
+All3 methods have focused native replacements
+[pending final regression](test-disposition.md#callback-replacement-pending-final-regression),
+without requiring the legacy blob or return-slot representation. They are not
+yet in the completed-method total.
 
 - **PORT** `ActionThroughCtorField_TwoTargetsOneField_DispatchPerBlob`.
 - **PORT** `FuncThroughParameter_ReturnValuesMergeThroughSlot`.

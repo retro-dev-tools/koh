@@ -72,6 +72,13 @@ impl Build<'_, '_> {
     }
 
     fn shape(&mut self, assembly: usize, ty: &TypeSig) -> Result<(u32, u32, bool, u8), String> {
+        if self
+            .resolver
+            .delegate_signature_type(assembly, ty)?
+            .is_some()
+        {
+            return Ok((2, 2, true, 0));
+        }
         let bytes = match ty {
             TypeSig::Primitive(ElementType::Boolean | ElementType::I1 | ElementType::U1) => 1,
             TypeSig::Primitive(
@@ -138,6 +145,13 @@ impl Build<'_, '_> {
         self.reference_work(1)?;
         if depth >= 64 {
             return Err("Struct reference field nesting exceeds64".into());
+        }
+        if self
+            .resolver
+            .delegate_signature_type(assembly, ty)?
+            .is_some()
+        {
+            return Ok(());
         }
         match ty {
             TypeSig::Primitive(ElementType::Void) => {

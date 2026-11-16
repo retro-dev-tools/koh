@@ -2,6 +2,302 @@ use koh_compile::ir::*;
 use koh_compile::resolve::Definition;
 use rstest::rstest;
 
+#[test]
+fn delegate_ref_results_cannot_hide_a_frame_escape() {
+    let kind = DelegateType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000001,
+        },
+        1,
+    )
+    .unwrap();
+    let mut f = frame_reference();
+    f.blocks[0].instructions.extend([
+        instruction(3, Type::Delegate(kind), Op::Constant(0)),
+        instruction(
+            4,
+            Type::ByRef(Scalar::I32),
+            Op::InvokeDelegate {
+                signature: Signature {
+                    parameters: vec![Type::Delegate(kind), Type::ByRef(Scalar::I32)],
+                    returns: Some(Type::ByRef(Scalar::I32)),
+                },
+                arguments: vec![3, 2],
+            },
+        ),
+    ]);
+    f.blocks[0].terminator.kind = Control::Return(Some(4));
+    assert!(verify(&f).unwrap_err().contains("escape"));
+}
+
+#[rstest]
+#[case(true, false)]
+#[case(false, true)]
+fn delegate_bank_writes_are_checked_at_invocation(#[case] active: bool, #[case] valid: bool) {
+    let kind = DelegateType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000001,
+        },
+        1,
+    )
+    .unwrap();
+    let target = Definition {
+        assembly: 0,
+        token: 0x06000002,
+    };
+    let root = Type::Object(ClassType::root());
+    let mut caller = pinned_reference();
+    let pin = caller.blocks[0].instructions.pop().unwrap();
+    caller.blocks[0].instructions.extend([
+        instruction(2, root, Op::Constant(0)),
+        instruction(
+            3,
+            Type::Delegate(kind),
+            Op::NewDelegate {
+                kind,
+                target,
+                signature: Signature {
+                    parameters: vec![root],
+                    returns: None,
+                },
+                receiver: 2,
+            },
+        ),
+        pin,
+    ]);
+    let clear = Instruction {
+        result: None,
+        op: Op::StorePinned { local: 0, value: 1 },
+        il_offset: 0,
+    };
+    if !active {
+        caller.blocks[0].instructions.push(clear.clone());
+    }
+    caller.blocks[0].instructions.push(Instruction {
+        result: None,
+        op: Op::InvokeDelegate {
+            signature: Signature {
+                parameters: vec![Type::Delegate(kind)],
+                returns: None,
+            },
+            arguments: vec![3],
+        },
+        il_offset: 0,
+    });
+    if active {
+        caller.blocks[0].instructions.push(clear);
+    }
+    let callee = Function {
+        identity: target,
+        parameters: vec![root],
+        returns: None,
+        locals: vec![],
+        blocks: vec![Block {
+            parameters: vec![(0, root)],
+            instructions: vec![
+                instruction(1, Type::Native, Op::Constant(0xff70)),
+                instruction(2, Type::I32, Op::Constant(2)),
+                Instruction {
+                    result: None,
+                    op: Op::StoreMemory {
+                        address: 1,
+                        value: 2,
+                        bits: 8,
+                    },
+                    il_offset: 0,
+                },
+            ],
+            terminator: Terminator {
+                il_offset: 0,
+                kind: Control::Return(None),
+            },
+        }],
+    };
+    let result = verify_program(&[caller, callee]);
+    assert_eq!(result.is_ok(), valid, "{result:?}");
+}
+
+#[rstest]
+#[case(Type::I32, true)]
+#[case(Type::I64, false)]
+fn delegate_uses_require_one_canonical_invoke_signature(
+    #[case] invoked: Type,
+    #[case] valid: bool,
+) {
+    let callback = Definition {
+        assembly: 0,
+        token: 0xfc000001,
+    };
+    let kind = DelegateType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000001,
+        },
+        1,
+    )
+    .unwrap();
+    let root = Type::Object(ClassType::root());
+    let mut caller = diamond();
+    caller.parameters.clear();
+    caller.locals.clear();
+    caller.returns = Some(Type::I32);
+    caller.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![
+            instruction(0, root, Op::Constant(0)),
+            instruction(
+                1,
+                Type::Delegate(kind),
+                Op::NewDelegate {
+                    kind,
+                    target: callback,
+                    signature: Signature {
+                        parameters: vec![root, Type::I32],
+                        returns: Some(Type::I32),
+                    },
+                    receiver: 0,
+                },
+            ),
+            instruction(2, invoked, Op::Constant(7)),
+            instruction(
+                3,
+                Type::I32,
+                Op::InvokeDelegate {
+                    signature: Signature {
+                        parameters: vec![Type::Delegate(kind), invoked],
+                        returns: Some(Type::I32),
+                    },
+                    arguments: vec![1, 2],
+                },
+            ),
+        ],
+        terminator: Terminator {
+            il_offset: 0,
+            kind: Control::Return(Some(3)),
+        },
+    }];
+    let callee = Function {
+        identity: callback,
+        parameters: vec![root, Type::I32],
+        returns: Some(Type::I32),
+        locals: vec![],
+        blocks: vec![Block {
+            parameters: vec![(0, root), (1, Type::I32)],
+            instructions: vec![],
+            terminator: Terminator {
+                il_offset: 0,
+                kind: Control::Return(Some(1)),
+            },
+        }],
+    };
+    verify(&caller).unwrap();
+    let result = verify_program(&[caller, callee]);
+    assert_eq!(result.is_ok(), valid, "{result:?}");
+}
+
+#[rstest]
+#[case(0x06000001, true)]
+#[case(0xfe000001, true)]
+#[case(0x06000000, false)]
+#[case(0x04000001, false)]
+fn method_handles_require_method_identity_and_cannot_escape_as_integers(
+    #[case] token: u32,
+    #[case] valid: bool,
+) {
+    let target = Definition { assembly: 0, token };
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = None;
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![instruction(
+            0,
+            Type::MethodHandle(target),
+            Op::MethodHandle(target),
+        )],
+        terminator: Terminator {
+            il_offset: 0,
+            kind: Control::Return(None),
+        },
+    }];
+    assert_eq!(verify(&f).is_ok(), valid);
+    if valid {
+        koh_compile::optimize::simplify(&mut f).unwrap();
+        assert!(f.blocks[0].instructions.is_empty());
+        f.returns = Some(Type::MethodHandle(target));
+        assert!(verify(&f).is_err());
+    }
+}
+
+#[rstest]
+#[case(1, true)]
+#[case(2, false)]
+fn delegate_cells_retain_nominal_instance_identity(#[case] instance: u16, #[case] valid: bool) {
+    let identity = Definition {
+        assembly: 0,
+        token: 0x02000001,
+    };
+    let expected = DelegateType::new(identity, 1).unwrap();
+    let actual = DelegateType::new(identity, instance).unwrap();
+    let mut f = diamond();
+    f.parameters = vec![Type::ReferenceCell(ReferenceCell::Delegate(actual))];
+    f.returns = Some(Type::Delegate(expected));
+    f.locals.clear();
+    f.blocks = vec![Block {
+        parameters: vec![(0, f.parameters[0])],
+        instructions: vec![instruction(
+            1,
+            Type::Delegate(actual),
+            Op::LoadMemory {
+                address: 0,
+                bits: 16,
+                signed: false,
+            },
+        )],
+        terminator: Terminator {
+            il_offset: 0,
+            kind: Control::Return(Some(1)),
+        },
+    }];
+    assert_eq!(verify(&f).is_ok(), valid);
+    f.returns = Some(Type::Delegate(actual));
+    verify(&f).unwrap();
+    koh_compile::sm83::emit(&f).unwrap();
+    f.parameters[0] = Type::Native;
+    f.blocks[0].parameters[0].1 = Type::Native;
+    assert!(verify(&f).unwrap_err().contains("typed reference cell"));
+}
+
+#[rstest]
+#[case(0, true)]
+#[case(1, false)]
+fn delegate_constants_cannot_forge_callable_references(#[case] bits: u64, #[case] valid: bool) {
+    let kind = DelegateType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000001,
+        },
+        1,
+    )
+    .unwrap();
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = Some(Type::Delegate(kind));
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![instruction(0, Type::Delegate(kind), Op::Constant(bits))],
+        terminator: Terminator {
+            il_offset: 0,
+            kind: Control::Return(Some(0)),
+        },
+    }];
+    assert_eq!(verify(&f).is_ok(), valid);
+}
+
 #[rstest]
 #[case(ArrayKind::Vector, true)]
 #[case(ArrayKind::Rectangle, false)]
