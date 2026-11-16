@@ -257,6 +257,19 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                 Op::ArenaAllocate(bytes) | Op::StackAllocate { bytes } | Op::OamDma(bytes) => {
                     value(bytes)
                 }
+                Op::NewRectangle { rows, columns, .. } => {
+                    value(rows);
+                    value(columns);
+                }
+                Op::RectangleAddress { array, row, column } => {
+                    value(array);
+                    value(row);
+                    value(column);
+                }
+                Op::ArrayDimension { array, dimension } => {
+                    value(array);
+                    value(dimension);
+                }
                 Op::InitializeArray { array, .. } => value(array),
                 Op::NewArray { length, .. }
                 | Op::ArrayLength(length)

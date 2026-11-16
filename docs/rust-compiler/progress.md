@@ -8,7 +8,16 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Latest increment: [bounded VBlank copy](vblank-copy.md) and actual2048v2 SDK
+Latest increment: [rank2 rectangular arrays](rectangular-arrays.md), including
+mutable initializers, checked row-major addressing, queries, borrowed references
+and aggregate/reference elements. Final selected30 cases pass183.953s; the
+earlier shared allocator/IR regression passes349 cases, with four obsolete
+rank2 rejection assertions replaced and rerun successfully. The source
+rectangular method now has native behavioral replacement:51/565 complete,
+514 outstanding. JRPG progresses to a delegate/callback dependency and still
+does not build; full acceptance remains incomplete.
+
+Previous increment: [bounded VBlank copy](vblank-copy.md) and actual2048v2 SDK
 gameplay. Four Debug/Release × DMG/CGB cases build the unmodified game sources,
 round-trip canonical ELF, reproduce the SDK ROM with the Rust linker, boot the
 existing emulator and play eight moves. Rust independently checks merge/score/
@@ -25,7 +34,7 @@ that state explicitly, retaining the fault9 assertions, and pass2/2 in10.475s,
 exit0. Production and all other source hashes stayed unchanged. Do not describe
 the original full command as green. Current-increment hosted CI remains pending.
 The two original2048v2 methods/three scenarios now have stronger native
-replacements:50/565 complete,515 outstanding, zero physically retired.
+replacements at that checkpoint:50/565 complete,515 outstanding, zero physically retired.
 
 Previous increment: sequential reference-bearing value structs and typed reference
 cells. Inline copies retain independent scalar storage and shared class/string/

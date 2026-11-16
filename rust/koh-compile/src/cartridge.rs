@@ -238,6 +238,7 @@ pub(crate) fn emit(
             matches!(
                 i.op,
                 crate::ir::Op::NewArray { .. }
+                    | crate::ir::Op::NewRectangle { .. }
                     | crate::ir::Op::NewObject(_)
                     | crate::ir::Op::ArenaAllocate(_)
                     | crate::ir::Op::ArenaReset

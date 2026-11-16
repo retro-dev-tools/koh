@@ -24,12 +24,40 @@ fn integer_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
             Ok(Type::Native)
         }
         TypeSig::ByRef(inner) => Ok(Type::ByRef(scalar(inner)?)),
-        TypeSig::SzArray(inner) => Ok(Type::Array(Storage::Scalar(scalar(inner)?))),
+        TypeSig::SzArray(inner) => Ok(Type::Array(
+            Storage::Scalar(scalar(inner)?),
+            ArrayKind::Vector,
+        )),
+        TypeSig::Array { .. } => Ok(Type::Array(
+            Storage::Scalar(scalar(rectangle_element(ty)?)?),
+            ArrayKind::Rectangle,
+        )),
         TypeSig::Pinned(inner) if matches!(**inner, TypeSig::ByRef(_) | TypeSig::SzArray(_)) => {
             integer_type(inner)
         }
         _ => Err(format!("Type {ty:?} has no integer lowering yet")),
     }
+}
+
+fn rectangle_element(ty: &clrmeta::TypeSig) -> Result<&clrmeta::TypeSig, String> {
+    let clrmeta::TypeSig::Array {
+        element_type,
+        rank,
+        sizes,
+        lo_bounds,
+    } = ty
+    else {
+        return Err("Expected a rectangular array signature".into());
+    };
+    if *rank != 2 {
+        return Err(format!(
+            "Rectangular array rank {rank} is unsupported; expected rank2"
+        ));
+    }
+    if !sizes.is_empty() || lo_bounds.len() > 2 || lo_bounds.iter().any(|&bound| bound != 0) {
+        return Err("Rectangular arrays require an unsized zero-based rank2 signature".into());
+    }
+    Ok(element_type)
 }
 
 fn scalar(ty: &clrmeta::TypeSig) -> Result<Scalar, String> {
@@ -85,6 +113,17 @@ fn storage_type(
         TypeSig::SzArray(inner) => {
             TypeSig::SzArray(Box::new(storage_type(resolver, assembly, inner)?))
         }
+        TypeSig::Array {
+            rank,
+            sizes,
+            lo_bounds,
+            ..
+        } => TypeSig::Array {
+            element_type: Box::new(storage_type(resolver, assembly, rectangle_element(ty)?)?),
+            rank: *rank,
+            sizes: sizes.clone(),
+            lo_bounds: lo_bounds.clone(),
+        },
         TypeSig::Pinned(inner) => {
             TypeSig::Pinned(Box::new(storage_type(resolver, assembly, inner)?))
         }
@@ -189,15 +228,27 @@ fn bound_type(
             clrmeta::TypeSig::Primitive(clrmeta::ElementType::String) => {
                 Ok(Type::ReferenceCell(ReferenceCell::String))
             }
-            clrmeta::TypeSig::SzArray(ref element) => Ok(Type::ReferenceCell(
-                ReferenceCell::Array(bound_storage(resolver, assembly, element)?),
-            )),
+            clrmeta::TypeSig::SzArray(ref element) => {
+                Ok(Type::ReferenceCell(ReferenceCell::Array(
+                    bound_storage(resolver, assembly, element)?,
+                    ArrayKind::Vector,
+                )))
+            }
+            clrmeta::TypeSig::Array { .. } => Ok(Type::ReferenceCell(ReferenceCell::Array(
+                bound_storage(resolver, assembly, rectangle_element(inner)?)?,
+                ArrayKind::Rectangle,
+            ))),
             _ => integer_type(ty),
         },
         clrmeta::TypeSig::Pinned(inner) => bound_type(resolver, assembly, inner),
-        clrmeta::TypeSig::SzArray(inner) => {
-            Ok(Type::Array(bound_storage(resolver, assembly, inner)?))
-        }
+        clrmeta::TypeSig::SzArray(inner) => Ok(Type::Array(
+            bound_storage(resolver, assembly, inner)?,
+            ArrayKind::Vector,
+        )),
+        clrmeta::TypeSig::Array { .. } => Ok(Type::Array(
+            bound_storage(resolver, assembly, rectangle_element(ty)?)?,
+            ArrayKind::Rectangle,
+        )),
         _ => integer_type(ty),
     }
 }
@@ -267,7 +318,7 @@ fn field_storage(
         assembly,
         &storage_type(resolver, assembly, signature)?,
     )? {
-        Type::Array(element) => Ok(FieldStorage::Array(element)),
+        Type::Array(element, kind) => Ok(FieldStorage::Array(element, kind)),
         _ => Ok(FieldStorage::Value(bound_storage(
             resolver, assembly, signature,
         )?)),
@@ -503,7 +554,8 @@ struct Builder<'r, 'a> {
 
 impl Builder<'_, '_> {
     fn coerce(&mut self, value: (u32, Type), ty: Type) -> Result<(u32, Type), String> {
-        if value.1 == Type::Null && matches!(ty, Type::Array(_) | Type::String | Type::Object(_)) {
+        if value.1 == Type::Null && matches!(ty, Type::Array(_, _) | Type::String | Type::Object(_))
+        {
             self.value(ty, Op::Constant(0))
         } else if value.1 == ty {
             Ok(value)
@@ -849,13 +901,13 @@ fn lower_inner(
                         changed |= *old != merged;
                         *old = merged;
                     } else if *old == Type::Null
-                        && matches!(new, Type::Array(_) | Type::String | Type::Object(_))
+                        && matches!(new, Type::Array(_, _) | Type::String | Type::Object(_))
                     {
                         *old = new;
                         changed = true;
                     } else if *old != new
                         && !(new == Type::Null
-                            && matches!(old, Type::Array(_) | Type::String | Type::Object(_)))
+                            && matches!(old, Type::Array(_, _) | Type::String | Type::Object(_)))
                     {
                         return Err(format!(
                             "IL_{:04x}: Incompatible evaluation stacks at merge IL_{:04x}",
@@ -1219,7 +1271,7 @@ fn translate(
                 return Err("Invalid array length type".into());
             }
             let value = b.value(
-                Type::Array(element),
+                Type::Array(element, ArrayKind::Vector),
                 Op::NewArray {
                     element,
                     length: length.0,
@@ -1230,7 +1282,7 @@ fn translate(
         }
         0x8e => {
             let array = b.pop()?;
-            if !matches!(array.1, Type::Array(_) | Type::Null) {
+            if !matches!(array.1, Type::Array(_, _) | Type::Null) {
                 return Err("ldlen requires an array".into());
             }
             let value = b.value(Type::Native, Op::ArrayLength(array.0))?;
@@ -1271,16 +1323,19 @@ fn translate(
             let array = if raw.1 == Type::Null {
                 b.coerce(
                     raw,
-                    Type::Array(explicit.unwrap_or(if reference {
-                        Storage::Object(ClassType::root())
-                    } else {
-                        Storage::Scalar(default)
-                    })),
+                    Type::Array(
+                        explicit.unwrap_or(if reference {
+                            Storage::Object(ClassType::root())
+                        } else {
+                            Storage::Scalar(default)
+                        }),
+                        ArrayKind::Vector,
+                    ),
                 )?
             } else {
                 raw
             };
-            let Type::Array(element) = array.1 else {
+            let Type::Array(element, ArrayKind::Vector) = array.1 else {
                 return Err("Array operation requires an array reference".into());
             };
             if explicit.is_some_and(|ty| ty != element)
@@ -1348,6 +1403,151 @@ fn translate(
                 Operand::Token(token) => token,
                 _ => return Err("Missing call method token".into()),
             };
+            if let Some((shape, kind)) = resolver.array_method(method.identity.assembly, token)? {
+                use crate::resolve::ArrayMethod;
+                let element = bound_storage(
+                    resolver,
+                    method.identity.assembly,
+                    rectangle_element(&shape)?,
+                )?;
+                if constructing != matches!(kind, ArrayMethod::Construct) {
+                    return Err(
+                        "Array constructor requires newobj; array access requires an instance call"
+                            .into(),
+                    );
+                }
+                let stored = if matches!(kind, ArrayMethod::Set) {
+                    Some(b.pop()?)
+                } else {
+                    None
+                };
+                let column = b.pop()?;
+                let row = b.pop()?;
+                let row = b.coerce(row, Type::I32)?;
+                let column = b.coerce(column, Type::I32)?;
+                if constructing {
+                    let array = b.value(
+                        Type::Array(element, ArrayKind::Rectangle),
+                        Op::NewRectangle {
+                            element,
+                            rows: row.0,
+                            columns: column.0,
+                        },
+                    )?;
+                    b.stack.push(array);
+                } else {
+                    let array = b.pop()?;
+                    let array = b.coerce(array, Type::Array(element, ArrayKind::Rectangle))?;
+                    let address = b.value(
+                        element.reference_type(),
+                        Op::RectangleAddress {
+                            array: array.0,
+                            row: row.0,
+                            column: column.0,
+                        },
+                    )?;
+                    if let Some(stored) = stored {
+                        let stored = b.coerce(stored, element.stack_type())?;
+                        b.instructions.push(Instruction {
+                            result: None,
+                            op: Op::StoreMemory {
+                                address: address.0,
+                                value: stored.0,
+                                bits: element.bytes() * 8,
+                            },
+                            il_offset: b.offset,
+                        });
+                    } else if matches!(kind, ArrayMethod::Address) {
+                        b.stack.push(address);
+                    } else {
+                        let value = b.value(
+                            element.stack_type(),
+                            Op::LoadMemory {
+                                address: address.0,
+                                bits: element.bytes() * 8,
+                                signed: matches!(element, Storage::Scalar(value) if value.signed()),
+                            },
+                        )?;
+                        b.stack.push(value);
+                    }
+                }
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
+            if let Some(query) = resolver.array_query(method.identity.assembly, token)? {
+                use crate::resolve::ArrayQuery;
+                if constructing {
+                    return Err("System.Array query cannot be constructed".into());
+                }
+                let dimension = if matches!(
+                    query,
+                    ArrayQuery::Dimension
+                        | ArrayQuery::LongDimension
+                        | ArrayQuery::LowerBound
+                        | ArrayQuery::UpperBound
+                ) {
+                    let dimension = b.pop()?;
+                    Some(b.coerce(dimension, Type::I32)?)
+                } else {
+                    None
+                };
+                let array = b.pop()?;
+                let array = if array.1 == Type::Null {
+                    b.coerce(
+                        array,
+                        Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector),
+                    )?
+                } else {
+                    array
+                };
+                let Type::Array(_, kind) = array.1 else {
+                    return Err("System.Array query requires a typed array receiver".into());
+                };
+                let value = if let Some(dimension) = dimension {
+                    b.value(
+                        Type::I32,
+                        Op::ArrayDimension {
+                            array: array.0,
+                            dimension: dimension.0,
+                        },
+                    )?
+                } else {
+                    let count = b.value(Type::Native, Op::ArrayLength(array.0))?;
+                    b.value(
+                        Type::I32,
+                        Op::Convert {
+                            value: count.0,
+                            bits: 16,
+                            signed: false,
+                        },
+                    )?
+                };
+                let value = match query {
+                    ArrayQuery::Rank => b.value(Type::I32, Op::Constant(u64::from(kind.rank())))?,
+                    ArrayQuery::LowerBound => b.value(Type::I32, Op::Constant(0))?,
+                    ArrayQuery::UpperBound => {
+                        let one = b.value(Type::I32, Op::Constant(1))?;
+                        b.value(
+                            Type::I32,
+                            Op::Binary {
+                                op: Binary::Subtract,
+                                left: value.0,
+                                right: one.0,
+                            },
+                        )?
+                    }
+                    ArrayQuery::LongLength | ArrayQuery::LongDimension => b.value(
+                        Type::I64,
+                        Op::Convert {
+                            value: value.0,
+                            bits: 32,
+                            signed: false,
+                        },
+                    )?,
+                    _ => value,
+                };
+                b.stack.push(value);
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
             if resolver.object_constructor(method.identity.assembly, token)? {
                 if constructing {
                     let object = b.value(
@@ -1395,14 +1595,15 @@ fn translate(
                     return Err("InitializeArray requires a known RVA field handle".into());
                 };
                 let array = b.pop()?;
-                if !matches!(array.1, Type::Array(Storage::Scalar(_)) | Type::Null) {
+                if !matches!(array.1, Type::Array(Storage::Scalar(_), _) | Type::Null) {
                     return Err("InitializeArray requires a primitive array".into());
                 }
                 if matches!(
                     array.1,
-                    Type::Array(Storage::Scalar(
-                        Scalar::NativeSigned | Scalar::NativeUnsigned
-                    ))
+                    Type::Array(
+                        Storage::Scalar(Scalar::NativeSigned | Scalar::NativeUnsigned),
+                        _
+                    )
                 ) {
                     return Err(
                         "Native-width RVA array initialization is not portable to SM83".into(),
@@ -1758,7 +1959,7 @@ fn translate(
                     Type::ByRef(_)
                     | Type::Object(_)
                     | Type::ReferenceCell(_)
-                    | Type::Array(_)
+                    | Type::Array(_, _)
                     | Type::String
                     | Type::Null
                     | Type::FieldHandle(_)
@@ -2099,8 +2300,8 @@ fn translate(
                 Type::ReferenceCell(ReferenceCell::Object(class))
             } else if ty == Type::String {
                 Type::ReferenceCell(ReferenceCell::String)
-            } else if let Type::Array(element) = ty {
-                Type::ReferenceCell(ReferenceCell::Array(element))
+            } else if let Type::Array(element, kind) = ty {
+                Type::ReferenceCell(ReferenceCell::Array(element, kind))
             } else if i.opcode == 0x7f {
                 Type::ByRef(scalar(&signature)?)
             } else {
@@ -2111,7 +2312,7 @@ fn translate(
                 Op::StaticAddress {
                     field: target.definition,
                     bytes: bits / 8,
-                    alignment: if matches!(ty, Type::Array(_)) {
+                    alignment: if matches!(ty, Type::Array(_, _)) {
                         1
                     } else {
                         alignment

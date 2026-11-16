@@ -31,13 +31,32 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: fifty legacy methods; zero physically retired.**
+**Native behavioral replacements: fifty-one legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining515 methods still have
+The remaining514 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## Rectangular-array replacement
+
+`Frontends/CilMdArrayTests.RectangularArrays_RomFoldHeapCtorAndHeaderPath` maps
+to the nextest-discoverable rstest cases in `driver::rectangular`, using actual
+Debug/Release Roslyn assemblies and DMG/CGB ROM execution. Row-major initialized
+data, parameter reads, heap writes and zero initialization are public language
+semantics; private ROM-global/header bytes are legacy implementation details.
+The replacement additionally checks mutation through a readonly field's
+referent, null/reference-cell flows, empty dimensions, per-axis/truncation and
+capacity faults, borrowed element references, wide/reference-bearing values,
+System.Array queries and malformed runtime-member signatures. Exact new heap
+layout is checked by `primitive_arrays_are_zeroed_checked_and_bank_safe`.
+
+Decision: REPLACE; the obsolete immutable-ROM/private-IR assertion is removed in
+favor of mutable-array execution and bank/heap guards. The separate source
+method `StringArrays_ReferenceElementsAndLengths` remains outstanding here;
+rectangular support does not close the entire source file. No source definitions
+are physically retired until final legacy compiler/test deletion.
 
 ## 2048 scene-game replacements
 

@@ -256,7 +256,7 @@ impl Code {
             ty,
             Type::ByRef(_)
                 | Type::StructRef(_)
-                | Type::Array(_)
+                | Type::Array(_, _)
                 | Type::String
                 | Type::Null
                 | Type::Object(_)
@@ -370,6 +370,7 @@ impl Code {
         &mut self,
         array: u16,
         stride: u16,
+        header: u16,
         bytes: &[u8],
         temp: u16,
     ) -> Result<(), String> {
@@ -383,7 +384,10 @@ impl Code {
         }
         self.indirect(temp);
         self.address(array);
-        self.bytes(&[0x5e, 0x23, 0x56, 0x13, 0x13]);
+        self.bytes(&[0x5e, 0x23, 0x56]);
+        for _ in 0..header {
+            self.bytes(&[0x13]);
+        }
         self.jump(0x21, literal);
         self.bytes(&[0x78, 0xb1]);
         let done = self.label();
@@ -429,14 +433,14 @@ impl Code {
     fn new_array(&mut self, length: u16, destination: u16, temp: u16, aligned: bool) {
         let fault = self.import("__koh_trap_allocation".into());
         self.copy(temp + 8, temp, 2);
-        self.constant(temp + 2, 2, 2);
+        self.copy(temp + 20, temp + 2, 2);
         self.arithmetic(temp, temp + 2, temp, 2, 0x88);
         let cursor = self.import("__koh_heap_cursor".into());
         self.jump(0x21, cursor);
         self.bytes(&[0x2a, 0x4f, 0x46]);
         self.save_word(temp + 2);
         if aligned {
-            self.constant(temp + 14, 2, 2);
+            self.copy(temp + 20, temp + 14, 2);
             self.arithmetic(temp + 2, temp + 14, temp + 2, 2, 0x88);
             self.arithmetic(temp + 2, temp + 10, temp + 2, 2, 0x88);
             for byte in 0..2 {
@@ -1227,7 +1231,12 @@ pub(crate) fn emit_with_strings(
         .blocks
         .iter()
         .flat_map(|b| &b.instructions)
-        .any(|i| matches!(i.op, Op::NewArray { .. } | Op::NewObject(_)))
+        .any(|i| {
+            matches!(
+                i.op,
+                Op::NewArray { .. } | Op::NewRectangle { .. } | Op::NewObject(_)
+            )
+        })
         .then(|| code.label());
     let aligned = function
         .blocks
@@ -1241,10 +1250,12 @@ pub(crate) fn emit_with_strings(
         .any(|i| {
             matches!(
                 i.op,
-                Op::Binary {
-                    op: Binary::Multiply,
-                    ..
-                }
+                Op::NewRectangle { .. }
+                    | Op::RectangleAddress { .. }
+                    | Op::Binary {
+                        op: Binary::Multiply,
+                        ..
+                    }
             )
         });
     let mut multipliers = BTreeMap::<u16, SymbolId>::new();
@@ -1357,6 +1368,7 @@ pub(crate) fn emit_with_strings(
                 }
                 Op::NewObject(class) => {
                     let temp = layout.arithmetic;
+                    code.constant(temp + 20, 2, 2);
                     code.constant(temp + 6, 2, u64::from(class.bytes() - 2));
                     code.constant(temp + 8, 2, u64::from(class.bytes() - 2));
                     if aligned {
@@ -1645,17 +1657,118 @@ pub(crate) fn emit_with_strings(
                     }
                 }
                 Op::InitializeArray { array, ref bytes } => {
-                    let stride = match layout.values[&array].1 {
-                        Type::Array(element) => element.bytes(),
-                        Type::Null => 1,
+                    let (stride, header) = match layout.values[&array].1 {
+                        Type::Array(element, kind) => (element.bytes(), kind.header_bytes()),
+                        Type::Null => (1, 2),
                         _ => return Err("Invalid verified initializer operand".into()),
                     };
                     code.initialize_array(
                         slot(array),
                         u16::from(stride),
+                        header,
                         bytes,
                         layout.arithmetic,
                     )?;
+                }
+                Op::NewRectangle {
+                    element,
+                    rows,
+                    columns,
+                } => {
+                    let temp = layout.arithmetic;
+                    let fault = code.import("__koh_trap_allocation".into());
+                    code.check_high(slot(rows), place(rows).bytes, fault);
+                    code.check_high(slot(columns), place(columns).bytes, fault);
+                    code.extend(place(rows), temp, 4);
+                    code.extend(place(columns), temp + 8, 4);
+                    let routine = *multipliers.entry(4).or_insert_with(|| code.label());
+                    code.jump(0xcd, routine);
+                    code.check_high(temp + 16, 4, fault);
+                    code.copy(temp + 16, temp + 6, 2);
+                    code.below_constant(temp + 6, 4090 / element.bytes() + 1, fault);
+                    code.copy(temp + 6, temp + 8, 2);
+                    code.scale_word(temp + 8, element.bytes());
+                    code.constant(temp + 20, 2, 6);
+                    if aligned {
+                        code.constant(temp + 10, 2, 0);
+                    }
+                    code.jump(0xcd, allocator.ok_or("Missing rectangular allocator")?);
+                    code.indirect(temp + 12);
+                    code.heap_bank(temp + 24);
+                    for (value, offset) in [(rows, 2), (columns, 4)] {
+                        code.extend(place(value), temp, 2);
+                        code.indirect(temp + 12);
+                        for _ in 0..offset {
+                            code.bytes(&[0x03]);
+                        }
+                        code.address(temp);
+                        code.bytes(&[0x5e, 0x23, 0x56, 0x7b, 0x02, 0x03, 0x7a, 0x02]);
+                    }
+                    code.restore_bank(temp + 24);
+                    code.copy(temp + 12, destination, 2);
+                }
+                Op::RectangleAddress { array, row, column } => {
+                    let Type::Array(element, ArrayKind::Rectangle) = layout.values[&array].1 else {
+                        return Err("Invalid verified rectangular type".into());
+                    };
+                    let temp = layout.arithmetic;
+                    code.array_header(slot(array), temp + 24);
+                    code.indirect(slot(array));
+                    code.bytes(&[0x60, 0x69, 0x23, 0x23, 0x2a, 0x4f, 0x2a, 0x47]);
+                    code.save_word(temp + 20);
+                    code.indirect(slot(array));
+                    code.bytes(&[0x60, 0x69, 0x23, 0x23, 0x23, 0x23, 0x2a, 0x4f, 0x46]);
+                    code.save_word(temp + 22);
+                    code.restore_bank(temp + 24);
+                    let fault = code.import("__koh_trap_bounds".into());
+                    code.check_high(slot(row), place(row).bytes, fault);
+                    code.check_high(slot(column), place(column).bytes, fault);
+                    code.extend(place(row), temp, 2);
+                    code.below_word(temp, temp + 20, fault);
+                    code.extend(place(column), temp, 2);
+                    code.below_word(temp, temp + 22, fault);
+                    code.extend(place(row), temp, 4);
+                    code.copy(temp + 22, temp + 8, 2);
+                    code.constant(temp + 10, 2, 0);
+                    let routine = *multipliers.entry(4).or_insert_with(|| code.label());
+                    code.jump(0xcd, routine);
+                    code.check_high(temp + 16, 4, fault);
+                    code.extend(place(column), temp, 2);
+                    code.arithmetic(temp + 16, temp, temp + 16, 2, 0x88);
+                    code.jump(0xda, fault);
+                    code.scale_word(temp + 16, element.bytes());
+                    code.indirect(slot(array));
+                    code.address(temp + 16);
+                    code.bytes(&[0x5e, 0x23, 0x56, 0x60, 0x69, 0x19]);
+                    for _ in 0..6 {
+                        code.bytes(&[0x23]);
+                    }
+                    code.bytes(&[0x44, 0x4d]);
+                    code.save_word(destination);
+                }
+                Op::ArrayDimension { array, dimension } => {
+                    let Type::Array(_, kind) = layout.values[&array].1 else {
+                        return Err("Invalid verified dimension type".into());
+                    };
+                    let temp = layout.arithmetic;
+                    code.array_header(slot(array), temp + 24);
+                    code.save_word(temp + 20);
+                    let fault = code.import("__koh_trap_bounds".into());
+                    code.check_high(slot(dimension), place(dimension).bytes, fault);
+                    code.extend(place(dimension), temp, 2);
+                    code.below_constant(temp, kind.rank(), fault);
+                    if kind == ArrayKind::Rectangle {
+                        code.indirect(slot(array));
+                        code.address(temp);
+                        code.bytes(&[
+                            0x5e, 0x23, 0x56, 0x60, 0x69, 0x19, 0x19, 0x23, 0x23, 0x2a, 0x4f, 0x46,
+                        ]);
+                        code.save_word(destination);
+                    } else {
+                        code.copy(temp + 20, destination, 2);
+                    }
+                    code.constant(destination + 2, 2, 0);
+                    code.restore_bank(temp + 24);
                 }
                 Op::NewArray {
                     element,
@@ -1663,6 +1776,7 @@ pub(crate) fn emit_with_strings(
                     alignment,
                 } => {
                     let temp = layout.arithmetic;
+                    code.constant(temp + 20, 2, 2);
                     let fault = code.import("__koh_trap_allocation".into());
                     code.check_high(slot(length), place(length).bytes, fault);
                     code.extend(place(length), temp + 6, 2);
@@ -1681,7 +1795,7 @@ pub(crate) fn emit_with_strings(
                     code.restore_bank(layout.arithmetic + 24);
                 }
                 Op::ArrayAddress { array, index } => {
-                    let Type::Array(element) = layout.values[&array].1 else {
+                    let Type::Array(element, ArrayKind::Vector) = layout.values[&array].1 else {
                         return Err("Invalid verified array type".into());
                     };
                     let temp = layout.arithmetic;

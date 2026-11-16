@@ -39,7 +39,7 @@ pub(crate) fn apply(resolver: &Resolver<'_>, function: &mut Function) -> Result<
         let Op::StoreMemory { address, value, .. } = i.op else {
             continue;
         };
-        if !matches!(types[&value], Type::Array(_)) {
+        if !matches!(types[&value], Type::Array(_, _)) {
             continue;
         }
         let Some(Value::Operation(Op::StaticAddress { field, .. })) = values.get(&address) else {

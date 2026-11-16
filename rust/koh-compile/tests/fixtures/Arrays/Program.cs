@@ -96,6 +96,8 @@ public static class Program
 
     public static int Multidimensional() => new int[2, 2].Length;
 
+    public static int RankThree() => new int[2, 2, 2].Length;
+
     static int Check()
     {
         if (Saved != null)

@@ -2,7 +2,9 @@ use crate::assembly::Assembly;
 use clrmeta::{CodedIndex, Metadata, MethodSig, TableId, TypeSig};
 use std::cell::RefCell;
 use std::collections::HashMap;
+mod arrays;
 mod index;
+pub(crate) use arrays::{ArrayMethod, ArrayQuery};
 use index::Index;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

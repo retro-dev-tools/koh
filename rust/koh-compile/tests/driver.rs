@@ -1,6 +1,8 @@
 use koh_compile::{compile, resolve::Resolver};
 use rstest::rstest;
 use std::path::{Path, PathBuf};
+#[path = "driver/rectangular.rs"]
+mod rectangular;
 mod support;
 #[path = "driver/vblank.rs"]
 mod vblank;
@@ -3544,6 +3546,7 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
         (if color { "Banked" } else { "Main" }, 0),
         (if color { "BankedTypes" } else { "Types" }, 0),
         ("ObjectArray", 0),
+        ("Multidimensional", 0),
         ("NullArray", 4),
         ("Negative", 5),
         ("TooLarge", 5),
@@ -3603,6 +3606,8 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
                 (
                     if entry == "ObjectArray" {
                         "00000002"
+                    } else if entry == "Multidimensional" {
+                        "00000004"
                     } else {
                         "0000002A"
                     },
@@ -3617,6 +3622,11 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
             };
             if entry == "ObjectArray" {
                 array(2, &[0; 4]);
+            } else if entry == "Multidimensional" {
+                let mut dimensions_and_data = [0; 20];
+                dimensions_and_data[0] = 2;
+                dimensions_and_data[2] = 2;
+                array(4, &dimensions_and_data);
             } else if matches!(entry, "Types" | "BankedTypes") {
                 array(1, &[1]);
                 array(1, &0xf123u16.to_le_bytes());
@@ -3662,7 +3672,7 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
             assert_heap_snapshot(fields[5], &[0x6b; 0x1000], entry);
         }
     }
-    for entry in ["FloatArray", "NestedArray", "Multidimensional"] {
+    for entry in ["FloatArray", "NestedArray", "RankThree"] {
         let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
             .arg(output.join("Arrays.dll"))
             .arg("-r")
@@ -3678,7 +3688,8 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
                 && error.contains("IL_")
                 && (error.contains("primitive")
                     || error.contains("integer")
-                    || error.contains("Instance")),
+                    || error.contains("Instance")
+                    || error.contains("rank 3")),
             "{entry}: {error}"
         );
     }

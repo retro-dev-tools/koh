@@ -3,6 +3,72 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 
 #[rstest]
+#[case(ArrayKind::Vector, true)]
+#[case(ArrayKind::Rectangle, false)]
+fn array_kind_survives_returns_and_reference_cells(#[case] kind: ArrayKind, #[case] valid: bool) {
+    let element = Storage::Scalar(Scalar::U8);
+    let mut f = diamond();
+    f.parameters = vec![Type::ReferenceCell(ReferenceCell::Array(element, kind))];
+    f.returns = Some(Type::Array(element, ArrayKind::Vector));
+    f.locals.clear();
+    f.blocks = vec![Block {
+        parameters: vec![(0, f.parameters[0])],
+        instructions: vec![instruction(
+            1,
+            Type::Array(element, kind),
+            Op::LoadMemory {
+                address: 0,
+                bits: 16,
+                signed: false,
+            },
+        )],
+        terminator: Terminator {
+            il_offset: 0,
+            kind: Control::Return(Some(1)),
+        },
+    }];
+    assert_eq!(verify(&f).is_ok(), valid);
+    f.returns = Some(Type::Array(element, kind));
+    verify(&f).unwrap();
+    koh_compile::sm83::emit(&f).unwrap();
+    f.blocks[0].instructions[0].result = Some((1, Type::Array(element, ArrayKind::Vector)));
+    assert_eq!(verify(&f).is_ok(), valid);
+}
+
+#[rstest]
+#[case(ArrayKind::Vector, true)]
+#[case(ArrayKind::Rectangle, false)]
+fn vector_indexing_rejects_rectangular_references(#[case] kind: ArrayKind, #[case] valid: bool) {
+    let element = Storage::Scalar(Scalar::U8);
+    let field = FieldStorage::Array(element, kind);
+    assert_eq!(field.stack_type(), Type::Array(element, kind));
+    assert_eq!(
+        field.reference_type(),
+        Type::ReferenceCell(ReferenceCell::Array(element, kind))
+    );
+    let mut f = diamond();
+    f.parameters = vec![field.stack_type()];
+    f.returns = None;
+    f.locals.clear();
+    f.blocks = vec![Block {
+        parameters: vec![(0, f.parameters[0])],
+        instructions: vec![
+            instruction(1, Type::I32, Op::Constant(0)),
+            instruction(
+                2,
+                Type::ByRef(Scalar::U8),
+                Op::ArrayAddress { array: 0, index: 1 },
+            ),
+        ],
+        terminator: Terminator {
+            il_offset: 0,
+            kind: Control::Return(None),
+        },
+    }];
+    assert_eq!(verify(&f).is_ok(), valid);
+}
+
+#[rstest]
 #[case("typed", true)]
 #[case("raw-load", false)]
 #[case("raw-store", false)]
@@ -26,7 +92,7 @@ fn managed_aggregates_require_typed_storage(#[case] scenario: &str, #[case] vali
     } else {
         Type::StructRef(owner)
     };
-    let storage = FieldStorage::Array(Storage::Scalar(Scalar::U8));
+    let storage = FieldStorage::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector);
     let mut f = diamond();
     f.parameters = vec![address];
     f.locals.clear();
@@ -106,7 +172,7 @@ fn managed_aggregates_require_typed_storage(#[case] scenario: &str, #[case] vali
 #[case(Type::Native, false)]
 #[case(Type::I32, false)]
 #[case(Type::String, false)]
-#[case(Type::Array(Storage::Scalar(Scalar::U8)), false)]
+#[case(Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector), false)]
 fn class_checks_preserve_reference_types_and_effects(#[case] input: Type, #[case] valid: bool) {
     let mut f = diamond();
     f.parameters.clear();
@@ -224,7 +290,10 @@ fn static_reference_identity_has_one_storage_type(#[case] shape: &str, #[case] v
         "class" => Type::ReferenceCell(ReferenceCell::Object(class(3))),
         "native" => Type::Native,
         "string" => Type::ReferenceCell(ReferenceCell::String),
-        "array" => Type::ReferenceCell(ReferenceCell::Array(Storage::Object(class(2)))),
+        "array" => Type::ReferenceCell(ReferenceCell::Array(
+            Storage::Object(class(2)),
+            ArrayKind::Vector,
+        )),
         _ => first,
     };
     let address = Op::StaticAddress {
@@ -315,7 +384,7 @@ fn object_identity_cannot_be_fabricated_or_reinterpreted(
         instructions[1] = instruction(
             1,
             match scenario {
-                "raw-array-load" => Type::Array(Storage::Object(parent)),
+                "raw-array-load" => Type::Array(Storage::Object(parent), ArrayKind::Vector),
                 "raw-string-load" => Type::String,
                 _ => Type::Object(parent),
             },
@@ -548,7 +617,7 @@ fn raw_memory_constant_conversions_control_bank_spans(
     #[case] rejected: bool,
     #[values(false, true)] copy: bool,
 ) {
-    let array = Type::Array(Storage::Scalar(Scalar::U8));
+    let array = Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector);
     let mut f = diamond();
     f.parameters = vec![array];
     f.locals = vec![array];
@@ -720,7 +789,7 @@ fn memory_fill_is_typed_and_preserves_all_operands(
 #[case(Type::I64, false)]
 #[case(Type::Native, false)]
 #[case(Type::String, false)]
-#[case(Type::Array(Storage::Scalar(Scalar::U8)), false)]
+#[case(Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector), false)]
 fn arena_operations_are_typed_and_observable(#[case] size: Type, #[case] valid: bool) {
     let mut f = diamond();
     f.parameters = vec![size];
@@ -835,7 +904,7 @@ fn cpu_control_emits_ordered_sm83_encodings() {
 #[case(Type::I64, false)]
 #[case(Type::Native, false)]
 #[case(Type::String, false)]
-#[case(Type::Array(Storage::Scalar(Scalar::U8)), false)]
+#[case(Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector), false)]
 fn oam_dma_is_typed_and_observable(#[case] ty: Type, #[case] valid: bool) {
     let mut f = diamond();
     f.parameters = vec![ty];
@@ -942,7 +1011,7 @@ fn local_forwarding_preserves_effects_and_traps(#[case] barrier: u8) {
         ]),
         3 => instructions.push(instruction(
             6,
-            Type::Array(Storage::Scalar(Scalar::U8)),
+            Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector),
             Op::NewArray {
                 element: Storage::Scalar(Scalar::U8),
                 length: 2,
@@ -1171,7 +1240,7 @@ fn aggregate_identity_requires_consistent_storage(
 ) {
     let representation = |value| {
         if array {
-            Type::Array(Storage::Struct(value))
+            Type::Array(Storage::Struct(value), ArrayKind::Vector)
         } else {
             Type::Struct(value)
         }
@@ -1248,7 +1317,7 @@ fn aggregate_array_operations_preserve_identity(#[case] bytes: u16) {
             instruction(0, Type::I32, Op::Constant(1)),
             instruction(
                 1,
-                Type::Array(Storage::Struct(shape)),
+                Type::Array(Storage::Struct(shape), ArrayKind::Vector),
                 Op::NewArray {
                     element: Storage::Struct(shape),
                     length: 0,
@@ -1292,7 +1361,7 @@ fn aggregate_rva_initialization_requires_an_explicit_contract() {
     .unwrap();
     assert!(
         verify(&initializer(
-            Type::Array(Storage::Struct(shape)),
+            Type::Array(Storage::Struct(shape), ArrayKind::Vector),
             vec![1, 2, 3]
         ))
         .unwrap_err()
@@ -2076,7 +2145,10 @@ fn initializer(ty: Type, bytes: Vec<u8>) -> Function {
 #[case(Type::FieldHandle(Definition { assembly: 0, token: 0x04000001 }), false)]
 #[case(Type::FieldHandle(Definition { assembly: 0, token: 0x04000001 }), true)]
 fn metadata_values_cannot_cross_machine_calls(#[case] ty: Type, #[case] parameter: bool) {
-    let mut function = initializer(Type::Array(Storage::Scalar(Scalar::U8)), vec![1]);
+    let mut function = initializer(
+        Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector),
+        vec![1],
+    );
     let source = match ty {
         Type::FieldHandle(field) => Op::FieldHandle(field),
         _ => Op::Constant(0),
@@ -2107,11 +2179,19 @@ fn metadata_values_cannot_cross_machine_calls(#[case] ty: Type, #[case] paramete
 }
 
 #[rstest]
-#[case(Type::Array(Storage::Scalar(Scalar::U8)), 3, true)]
-#[case(Type::Array(Storage::Scalar(Scalar::I64)), 24, true)]
-#[case(Type::Array(Storage::Scalar(Scalar::U8)), 0, false)]
-#[case(Type::Array(Storage::Scalar(Scalar::U8)), 4097, false)]
-#[case(Type::Array(Storage::Scalar(Scalar::NativeSigned)), 2, false)]
+#[case(Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector), 3, true)]
+#[case(Type::Array(Storage::Scalar(Scalar::I64), ArrayKind::Vector), 24, true)]
+#[case(Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector), 0, false)]
+#[case(
+    Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector),
+    4097,
+    false
+)]
+#[case(
+    Type::Array(Storage::Scalar(Scalar::NativeSigned), ArrayKind::Vector),
+    2,
+    false
+)]
 #[case(Type::I32, 3, false)]
 fn initializer_ir_requires_bounded_primitive_storage(
     #[case] ty: Type,
@@ -2130,7 +2210,10 @@ fn initializer_ir_requires_bounded_primitive_storage(
 #[case(16, true)]
 #[case(17, false)]
 fn initializer_ir_data_budget_is_bounded(#[case] copies: usize, #[case] valid: bool) {
-    let mut function = initializer(Type::Array(Storage::Scalar(Scalar::U8)), vec![1; 4096]);
+    let mut function = initializer(
+        Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector),
+        vec![1; 4096],
+    );
     function.blocks[0].instructions = vec![function.blocks[0].instructions[0].clone(); copies];
     assert_eq!(verify(&function).is_ok(), valid);
 }
@@ -2145,7 +2228,10 @@ fn field_handles_require_metadata_identity_and_have_no_runtime_abi(
     #[case] valid: bool,
 ) {
     let field = Definition { assembly: 0, token };
-    let mut function = initializer(Type::Array(Storage::Scalar(Scalar::U8)), vec![1]);
+    let mut function = initializer(
+        Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector),
+        vec![1],
+    );
     function.blocks[0].instructions.insert(
         0,
         instruction(1, Type::FieldHandle(field), Op::FieldHandle(field)),
@@ -2185,7 +2271,7 @@ fn array_operations_preserve_element_identity(#[case] element: Scalar) {
             instruction(0, Type::I32, Op::Constant(3)),
             instruction(
                 1,
-                Type::Array(Storage::Scalar(element)),
+                Type::Array(Storage::Scalar(element), ArrayKind::Vector),
                 Op::NewArray {
                     element: Storage::Scalar(element),
                     length: 0,
@@ -2222,18 +2308,27 @@ fn array_operations_preserve_element_identity(#[case] element: Scalar) {
 }
 
 #[rstest]
-#[case(Op::NewArray { element: Storage::Scalar(Scalar::I32), length: 0, alignment: 1 }, Type::Array(Storage::Scalar(Scalar::I32)))]
+#[case(Op::NewArray { element: Storage::Scalar(Scalar::I32), length: 0, alignment: 1 }, Type::Array(Storage::Scalar(Scalar::I32), ArrayKind::Vector))]
 #[case(Op::ArrayAddress { array: 0, index: 0 }, Type::ByRef(Scalar::I32))]
-#[case(Op::Negate(0), Type::Array(Storage::Scalar(Scalar::I32)))]
+#[case(
+    Op::Negate(0),
+    Type::Array(Storage::Scalar(Scalar::I32), ArrayKind::Vector)
+)]
 #[case(Op::Convert { value: 0, bits: 16, signed: false }, Type::Native)]
-#[case(Op::Constant(1), Type::Array(Storage::Scalar(Scalar::I32)))]
+#[case(
+    Op::Constant(1),
+    Type::Array(Storage::Scalar(Scalar::I32), ArrayKind::Vector)
+)]
 fn invalid_array_ir_is_rejected(#[case] op: Op, #[case] ty: Type) {
     let mut function = diamond();
     function.locals.clear();
-    function.parameters = vec![Type::Array(Storage::Scalar(Scalar::I32))];
+    function.parameters = vec![Type::Array(Storage::Scalar(Scalar::I32), ArrayKind::Vector)];
     function.returns = Some(ty);
     function.blocks = vec![Block {
-        parameters: vec![(0, Type::Array(Storage::Scalar(Scalar::I32)))],
+        parameters: vec![(
+            0,
+            Type::Array(Storage::Scalar(Scalar::I32), ArrayKind::Vector),
+        )],
         instructions: vec![instruction(1, ty, op)],
         terminator: Terminator {
             il_offset: 2,
@@ -2453,12 +2548,12 @@ fn storage_alignment_is_bounded_power_of_two(#[case] alignment: u16, #[case] val
         *value = alignment;
     }
     assert_eq!(verify(&f).is_ok(), valid);
-    f.returns = Some(Type::Array(Storage::Scalar(Scalar::U8)));
+    f.returns = Some(Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector));
     f.blocks[0].instructions = vec![
         instruction(0, Type::I32, Op::Constant(1)),
         instruction(
             1,
-            Type::Array(Storage::Scalar(Scalar::U8)),
+            Type::Array(Storage::Scalar(Scalar::U8), ArrayKind::Vector),
             Op::NewArray {
                 element: Storage::Scalar(Scalar::U8),
                 length: 0,

@@ -96,7 +96,7 @@ pub enum Type {
     I64,
     Native,
     ByRef(Scalar),
-    Array(Storage),
+    Array(Storage, ArrayKind),
     String,
     Null,
     FieldHandle(Definition),
@@ -108,7 +108,7 @@ pub enum Type {
 pub enum ReferenceCell {
     Object(ClassType),
     String,
-    Array(Storage),
+    Array(Storage, ArrayKind),
 }
 
 impl ReferenceCell {
@@ -116,8 +116,26 @@ impl ReferenceCell {
         match self {
             Self::Object(class) => Type::Object(class),
             Self::String => Type::String,
-            Self::Array(element) => Type::Array(element),
+            Self::Array(element, kind) => Type::Array(element, kind),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArrayKind {
+    Vector,
+    Rectangle,
+}
+
+impl ArrayKind {
+    pub fn rank(self) -> u16 {
+        match self {
+            Self::Vector => 1,
+            Self::Rectangle => 2,
+        }
+    }
+    pub fn header_bytes(self) -> u16 {
+        2 + if self == Self::Rectangle { 4 } else { 0 }
     }
 }
 
@@ -166,8 +184,8 @@ impl Type {
         match self {
             Self::Object(class)
             | Self::ReferenceCell(ReferenceCell::Object(class))
-            | Self::Array(Storage::Object(class))
-            | Self::ReferenceCell(ReferenceCell::Array(Storage::Object(class))) => Some(class),
+            | Self::Array(Storage::Object(class), _)
+            | Self::ReferenceCell(ReferenceCell::Array(Storage::Object(class), _)) => Some(class),
             _ => None,
         }
     }
@@ -192,7 +210,7 @@ impl Type {
             Self::I64 => 64,
             Self::Native
             | Self::ByRef(_)
-            | Self::Array(_)
+            | Self::Array(_, _)
             | Self::String
             | Self::Null
             | Self::Object(_)
@@ -238,13 +256,13 @@ impl Storage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldStorage {
     Value(Storage),
-    Array(Storage),
+    Array(Storage, ArrayKind),
 }
 
 impl FieldStorage {
     pub fn contains_references(self) -> bool {
         match self {
-            Self::Array(_) | Self::Value(Storage::Object(_) | Storage::String) => true,
+            Self::Array(_, _) | Self::Value(Storage::Object(_) | Storage::String) => true,
             Self::Value(Storage::Struct(value)) => value.references,
             Self::Value(Storage::Scalar(_)) => false,
         }
@@ -252,19 +270,19 @@ impl FieldStorage {
     pub fn bytes(self) -> u16 {
         match self {
             Self::Value(storage) => storage.bytes(),
-            Self::Array(_) => 2,
+            Self::Array(_, _) => 2,
         }
     }
     pub fn stack_type(self) -> Type {
         match self {
             Self::Value(storage) => storage.stack_type(),
-            Self::Array(element) => Type::Array(element),
+            Self::Array(element, kind) => Type::Array(element, kind),
         }
     }
     pub fn reference_type(self) -> Type {
         match self {
             Self::Value(storage) => storage.reference_type(),
-            Self::Array(element) => Type::ReferenceCell(ReferenceCell::Array(element)),
+            Self::Array(element, kind) => Type::ReferenceCell(ReferenceCell::Array(element, kind)),
         }
     }
 }
@@ -392,6 +410,20 @@ pub enum Op {
         length: u32,
         alignment: u16,
     },
+    NewRectangle {
+        element: Storage,
+        rows: u32,
+        columns: u32,
+    },
+    RectangleAddress {
+        array: u32,
+        row: u32,
+        column: u32,
+    },
+    ArrayDimension {
+        array: u32,
+        dimension: u32,
+    },
     ArrayLength(u32),
     ArrayAddress {
         array: u32,
@@ -478,6 +510,9 @@ impl Op {
             }
             Self::NewArray {
                 element: storage, ..
+            }
+            | Self::NewRectangle {
+                element: storage, ..
             } => (None, Some(FieldStorage::Value(storage))),
             _ => (None, None),
         };
@@ -486,7 +521,7 @@ impl Op {
             match storage {
                 Some(
                     FieldStorage::Value(Storage::Struct(value))
-                    | FieldStorage::Array(Storage::Struct(value)),
+                    | FieldStorage::Array(Storage::Struct(value), _),
                 ) => Some(value),
                 _ => None,
             },
@@ -496,6 +531,9 @@ impl Op {
     }
     pub fn operands(&self) -> impl Iterator<Item = u32> + '_ {
         let pair = match *self {
+            Self::NewRectangle { rows, columns, .. } => [Some(rows), Some(columns)],
+            Self::RectangleAddress { array, row, .. } => [Some(array), Some(row)],
+            Self::ArrayDimension { array, dimension } => [Some(array), Some(dimension)],
             Self::ArenaAllocate(bytes)
             | Self::StackAllocate { bytes }
             | Self::OamDma(bytes)
@@ -557,6 +595,7 @@ impl Op {
             _ => &[],
         };
         let count = match *self {
+            Self::RectangleAddress { column, .. } => Some(column),
             Self::MemoryFill { count, .. }
             | Self::MemoryCopy { count, .. }
             | Self::VBlankCopy { count, .. }
@@ -830,8 +869,8 @@ fn aggregate_types(
         let storage = match ty {
             Type::Struct(value)
             | Type::StructRef(value)
-            | Type::Array(Storage::Struct(value))
-            | Type::ReferenceCell(ReferenceCell::Array(Storage::Struct(value))) => {
+            | Type::Array(Storage::Struct(value), _)
+            | Type::ReferenceCell(ReferenceCell::Array(Storage::Struct(value), _)) => {
                 Some((value.identity, Type::Struct(value)))
             }
             _ => ty
@@ -1187,7 +1226,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     Op::InitializeArray { array, ref bytes } => {
                         if !matches!(
                             check(array, position)?,
-                            Type::Array(Storage::Scalar(_)) | Type::Null
+                            Type::Array(Storage::Scalar(_), _) | Type::Null
                         ) || bytes.is_empty()
                             || bytes.len() > 4096
                         {
@@ -1195,15 +1234,53 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         if matches!(
                             check(array, position)?,
-                            Type::Array(Storage::Scalar(
-                                Scalar::NativeSigned | Scalar::NativeUnsigned
-                            ))
+                            Type::Array(
+                                Storage::Scalar(Scalar::NativeSigned | Scalar::NativeUnsigned),
+                                _
+                            )
                         ) {
                             return Err(
                                 "Native-width RVA array initialization is unsupported".into()
                             );
                         }
                         None
+                    }
+                    Op::NewRectangle {
+                        element,
+                        rows,
+                        columns,
+                    } => {
+                        if check(rows, position)? != Type::I32
+                            || check(columns, position)? != Type::I32
+                        {
+                            return Err("Rectangular dimensions must be int32".into());
+                        }
+                        Some(Type::Array(element, ArrayKind::Rectangle))
+                    }
+                    Op::RectangleAddress { array, row, column } => {
+                        let Type::Array(element, ArrayKind::Rectangle) = check(array, position)?
+                        else {
+                            return Err(
+                                "Rectangular element address requires a rectangular reference"
+                                    .into(),
+                            );
+                        };
+                        if check(row, position)? != Type::I32
+                            || check(column, position)? != Type::I32
+                        {
+                            return Err("Rectangular indices must be int32".into());
+                        }
+                        Some(element.reference_type())
+                    }
+                    Op::ArrayDimension { array, dimension } => {
+                        if !matches!(check(array, position)?, Type::Array(_, _))
+                            || check(dimension, position)? != Type::I32
+                        {
+                            return Err(
+                                "Dimension query requires an array and int32 dimension".into()
+                            );
+                        }
+                        Some(Type::I32)
                     }
                     Op::NewArray {
                         element,
@@ -1216,7 +1293,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         if !matches!(check(length, position)?, Type::I32 | Type::Native) {
                             return Err("Array length must be int32 or native integer".into());
                         }
-                        Some(Type::Array(element))
+                        Some(Type::Array(element, ArrayKind::Vector))
                     }
                     Op::StringLiteral(ref units) => {
                         if units.len() > 8191 {
@@ -1239,13 +1316,14 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(Type::I32)
                     }
                     Op::ArrayLength(array) => {
-                        if !matches!(check(array, position)?, Type::Array(_) | Type::Null) {
+                        if !matches!(check(array, position)?, Type::Array(_, _) | Type::Null) {
                             return Err("Array length requires an array reference".into());
                         }
                         Some(Type::Native)
                     }
                     Op::ArrayAddress { array, index } => {
-                        let Type::Array(element) = check(array, position)? else {
+                        let Type::Array(element, ArrayKind::Vector) = check(array, position)?
+                        else {
                             return Err("Array element address requires an array reference".into());
                         };
                         if !matches!(check(index, position)?, Type::I32 | Type::Native) {
@@ -1320,7 +1398,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                     .into(),
                             );
                         }
-                        if matches!(ty, Type::Object(_) | Type::Array(_) | Type::String)
+                        if matches!(ty, Type::Object(_) | Type::Array(_, _) | Type::String)
                             && !matches!(check(address, position)?, Type::ReferenceCell(cell) if ty == cell.stack_type())
                         {
                             return Err(
@@ -1343,7 +1421,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                     | (
                                         16,
                                         Type::Native
-                                            | Type::Array(_)
+                                            | Type::Array(_, _)
                                             | Type::String
                                             | Type::Object(_)
                                     )
@@ -1365,7 +1443,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             );
                         }
                         let stored = check(value, position)?;
-                        if matches!(stored, Type::Object(_) | Type::Array(_) | Type::String)
+                        if matches!(stored, Type::Object(_) | Type::Array(_, _) | Type::String)
                             && !matches!(check(address, position)?, Type::ReferenceCell(cell) if cell.stack_type() == stored)
                         {
                             return Err(
@@ -1395,7 +1473,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                     | (
                                         16,
                                         Type::Native
-                                            | Type::Array(_)
+                                            | Type::Array(_, _)
                                             | Type::String
                                             | Type::Object(_)
                                     )
@@ -1446,7 +1524,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                 | Type::Object(_)
                                 | Type::ReferenceCell(_)
                                 | Type::StructRef(_)
-                                | Type::Array(_)
+                                | Type::Array(_, _)
                                 | Type::String
                                 | Type::Null
                         ) && bits != 0
@@ -1515,7 +1593,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         if matches!(
                             check(value, position)?,
-                            Type::Array(_)
+                            Type::Array(_, _)
                                 | Type::String
                                 | Type::Object(_)
                                 | Type::Null
@@ -1567,7 +1645,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         value,
                     } => {
                         let ty = local(index)?;
-                        if !ty.is_byref() && !matches!(ty, Type::Array(_)) {
+                        if !ty.is_byref() && !matches!(ty, Type::Array(_, _)) {
                             return Err(
                                 "Pinned storage requires a managed reference or array".into()
                             );
