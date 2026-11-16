@@ -325,7 +325,7 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
                             if seen.len() > 4096 {
                                 return Err("Reachable method count exceeds 4096".into());
                             }
-                            if target.token >> 24 == 0xfe {
+                            if crate::dispatch::is_dispatch(target) {
                                 virtuals.insert(
                                     (target.assembly, target.token),
                                     (

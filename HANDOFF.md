@@ -1065,3 +1065,34 @@ builds/edits. Ledger91unchanged,fullgoalactive. No architecture/ABI expansion.
 Final22522terminalEXIT0:178/178pass64.527s,276 intentionallyunselecteddrivers.
 Rustfmt/diffpass; read-onlyreview no confirmedblockers, abstractldftnguard preserved.
 No fullworkspace/platformclaim. Readylogicalcommit/pushPR55,ledger91unchanged.
+
+Genericruntimedispatch unit starts5d7b44d. Red35864EXIT100 actualcallvirtgeneric
+unsupported. Closeddispatchidentity0xfa wraps existing0xfb instance index, distinct
+fromordinary0xfe/0x06; roundtrip/domainunitcases andIRhandlepositive/zero probes.
+NoCLI tokenaliases ornewobjectformat. Binder selectsrawgeneric slots/MethodImpl/
+default bodies usingexisting rawsignaturematching, then specializesselectedbody
+withsameassemblyscoped arguments throughfactored Resolver.specialize (allarity/
+constraint/storage/workbudgets retained; instantiateearlyaritycheckbeforeexpansion).
+Typeddispatcher signatures reuse method_types; callback/dependencycollection/lower
+recognize bothdispatchdomains. SourceMethodsremainoriginalmetadata/PDB identities.
+First84289EXIT0 1/1pass8.789s; interface25580EXIT0 1/1pass8.893s. Formermetadata
+virtualflagrejection nowpositiveROM42; staticflagmismatch remainsnegative.
+Fixture positivesclassvirtualwidths/receiverstate, retainedtargetdelegate, implicit/
+explicit/default genericinterfaces andforeignbase/override packedarguments.
+Current38096live566selected lib/IR/generic/delegate/defaultinterface/classvirtual
+cases /tmp/koh-generic-dispatch-regression.log. Needreview/finalreferencecoverage,
+docs/commit/pushsamePR55. Parentownsallmutations/builds. Ledger91unchanged/fullgoal.
+Read-onlyreview no confirmedblockers; closurearguments/scopes/dependencies/budgets
+preserved. Lateadded GenericNullCall/GenericNullGroup ROMfault4/unallocatedheap
+assertions requirefinalgenericrerunafter38096; sourceformatted85313EXIT0. Broader
+regressionalreadyfirstgenericcasepasses foreignbase/overridepackedargs. Needcurrent
+final4 includes100ROMs acrossfourcases (20regular+2null+virtualflag+spoofowner+self
+percase); broadbinarypredatesnullassertions. No priorbroadpassclaimyet.
+Final38096terminalEXIT0:566/566pass496.601s,208 intentionallyunselecteddrivers.
+Final83924terminalEXIT0:22/22pass214.867s,262unselected; includeslate genericnull
+assertions,100ROMs in4genericcases, ordinary/defaultinterface metadata regression.
+Workspace10134EXIT0 alltargets/allfeatures10.47s existingcubesunusedhelperwarning.
+CSharpiercheck2filesEXIT0, fixturehashsnapshotready. Review no confirmedblockers.
+Docsupdate currentruntimegenericcontract andremainingconstructed/boxed/constrained
+boundaries. Ledger91unchanged; readylogicalcommit/pushsamePR55 afterdoc/fmt.
+Prior5d CI43948277863 stillin_progress lastchecked; do notclaimnewheadgreen.

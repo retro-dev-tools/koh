@@ -413,7 +413,28 @@ impl Resolver<'_> {
         if !target.type_arguments.is_empty() {
             return Err("Generic declaring types require instantiated storage".into());
         }
-        let image = self.assembly(target.definition.assembly)?;
+        if self
+            .assembly(target.definition.assembly)?
+            .method_signature(target.definition.token)?
+            .generic_param_count as usize
+            != target.method_arguments.len()
+        {
+            return Err("Generic method arity mismatch".into());
+        }
+        let arguments = target
+            .method_arguments
+            .iter()
+            .map(|ty| canonical(self, scoped(target.argument_assembly, ty, caller)?, 0))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.specialize(target.definition, arguments)
+    }
+
+    pub(crate) fn specialize(
+        &self,
+        method: Definition,
+        arguments: Vec<Argument>,
+    ) -> Result<Definition, String> {
+        let image = self.assembly(method.assembly)?;
         let work = image
             .metadata()
             .generic_params
@@ -421,21 +442,16 @@ impl Resolver<'_> {
             .checked_mul(image.metadata().generic_param_constraints.len() + 2)
             .ok_or("Generic constraint validation work overflow")?;
         charge(&self.generic_work, work)?;
-        let signature = image.method_signature(target.definition.token)?;
-        if signature.generic_param_count as usize != target.method_arguments.len() {
+        let signature = image.method_signature(method.token)?;
+        if signature.generic_param_count as usize != arguments.len() {
             return Err("Generic method arity mismatch".into());
         }
-        let owner = crate::lower::owner_type(self, target.definition)?;
+        let owner = crate::lower::owner_type(self, method)?;
         if image.metadata().generic_params.iter().any(|p| {
             p.owner.table == Some(TableId::TypeDef) && p.owner.row == owner.token & 0xffffff
         }) {
             return Err("Generic declaring types require instantiated storage".into());
         }
-        let arguments = target
-            .method_arguments
-            .iter()
-            .map(|ty| canonical(self, scoped(target.argument_assembly, ty, caller)?, 0))
-            .collect::<Result<Vec<_>, _>>()?;
         let nodes = arguments
             .iter()
             .map(|argument| {
@@ -456,11 +472,8 @@ impl Resolver<'_> {
             let ty = crate::lower::storage_type(self, argument.assembly, &argument.ty)?;
             crate::lower::bound_type(self, argument.assembly, &ty)?;
         }
-        constraints::validate(self, target.definition, &arguments)?;
-        let instance = Instance {
-            method: target.definition,
-            arguments,
-        };
+        constraints::validate(self, method, &arguments)?;
+        let instance = Instance { method, arguments };
         let mut instances = self.generic_instances.borrow_mut();
         let index = if let Some(index) = instances.iter().position(|value| value == &instance) {
             index
@@ -473,7 +486,7 @@ impl Resolver<'_> {
             instances.len() - 1
         };
         Ok(Definition {
-            assembly: target.definition.assembly,
+            assembly: method.assembly,
             token: 0xfb000001 + index as u32,
         })
     }

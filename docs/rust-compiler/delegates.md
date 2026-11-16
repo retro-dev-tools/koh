@@ -76,7 +76,7 @@ faults. Null faults use code4; allocation exhaustion uses code5.
 
 Exact nominal target signatures are supported. Variance/adaptation, closed-static
 and open-instance forms, multicast/equality APIs, async delegate APIs, arbitrary
-calli, runtime-dispatched generic method pointers and boxed value-type receivers still
+calli, constructed generic declaring-type targets and boxed value-type receivers still
 require explicit support decisions and diagnostics. This is a visible current
 boundary, not approval to retire useful legacy coverage. Interface/general
 generic/language-runtime completion remains a whole-migration gate.

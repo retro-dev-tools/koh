@@ -41,3 +41,14 @@ public interface IRemoteMarker
 }
 
 public delegate ushort RemoteReader(ushort value);
+
+public class RemoteGenericBase
+{
+    public int Calls;
+
+    public virtual T Forward<T>(T value)
+    {
+        Calls++;
+        return value;
+    }
+}

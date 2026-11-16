@@ -86,6 +86,10 @@ fn generic_method_instances_execute_transitively(
         ("InstanceMethods", "0000002A"),
         ("GenericDelegates", "0000002A"),
         ("GenericBaseCalls", "0000002A"),
+        ("GenericVirtualCall", "0000002A"),
+        ("GenericVirtualGroup", "0000002A"),
+        ("GenericInterfaces", "0000002A"),
+        ("GenericReferences", "0000002A"),
         ("ActivatorProbe", "00000000"),
         ("Main", "00000082"),
     ] {
@@ -176,9 +180,37 @@ fn generic_method_instances_execute_transitively(
             assert_eq!(fields[5], "6B".repeat(4096), "{entry} bank2");
         }
     }
+    for entry in ["GenericNullCall", "GenericNullGroup"] {
+        let object = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_abort",
+            "--native-heap",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(fields[0], "04", "{entry}");
+        assert_eq!(fields[3], "OK", "{entry}");
+        super::assert_heap_snapshot(fields[4], &[0x5a; 4096], entry);
+        if color {
+            assert_eq!(fields[5], "6B".repeat(4096), "{entry}");
+        }
+    }
     for (entry, expected) in [
-        ("GenericVirtualCall", "Generic virtual methods"),
-        ("GenericVirtualGroup", "Generic virtual methods"),
         ("InvalidActivation", "Generic construction requires"),
         (
             "Expanding",
@@ -228,17 +260,47 @@ fn generic_method_instances_execute_transitively(
         })
         .unwrap()
         .0;
-    for (flag, expected) in [
-        (0x10, "static/instance signature disagrees"),
-        (0x40, "Generic virtual methods"),
-    ] {
+    for flag in [0x10, 0x40] {
         let mut bytes = images[0].clone();
         let (offset, _) = metadata::table_row(&bytes, clrmeta::TableId::MethodDef, receiver_method);
         let flags = data.method_defs[receiver_method].flags | flag;
         bytes[offset + 6..offset + 8].copy_from_slice(&flags.to_le_bytes());
         let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
-        let error = compile::object(&changed, Some("Program::InstanceMethods")).unwrap_err();
-        assert!(error.contains(expected) && error.contains("IL_"), "{error}");
+        let compiled = compile::object(&changed, Some("Program::InstanceMethods"));
+        if flag == 0x40 {
+            let object = compiled.unwrap();
+            let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+            let linked = koh_link::link(
+                &[object],
+                &koh_link::LinkOptions {
+                    cgb: if color {
+                        koh_link::CgbMode::Compatible
+                    } else {
+                        koh_link::CgbMode::Preserve
+                    },
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let report = execute_mode(
+                host,
+                directory.path(),
+                &linked,
+                "__koh_exit",
+                "--native-heap",
+            );
+            let fields: Vec<_> = report.split_whitespace().collect();
+            assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"]);
+            if color {
+                assert_eq!(fields[5], "6B".repeat(4096));
+            }
+        } else {
+            let error = compiled.unwrap_err();
+            assert!(
+                error.contains("static/instance signature disagrees") && error.contains("IL_"),
+                "{error}"
+            );
+        }
     }
     let activation = data
         .member_refs

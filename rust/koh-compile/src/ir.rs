@@ -1344,7 +1344,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(Type::Native)
                     }
                     Op::MethodHandle(target) => {
-                        if !matches!(target.token >> 24, 6 | 0xfb | 0xfe)
+                        if !matches!(target.token >> 24, 6 | 0xfa | 0xfb | 0xfe)
                             || target.token & 0xffffff == 0
                         {
                             return Err("Invalid method handle identity".into());

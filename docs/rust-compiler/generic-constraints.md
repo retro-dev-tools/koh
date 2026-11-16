@@ -71,7 +71,7 @@ hosted workspace/all-features tests plus rustdoc and .NET fast tests.
 Constructed generic constraints/declaring types, ref-safety for byref-like generic
 parameters, primitive framework interface metadata, nonidentical array constraints
 and unusual constructor calling conventions still need explicit support.
-Runtime-dispatched generic targets, boxing and constrained calls remain
+Constructed declaring-type targets, boxing and constrained calls remain
 separate runtime work. Full constraint visibility/metadata auditing remains part
 of final compiler acceptance. No general .NET compatibility or completed compiler
 migration is claimed, and none of these features is approved for retirement.

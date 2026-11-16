@@ -102,6 +102,19 @@ public static class Program
 
     public static int Expanding() => Expand<int>();
 
+    public static int GenericNullCall()
+    {
+        GenericBase value = null;
+        return value.Forward<int>(42);
+    }
+
+    public static int GenericNullGroup()
+    {
+        IGenericForward value = null;
+        Reader callback = value.Forward<int>;
+        return callback(42);
+    }
+
     public static int GenericBaseCalls()
     {
         var value = new GenericDerived();
@@ -111,12 +124,57 @@ public static class Program
         return wide == -5000000001 && result == 42 && value.Value == 2 ? 42 : 0;
     }
 
-    public static int GenericVirtualCall() => new GenericDerived().Forward<int>(42);
+    public static int GenericVirtualCall()
+    {
+        GenericBase value = new GenericDerived();
+        long wide = value.Forward<long>(-5000000001);
+        ushort narrow = value.Forward<ushort>(60000);
+        return wide == -5000000001 && narrow == 60000 && value.Value == 200 ? 42 : 0;
+    }
 
     public static int GenericVirtualGroup()
     {
-        Reader callback = new GenericDerived().Forward<int>;
-        return callback(42);
+        GenericBase value = new GenericDerived();
+        GenericBase original = value;
+        Reader callback = value.Forward<int>;
+        value = new GenericBase();
+        return callback(42) == 42 && original.Value == 100 && value.Value == 0 ? 42 : 0;
+    }
+
+    public static int GenericInterfaces()
+    {
+        var derived = new GenericDerived();
+        IGenericForward implicitView = derived;
+        long wide = implicitView.Forward<long>(-5000000001);
+        Reader callback = implicitView.Forward<int>;
+        var explicitValue = new GenericExplicit();
+        IGenericForward explicitView = explicitValue;
+        ushort narrow = explicitView.Forward<ushort>(60000);
+        IGenericDefault defaultView = new GenericDefault();
+        Payload payload = defaultView.Forward(new Payload { Tag = 7, Value = 60000 });
+        return
+            wide == -5000000001
+            && callback(42) == 42
+            && derived.Value == 200
+            && narrow == 60000
+            && explicitValue.Calls == 1
+            && payload.Tag == 7
+            && payload.Value == 60000
+            ? 42
+            : 0;
+    }
+
+    public static int GenericReferences()
+    {
+        var plain = new RemoteGenericBase();
+        Payload first = plain.Forward(new Payload { Tag = 7, Value = 60000 });
+        RemoteGenericBase derived = new GenericForeignDerived();
+        Payload second = derived.Forward(first);
+        PayloadReader callback = derived.Forward<Payload>;
+        Payload third = callback(second);
+        return first.Tag == 7 && third.Value == 60000 && plain.Calls == 1 && derived.Calls == 20
+            ? 42
+            : 0;
     }
 
     public static int GenericDelegates()
@@ -354,7 +412,7 @@ public struct GenericValueReceiver
 
 public delegate Payload PayloadReader(Payload value);
 
-public class GenericBase
+public class GenericBase : IGenericForward
 {
     public int Value;
 
@@ -376,4 +434,36 @@ public class GenericDerived : GenericBase
     public T Direct<T>(T value) => base.Forward<T>(value);
 
     public Reader BaseGroup() => base.Forward<int>;
+}
+
+public interface IGenericForward
+{
+    T Forward<T>(T value);
+}
+
+public class GenericExplicit : IGenericForward
+{
+    public int Calls;
+
+    T IGenericForward.Forward<T>(T value)
+    {
+        Calls++;
+        return value;
+    }
+}
+
+public interface IGenericDefault
+{
+    T Forward<T>(T value) => value;
+}
+
+public class GenericDefault : IGenericDefault { }
+
+public class GenericForeignDerived : RemoteGenericBase
+{
+    public override T Forward<T>(T value)
+    {
+        Calls += 10;
+        return value;
+    }
 }

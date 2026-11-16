@@ -17,23 +17,28 @@ allocating a second object. The InstanceMethods fixture checks two class-method
 widths, object field side effects and a packed-value return through a mutating
 struct receiver in Debug/Release × DMG/CGB. Static flags must agree with the
 receiver signature. Generic virtual methods can be called with statically bound
-`call` or `ldftn`, including C# base calls and base method groups. Runtime-dispatched
-`callvirt`/`ldvirtftn` still require instantiated dispatch and diagnose explicitly;
-this is unfinished support, not malformed metadata.
+`call` or `ldftn`, including C# base calls and base method groups. Closed generic
+`callvirt`/`ldvirtftn` on reference classes/interfaces also use the existing
+closed-world virtual binder: it matches raw generic slots and selects the actual
+override, explicit implementation or default interface body before specializing
+that body with the original assembly-scoped arguments. Each selected body's
+arity, constraints and storage are checked by the same specialization path used
+for direct calls. No second runtime or calling convention is introduced.
 
 GenericBaseCalls deliberately overrides Forward<T> with a different side effect.
 The base call returns the full negative64-bit value, the base-bound delegate
 returns42, and the shared field ends at2 rather than200. Both delegate binding
 and invocation must therefore select the stated base body. GenericVirtualCall
-and GenericVirtualGroup separately require explicit runtime-dispatch diagnostics.
+and GenericVirtualGroup now separately check runtime override dispatch and retained
+delegate receiver identity, rather than the former unsupported diagnostics.
 The initial base-call rejection is in `/tmp/koh-generic-base-red.log`; first
 Debug/Release × DMG/CGB acceptance passes4/4 in33.106s, exit0. This follows the
 statically selected `call` semantics in ECMA-335 III.3.19 and the base-target
 `ldftn` construction rules in III.4.21; a virtual flag alone does not request
 runtime dispatch.
 Final compiler-library/generic/class-dispatch regression passes178/178 in64.527s,
-exit0 (`/tmp/koh-generic-base-final.log`). No runtime generic dispatch or completed
-generic feature family is claimed.
+exit0 (`/tmp/koh-generic-base-final.log`). That checkpoint predates runtime generic
+dispatch and does not establish completion of the generic feature family.
 
 Closed static and statically bound class method groups can bind delegates through
 `ldftn` MethodSpecs. Their typed handles retain the existing closed instance
@@ -50,8 +55,8 @@ packed struct argument/return owned by another assembly than its generic method.
 Existing reused/fresh ELF equality and source-provenance checks apply unchanged.
 The original rejection is in `/tmp/koh-generic-delegate-red.log`; a subsequent
 determinism failure exposed the callback lifetime bug before its correction.
-Runtime-dispatched generic method pointers, value-type delegate receivers and constructed
-generic declaring layouts remain unfinished; no support is implied by this change.
+Value-type delegate receivers and constructed generic declaring layouts remain
+unfinished; no support is implied by the reference-class dispatch implementation.
 Nonvirtual `ldvirtftn` targets, including closed MethodSpecs, also use this binding
 path; see the [correct versus CLI-verifiable CIL distinction](delegates.md).
 Selected compiler-library/IR/delegate/generic regression passes544/544 in362.459s;
@@ -73,8 +78,11 @@ enum identities stay distinct until scalar storage lowering. Parameters, returns
 locals and typed operands bind in their individual scopes. No invented metadata
 tokens or alias rows can turn malformed input into a valid type reference.
 
-Instances use internal0xfb identities in the existing function model. This is
-neither a metadata table nor an object format. Each compilation resets its
+Instances use internal0xfb identities in the existing function model. Closed
+dispatchers use0xfa with the same instance index/assembly; ordinary0xfe dispatchers
+retain their MethodDef identity. Roundtrip/domain tests prevent collisions between
+ordinary and instantiated requests. These are neither metadata tables nor object
+formats. Each compilation resets its
 instance cache, so an earlier selected entry cannot alter later ELF output.
 The original MethodDef supplies diagnostics, initializer ownership and PDB lookup;
 instance symbols stay distinct. The ABI, linker and debugger formats are unchanged.
@@ -82,6 +90,36 @@ Depth64,65536 substitution nodes,4096 instances and aggregate work/storage budge
 of1048576 bound expansion, in addition to ordinary IR and method-count limits.
 
 ## Acceptance
+
+Closed runtime dispatch adds these independently observed requirements to
+`driver::generics::generic_method_instances_execute_transitively`:
+
+| Fixture entry | Requirement |
+| --- | --- |
+| GenericVirtualCall | Base-typed calls select the override for long/ushort instances; field reaches200, full-width values survive |
+| GenericVirtualGroup | A bound generic method group retains its original receiver after local reassignment; override increments100 |
+| GenericInterfaces | Implicit override, explicit MethodImpl and default generic interface bodies; wide and packed values remain intact |
+| GenericReferences | Referenced base and game override share scoped packed arguments; independent side effects1 and20 distinguish bodies |
+| GenericNullCall / GenericNullGroup | Fault4 occurs before call/delegate allocation, with untouched heap and bank guards |
+
+The former rejection of a valid virtual-flag metadata mutation is replaced with
+actual ROM execution returning42. Invalid static/signature metadata and nominal
+signedness mismatches still reject. No useful negative contract is removed.
+Source mappings, fresh/reused ELF equality, canonical ELF linking and banked code
+remain checked for normal entries. Dispatchers themselves are generated code;
+their user bodies retain original MethodDef/PDB provenance.
+
+The original runtime-dispatch rejection is reproduced in
+`/tmp/koh-generic-dispatch-red.log`. Initial class and interface checks pass before
+the larger regression recorded in progress.md. Constructed generic declaring
+layouts, boxed value receivers and constrained calls remain outside this implemented
+reference-receiver contract and require further compiler work.
+Selected library/IR/delegate/default-interface/class-dispatch regression passes
+566/566 in496.601s, exit0 (`/tmp/koh-generic-dispatch-regression.log`). Final22/22
+passes214.867s (`/tmp/koh-generic-dispatch-final.log`), including the added generic
+null assertions and ordinary interface metadata cases. Four generic configurations
+execute100 ROMs:80 normal entries,8 null cases and12 metadata-patched positive
+cases. These selected local runs are not whole-workspace or cross-platform proof.
 
 Rust `driver::generics::generic_method_instances_execute_transitively` drives real
 Roslyn Debug/Release × DMG/CGB. Each of four cases now executes eleven regular
@@ -154,7 +192,6 @@ Constructed generic signatures containing foreign named arguments still require
 scoped layout binding; those shapes diagnose rather than reinterpreting tokens.
 Generic declaring types
 need per-instantiation layouts/static storage. Broader constraint shapes and
-runtime-dispatched generic calls and method-pointer targets, and
 constructed generic type arguments require binding.
 These are unfinished compiler features, not malformed CLI shapes or approved
 feature retirements. They currently produce explicit diagnostics. Expanding

@@ -8,7 +8,22 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current generic-base increment supports statically bound `call`/`ldftn` of generic
+Current runtime-generic increment retains closed arguments in dispatch identities,
+selects raw class/interface/MethodImpl/default bodies through the existing binder,
+then specializes selected bodies with the same scoped arguments and constraints.
+Class overrides, generic delegates, implicit/explicit/default interfaces and
+cross-assembly packed arguments execute independently expected results. Direct
+base calls continue selecting their stated body. No new calling ABI or runtime.
+Selected library/IR/delegate/default-interface/class-dispatch regression passes
+566/566 in496.601s, exit0 (`/tmp/koh-generic-dispatch-regression.log`). Final22/22
+passes214.867s (`/tmp/koh-generic-dispatch-final.log`), including ordinary interface
+metadata regressions and100 generic ROMs across Debug/Release × DMG/CGB. New null
+cases require fault4 before allocation; a former valid virtual-flag rejection now
+executes42. Read-only review found no confirmed blockers. Constructed declaring
+layouts, boxed receivers, constrained calls and broader generic constraints remain
+unfinished. Ledger91/565 is unchanged; this does not complete the compiler migration.
+
+Previous generic-base increment supports statically bound `call`/`ldftn` of generic
 virtual bodies, including ordinary C# base calls and base method groups. Dispatch
 diagnostics now apply where dispatch is requested, rather than to every virtual
 declaration. A deliberately different override cannot replace the selected base

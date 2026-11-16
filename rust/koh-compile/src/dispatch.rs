@@ -7,15 +7,56 @@ use std::collections::{HashMap, HashSet};
 
 pub(crate) fn identity(method: Definition) -> Definition {
     Definition {
-        token: 0xfe000000 | (method.token & 0xffffff),
+        token: if method.token >> 24 == 0xfb {
+            0xfa000000
+        } else {
+            0xfe000000
+        } | (method.token & 0xffffff),
         ..method
     }
 }
 
 pub(crate) fn declaration(method: Definition) -> Definition {
     Definition {
-        token: 0x06000000 | (method.token & 0xffffff),
+        token: if method.token >> 24 == 0xfa {
+            0xfb000000
+        } else {
+            0x06000000
+        } | (method.token & 0xffffff),
         ..method
+    }
+}
+
+pub(crate) fn is_dispatch(method: Definition) -> bool {
+    matches!(method.token >> 24, 0xfa | 0xfe)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{declaration, identity, is_dispatch};
+    use crate::resolve::Definition;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(0, 0x06000001)]
+    #[case(2, 0x060000ff)]
+    #[case(0, 0xfb000001)]
+    #[case(2, 0xfb000fff)]
+    fn dispatch_identity_retains_closed_target_scope(#[case] assembly: usize, #[case] token: u32) {
+        let method = Definition { assembly, token };
+        let dispatch = identity(method);
+        assert!(is_dispatch(dispatch));
+        assert_eq!(declaration(dispatch), method);
+        assert_ne!(
+            identity(Definition {
+                token: 0x06000000 | (token & 0xffffff),
+                assembly
+            }),
+            identity(Definition {
+                token: 0xfb000000 | (token & 0xffffff),
+                assembly
+            })
+        );
     }
 }
 
@@ -386,11 +427,8 @@ impl<'r, 'a> Binder<'r, 'a> {
         let image = self.resolver.assembly(method.assembly)?;
         let flags = image.method(method.token)?.flags;
         let signature = self.signature(method)?;
-        if flags & 0x50 != 0x40
-            || !signature.calling_convention.has_this()
-            || signature.generic_param_count != 0
-        {
-            return Err("Virtual slot must be a nongeneric instance virtual method".into());
+        if flags & 0x50 != 0x40 || !signature.calling_convention.has_this() {
+            return Err("Virtual slot must be an instance virtual method".into());
         }
         let owner = lower::owner_type(self.resolver, method)?;
         let class = lower::class_type(self.resolver, owner)?;
@@ -478,6 +516,12 @@ impl<'r, 'a> Binder<'r, 'a> {
         method: Definition,
         class: ClassType,
     ) -> Result<Option<Definition>, String> {
+        if let Some(instance) = self.resolver.instance(method)? {
+            return self
+                .implementation(instance.method, class)?
+                .map(|target| self.resolver.specialize(target, instance.arguments))
+                .transpose();
+        }
         if self.active.len() >= 64 || !self.active.insert((method, class)) {
             return Err("Virtual/MethodImpl binding cycle or depth exceeds64".into());
         }
@@ -565,6 +609,16 @@ impl<'r, 'a> Binder<'r, 'a> {
     }
 
     fn typed_signature(&mut self, method: Definition) -> Result<Signature, String> {
+        if let Some(instance) = self.resolver.instance(method)? {
+            let signature = self.signature(instance.method)?;
+            return Ok(crate::generics::method_types(
+                self.resolver,
+                instance.method,
+                &signature,
+                &instance.arguments,
+            )?
+            .signature);
+        }
         let signature = self.signature(method)?;
         lower::bound_signature(
             self.resolver,
@@ -608,7 +662,11 @@ impl<'r, 'a> Binder<'r, 'a> {
         method: Definition,
         classes: &[ClassType],
     ) -> Result<Function, String> {
-        self.slot(method)?;
+        self.slot(
+            self.resolver
+                .instance(method)?
+                .map_or(method, |instance| instance.method),
+        )?;
         let signature = self.typed_signature(method)?;
         let mut cases = Vec::new();
         for &class in classes {

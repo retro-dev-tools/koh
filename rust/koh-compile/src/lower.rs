@@ -1225,9 +1225,6 @@ fn translate(
             let image = resolver.assembly(resolved.definition.assembly)?;
             let flags = image.method(resolved.definition.token)?.flags;
             let virtual_pointer = i.opcode == 0xfe07;
-            if virtual_pointer && flags & 0x40 != 0 && !resolved.method_arguments.is_empty() {
-                return Err("Generic virtual methods require instantiated dispatch".into());
-            }
             if virtual_pointer && flags & 0x10 != 0 {
                 return Err("ldvirtftn requires an instance method".into());
             }
@@ -1245,7 +1242,7 @@ fn translate(
                 });
             }
             let target = if virtual_pointer && flags & 0x40 != 0 {
-                crate::dispatch::identity(resolved.definition)
+                crate::dispatch::identity(instantiated)
             } else {
                 instantiated
             };
@@ -1844,18 +1841,19 @@ fn translate(
                     if b.delegate_sequences
                         .get(&b.offset)
                         .is_none_or(|virtual_sequence| {
-                            target.token >> 24 == 0xfe && !virtual_sequence
+                            crate::dispatch::is_dispatch(target) && !virtual_sequence
                         })
                     {
                         return Err("Delegate construction requires a verified ldftn/newobj or dup/ldvirtftn/newobj sequence without branches into its interior".into());
                     }
-                    let declared = if target.token >> 24 == 0xfe {
+                    let declared = if crate::dispatch::is_dispatch(target) {
                         crate::dispatch::declaration(target)
                     } else {
-                        resolver
-                            .instance(target)?
-                            .map_or(target, |instance| instance.method)
+                        target
                     };
+                    let declared = resolver
+                        .instance(declared)?
+                        .map_or(declared, |instance| instance.method);
                     let instance = resolver
                         .assembly(declared.assembly)?
                         .method_signature(declared.token)?
@@ -1954,11 +1952,6 @@ fn translate(
             let instantiated = resolver.instantiate(&target, &b.method_arguments)?;
             let metadata = resolver.assembly(target.definition.assembly)?;
             if i.opcode == 0x6f {
-                if metadata.method(target.definition.token)?.flags & 0x40 != 0
-                    && !target.method_arguments.is_empty()
-                {
-                    return Err("Generic virtual methods require instantiated dispatch".into());
-                }
                 let signature = metadata.method_signature(target.definition.token)?;
                 if !signature.calling_convention.has_this() {
                     return Err("callvirt requires an instance method".into());
@@ -2159,7 +2152,7 @@ fn translate(
                 target: if i.opcode == 0x6f
                     && metadata.method(target.definition.token)?.flags & 0x40 != 0
                 {
-                    crate::dispatch::identity(target.definition)
+                    crate::dispatch::identity(instantiated)
                 } else {
                     instantiated
                 },
