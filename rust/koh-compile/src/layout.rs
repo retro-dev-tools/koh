@@ -4,6 +4,8 @@ use crate::{
 };
 use clrmeta::{ElementType, TableId, TypeSig};
 use std::{collections::HashSet, sync::Arc};
+mod classes;
+pub use classes::{ClassLayout, class};
 
 #[derive(Debug, Clone)]
 pub struct Field {

@@ -8,7 +8,29 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [Rust-owned cube phase sweep](cube-phase-sweep.md). Two Roslyn
+Current unit: [validated reference-class layout foundation](class-layout.md).
+Metadata handling now distinguishes packed reference-class layouts from unmanaged
+values, preserves inherited/hidden field identity across assemblies and bounds
+signature parsing/cached inheritance work. Review-discovered depth/cache-order
+and large-signature amplification defects have explicit red/green regressions;
+the corrected selection passes5/5. Final layout/reference regression passes58/58
+in241.459s, exit0, zero skips (`/tmp/koh-class-metadata-regression.log`), including
+all48 layout and10 reference cases. Cross-assembly base/enum fields, missing
+references, numeric/array fields, corrupted metadata and bounded amplification
+are covered; read-only re-review found no further blocker in the fixes.
+Workspace/all-features/all-targets check succeeds46.58s with the existing cube
+support dead-code warning; separate rustdoc succeeds with no current doctests.
+This is not executable class support: object IR, allocation, fields/constructors
+and dispatch remain pending, so2048v2/JRPG still fail and dispositions stay45/565.
+
+Hosted phase-sweep commitd3f2d2a has completed successfully:
+[Rust run43777137980](https://github.com/retro-dev-tools/koh/actions/runs/43777137980)
+passes Linux987/987 in776.956s, macOS987/987 in916.300s and Windows985/985
+in1276.868s, zero workspace skips. Windows excludes the same two Unix-only
+assembler tests; compiler targets are included. Separate rustdoc, artifact smoke
+and independent RGBDS jobs succeed. These logs predate the class-layout changes.
+
+Previous unit: [Rust-owned cube phase sweep](cube-phase-sweep.md). Two Roslyn
 configurations pass all768 shared-renderer phase/geometry scenarios each;24
 adversarial validator cases also pass. The redundant C# verifier and its solution
 entries are removed after caller audit; screenshot capture uses the existing

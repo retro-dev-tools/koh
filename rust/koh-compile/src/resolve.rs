@@ -32,6 +32,9 @@ pub struct Resolver<'a> {
     indices: Vec<Index>,
     type_cache: RefCell<HashMap<Definition, Definition>>,
     pub(crate) value_layouts: RefCell<HashMap<Definition, std::sync::Arc<crate::layout::Layout>>>,
+    pub(crate) class_layouts:
+        RefCell<HashMap<Definition, std::sync::Arc<crate::layout::ClassLayout>>>,
+    pub(crate) class_layout_work: std::cell::Cell<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -405,6 +408,8 @@ impl<'a> Resolver<'a> {
             indices,
             type_cache: RefCell::new(HashMap::new()),
             value_layouts: RefCell::new(HashMap::new()),
+            class_layouts: RefCell::new(HashMap::new()),
+            class_layout_work: std::cell::Cell::new(0),
         })
     }
 

@@ -31,6 +31,11 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   existing headless emulator captures the SDK-built racing ROM with zero mode3
   writes. This CLR sweep complements native ROM tests; it is not all-phase
   native or Canvas-renderer execution.
+  The phase commit's hosted Rust suites pass987 Linux/macOS and985 Windows
+  cases, plus rustdoc/artifact checks. New reference-class metadata layouts pass
+  the58-case layout/reference regression, including cache-order and signature
+  amplification guards. Native object IR/allocation/dispatch are still pending;
+  the2048v2/JRPG class blocker remains and no class tests are marked complete.
   Full current-head workspace/hosted acceptance, source debugging, broader
   runtime/gameplay, test closure, release integration and legacy deletion remain
   incomplete. Container cleanup is done. Existing API shapes are evidence,

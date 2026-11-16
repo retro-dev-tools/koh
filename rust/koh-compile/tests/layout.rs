@@ -7,6 +7,385 @@ use std::path::Path;
 
 #[fixture]
 #[once]
+fn class_images() -> [[Vec<u8>; 2]; 2] {
+    let directory = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ClassLayouts");
+    std::fs::create_dir(directory.path().join("Base")).unwrap();
+    for name in [
+        "ClassLayouts.csproj",
+        "Types.cs",
+        "Base/ClassBase.csproj",
+        "Base/Types.cs",
+    ] {
+        std::fs::copy(source.join(name), directory.path().join(name)).unwrap();
+    }
+    ["Debug", "Release"].map(|configuration| {
+        let dotnet = std::env::var_os("KOH_DOTNET").unwrap_or("dotnet".into());
+        let output = std::process::Command::new(&dotnet)
+            .arg("build")
+            .arg(directory.path().join("ClassLayouts.csproj"))
+            .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let path = directory
+            .path()
+            .join(format!("bin/{configuration}/net10.0/ClassLayouts.dll"));
+        let probe = std::process::Command::new(&dotnet)
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert_eq!(
+            probe.status.code(),
+            Some(42),
+            "{}",
+            String::from_utf8_lossy(&probe.stderr)
+        );
+        ["ClassLayouts.dll", "ClassBase.dll"].map(|name| {
+            std::fs::read(
+                directory
+                    .path()
+                    .join(format!("bin/{configuration}/net10.0/{name}")),
+            )
+            .unwrap()
+        })
+    })
+}
+
+#[rstest]
+#[case("Empty", 2, &[])]
+#[case("Root", 17, &[2,3,5,9])]
+#[case("Child", 30, &[2,3,5,9,17,18,20,22,24,26,28])]
+#[case("Self", 5, &[2,4])]
+#[case("WithBody", 8, &[2,3,7])]
+#[case("Abstract", 6, &[2])]
+#[case("CrossAssembly", 12, &[2,3,5,9,10])]
+#[case("Numbers", 20, &[2,3,5,7,11,19])]
+#[case("ArrayFields", 6, &[2,4])]
+fn reference_classes_preserve_inherited_storage(
+    class_images: &[[Vec<u8>; 2]; 2],
+    #[case] name: &str,
+    #[case] bytes: u16,
+    #[case] offsets: &[u16],
+) {
+    for image in class_images {
+        let resolver = Resolver::new(&[&image[0], &image[1]]).unwrap();
+        let identity = definition(&resolver, name);
+        let layout = layout::class(&resolver, identity).unwrap();
+        assert_eq!(layout.identity, identity);
+        assert_eq!(layout.bytes, bytes, "{name}");
+        assert_eq!(
+            layout.fields.iter().map(|f| f.offset).collect::<Vec<_>>(),
+            offsets,
+            "{name}"
+        );
+        assert!(std::sync::Arc::ptr_eq(
+            &layout,
+            &layout::class(&resolver, identity).unwrap()
+        ));
+        if name == "Child" {
+            assert_eq!(layout.base, Some(definition(&resolver, "Root")));
+            assert_eq!(layout.fields[0].identity.assembly, 0);
+            assert_ne!(layout.fields[0].identity, layout.fields[4].identity);
+            let base = layout::class(&resolver, definition(&resolver, "Root")).unwrap();
+            assert!(std::ptr::eq(
+                &base.fields[0].signature,
+                &layout.fields[0].signature
+            ));
+        }
+        if name == "CrossAssembly" {
+            assert_eq!(layout.base.unwrap().assembly, 1);
+            assert_eq!(
+                layout
+                    .fields
+                    .iter()
+                    .map(|f| f.identity.assembly)
+                    .collect::<Vec<_>>(),
+                [1, 1, 1, 0, 0]
+            );
+        }
+    }
+}
+
+#[rstest]
+#[case("Generic`1", "generic")]
+#[case("Sequential", "AutoLayout")]
+#[case("Explicit", "AutoLayout")]
+#[case("IPeer", "interface")]
+#[case("Body", "reference class")]
+#[case("TooLarge", "capacity")]
+fn unsupported_class_layouts_diagnose(
+    class_images: &[[Vec<u8>; 2]; 2],
+    #[case] name: &str,
+    #[case] message: &str,
+) {
+    for image in class_images {
+        let resolver = Resolver::new(&[&image[0], &image[1]]).unwrap();
+        let error = layout::class(&resolver, definition(&resolver, name)).unwrap_err();
+        assert!(error.contains(message), "{name}: {error}");
+    }
+}
+
+#[rstest]
+#[case("cycle", "Root", "cycle")]
+#[case("sealed-base", "Root", "sealed")]
+#[case("zero-fields", "Root", "field range")]
+#[case("backward-fields", "Child", "field range")]
+#[case("past-fields", "Root", "field range")]
+fn malformed_reference_class_metadata_is_bounded(
+    class_images: &[[Vec<u8>; 2]; 2],
+    #[case] mutation: &str,
+    #[case] name: &str,
+    #[case] message: &str,
+) {
+    for image in class_images {
+        let resolver = Resolver::new(&[&image[0], &image[1]]).unwrap();
+        let identity = definition(&resolver, name);
+        let metadata = resolver.assembly(0).unwrap().metadata();
+        let row = &metadata.type_defs[(identity.token & 0xffffff) as usize - 1];
+        let mut needle = row.flags.to_le_bytes().to_vec();
+        for value in [
+            row.type_name,
+            row.type_namespace,
+            row.extends.encode(clrmeta::CodedIndexKind::TypeDefOrRef),
+            row.field_list,
+            row.method_list,
+        ] {
+            needle.extend(u16::try_from(value).unwrap().to_le_bytes());
+        }
+        let positions: Vec<_> = image[0]
+            .windows(needle.len())
+            .enumerate()
+            .filter_map(|(at, bytes)| (bytes == needle).then_some(at))
+            .collect();
+        assert_eq!(positions.len(), 1, "unique fixture TypeDef row");
+        let (offset, bytes) = match mutation {
+            "cycle" => (
+                8,
+                (((definition(&resolver, "Child").token & 0xffffff) << 2) as u16)
+                    .to_le_bytes()
+                    .to_vec(),
+            ),
+            "sealed-base" => (0, (row.flags | 0x100).to_le_bytes().to_vec()),
+            "zero-fields" => (10, 0u16.to_le_bytes().to_vec()),
+            "backward-fields" => (10, 1u16.to_le_bytes().to_vec()),
+            _ => (
+                10,
+                u16::try_from(metadata.fields.len() + 2)
+                    .unwrap()
+                    .to_le_bytes()
+                    .to_vec(),
+            ),
+        };
+        let mut changed = image[0].clone();
+        let start = positions[0] + offset;
+        changed[start..start + bytes.len()].copy_from_slice(&bytes);
+        let outcome = std::panic::catch_unwind(|| {
+            let resolver = Resolver::new(&[&changed, &image[1]])?;
+            layout::class(&resolver, definition(&resolver, "Child")).map(|_| ())
+        });
+        let error = outcome
+            .expect("malformed class metadata must not panic")
+            .unwrap_err();
+        assert!(error.contains(message), "{mutation}: {error}");
+    }
+}
+
+#[rstest]
+fn class_layouts_require_external_base_images(class_images: &[[Vec<u8>; 2]; 2]) {
+    for images in class_images {
+        let resolver = Resolver::new(&[&images[0]]).unwrap();
+        let error = layout::class(&resolver, definition(&resolver, "CrossAssembly")).unwrap_err();
+        assert!(
+            error.starts_with("Missing assembly ClassBase, version 1.0.0.0"),
+            "{error}"
+        );
+        assert_eq!(
+            layout::class(&resolver, definition(&resolver, "Child"))
+                .unwrap()
+                .bytes,
+            30
+        );
+    }
+}
+
+fn compile_class_layout_source(source: &str) -> Vec<u8> {
+    let directory = tempfile::tempdir().unwrap();
+    let template = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/ClassLayouts/Base/ClassBase.csproj");
+    let project = directory.path().join("ClassLayouts.csproj");
+    std::fs::copy(template, &project).unwrap();
+    std::fs::write(directory.path().join("Types.cs"), source).unwrap();
+    let output =
+        std::process::Command::new(std::env::var_os("KOH_DOTNET").unwrap_or("dotnet".into()))
+            .arg("build")
+            .arg(project)
+            .args(["-c", "Release", "--nologo", "-v:q", "-m:1"])
+            .output()
+            .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::read(
+        directory
+            .path()
+            .join("bin/Release/net10.0/ClassLayouts.dll"),
+    )
+    .unwrap()
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn class_depth_is_independent_of_cache_order(#[case] cached: bool) {
+    let mut source = String::from("public class C0 {}\n");
+    for index in 1..65 {
+        source.push_str(&format!("public class C{index}: C{} {{}}\n", index - 1));
+    }
+    let image = compile_class_layout_source(&source);
+    let resolver = Resolver::new(&[&image]).unwrap();
+    if cached {
+        for index in 0..64 {
+            layout::class(&resolver, definition(&resolver, &format!("C{index}"))).unwrap();
+        }
+    }
+    let result = layout::class(&resolver, definition(&resolver, "C64"));
+    assert!(
+        result.is_err(),
+        "65-level hierarchy accepted, cached={cached}"
+    );
+    assert!(result.unwrap_err().contains("depth"));
+    assert_eq!(
+        layout::class(&resolver, definition(&resolver, "C63"))
+            .unwrap()
+            .bytes,
+        2
+    );
+}
+
+#[test]
+fn repeated_large_array_signatures_have_a_byte_budget() {
+    let mut source = format!(
+        "[assembly: System.Reflection.AssemblyMetadata(\"reserve\", \"{}\")]\npublic class Root {{\n",
+        "q".repeat(20000)
+    );
+    for index in 0..200 {
+        source.push_str(&format!("public int[,] F{index};\n"));
+    }
+    source.push_str("}\n");
+    let image = compile_class_layout_source(&source);
+    let resolver = Resolver::new(&[&image]).unwrap();
+    let metadata = resolver.assembly(0).unwrap().metadata();
+    let blob = metadata
+        .custom_attributes
+        .iter()
+        .find_map(|a| {
+            let blob = metadata.blobs.get(a.value).unwrap();
+            (blob.len() > 20000).then_some((a.value, blob))
+        })
+        .unwrap();
+    let positions: Vec<_> = image
+        .windows(blob.1.len())
+        .enumerate()
+        .filter_map(|(at, bytes)| (bytes == blob.1).then_some(at))
+        .collect();
+    assert_eq!(positions.len(), 1);
+    let original_len = blob.1.len() as u32;
+    assert!((16384..65536).contains(&original_len));
+    let mut header = original_len.to_be_bytes();
+    header[0] |= 0xc0;
+    let start = positions[0] - 4;
+    assert_eq!(&image[start..start + 4], header);
+    let mut signature = vec![6];
+    signature.extend(std::iter::repeat_n(0x14, 63));
+    signature.push(8);
+    for _ in 0..63 {
+        signature.extend([32, 32]);
+        for _ in 0..32 {
+            signature.extend([0xdf, 0xff, 0xff, 0xff]);
+        }
+        signature.push(32);
+        signature.extend([0; 32]);
+    }
+    koh_compile::signature::field(&signature).unwrap();
+    assert!((128..16384).contains(&signature.len()));
+    let mut changed = image.clone();
+    let len = signature.len();
+    changed[start] = 0x80 | (len >> 8) as u8;
+    changed[start + 1] = len as u8;
+    changed[start + 2..start + 2 + len].copy_from_slice(&signature);
+    for field in &metadata.fields {
+        let mut needle = field.flags.to_le_bytes().to_vec();
+        needle.extend(u16::try_from(field.name).unwrap().to_le_bytes());
+        needle.extend(u16::try_from(field.signature).unwrap().to_le_bytes());
+        let positions: Vec<_> = image
+            .windows(needle.len())
+            .enumerate()
+            .filter_map(|(at, bytes)| (bytes == needle).then_some(at))
+            .collect();
+        assert_eq!(positions.len(), 1);
+        let at = positions[0] + 4;
+        changed[at..at + 2].copy_from_slice(&u16::try_from(blob.0).unwrap().to_le_bytes());
+    }
+    let resolver = Resolver::new(&[&changed]).unwrap();
+    match layout::class(&resolver, definition(&resolver, "Root")) {
+        Err(error) => assert!(error.contains("budget"), "{error}"),
+        Ok(value) => panic!(
+            "signature-byte budget accepted {} repeated large fields",
+            value.fields.len()
+        ),
+    }
+}
+
+#[test]
+fn flattened_class_layouts_have_a_shared_resource_budget() {
+    let mut source = String::from("public class Root {\n");
+    for field in 0..400 {
+        source.push_str(&format!("public long F{field};\n"));
+    }
+    source.push_str("}\n");
+    for class in 0..3000 {
+        source.push_str(&format!("public class C{class} : Root {{ }}\n"));
+    }
+    source.push_str("public static class Program { public static void Main() { } }\n");
+    let image = compile_class_layout_source(&source);
+    let resolver = Resolver::new(&[&image]).unwrap();
+    let mut stopped = false;
+    for index in 0..3000 {
+        match layout::class(&resolver, definition(&resolver, &format!("C{index}"))) {
+            Ok(value) => {
+                assert_eq!(value.bytes, 3202);
+                assert_eq!(value.fields.len(), 400);
+            }
+            Err(error) => {
+                assert!(error.contains("budget"), "{error}");
+                stopped = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        stopped,
+        "shared inherited-field copies must have a bounded budget"
+    );
+    assert_eq!(
+        layout::class(&resolver, definition(&resolver, "Root"))
+            .unwrap()
+            .bytes,
+        3202
+    );
+}
+
+#[fixture]
+#[once]
 fn images() -> [Vec<u8>; 2] {
     let directory = tempfile::tempdir().unwrap();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/StructLayouts");

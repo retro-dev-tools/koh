@@ -39,6 +39,12 @@ remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
 
+The new [reference-class layout foundation](class-layout.md) supplies25 native
+metadata cases within the48-case layout target, plus the existing10 reference
+cases in its58-case regression. It deliberately closes no legacy class methods:
+constructor/field/string/dispatch ROM semantics and the real class games remain
+required. This is partial coverage, never DEFER or a claim of executable classes.
+
 ## Runtime fill replacements
 
 Two `Sm83/MemRuntimeTests.cs` methods now map to
