@@ -281,6 +281,9 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     value(right);
                 }
                 Op::Negate(id)
+                | Op::Upcast { value: id, .. }
+                | Op::CheckObject(id)
+                | Op::ObjectFieldAddress { object: id, .. }
                 | Op::Not(id)
                 | Op::Convert { value: id, .. }
                 | Op::StoreLocal { value: id, .. }
@@ -291,6 +294,7 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     }
                 }
                 Op::ArenaReset
+                | Op::NewObject(_)
                 | Op::CpuControl(_)
                 | Op::Constant(_)
                 | Op::ZeroStruct

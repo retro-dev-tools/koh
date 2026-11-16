@@ -106,13 +106,21 @@ fn storage_signature(
     result.return_type = storage_type(resolver, identity.assembly, &signature.return_type)?;
     if signature.calling_convention.has_this() {
         let owner = owner_type(resolver, identity)?;
-        crate::layout::value(resolver, owner)?;
-        result.params.insert(
-            0,
+        let metadata = resolver.assembly(owner.assembly)?.metadata();
+        let ty = &metadata.type_defs[(owner.token & 0xffffff) as usize - 1];
+        let value = ty.extends.table == Some(clrmeta::TableId::TypeRef)
+            && crate::resolve::framework_type(metadata, 0x01000000 | ty.extends.row)?
+                == Some(("System", "ValueType"));
+        let receiver = if value {
+            crate::layout::value(resolver, owner)?;
             clrmeta::TypeSig::ByRef(Box::new(clrmeta::TypeSig::ValueType(
                 (owner.token & 0xffffff) << 2,
-            ))),
-        );
+            )))
+        } else {
+            crate::layout::class(resolver, owner)?;
+            clrmeta::TypeSig::Class((owner.token & 0xffffff) << 2)
+        };
+        result.params.insert(0, receiver);
         result.calling_convention.0 &= !0x20;
     }
     Ok(result)
@@ -153,9 +161,29 @@ fn bound_type(
         ValueType::new(layout.identity, layout.bytes)
     };
     match ty {
+        clrmeta::TypeSig::Primitive(clrmeta::ElementType::Object) => {
+            Ok(Type::Object(ClassType::root()))
+        }
+        clrmeta::TypeSig::Class(encoded) => Ok(Type::Object(class_type(
+            resolver,
+            resolver.resolve_type(assembly, crate::resolve::type_token(*encoded)?)?,
+        )?)),
         clrmeta::TypeSig::ValueType(encoded) => Ok(Type::Struct(shape(*encoded)?)),
         clrmeta::TypeSig::ByRef(inner) => match **inner {
             clrmeta::TypeSig::ValueType(encoded) => Ok(Type::StructRef(shape(encoded)?)),
+            clrmeta::TypeSig::Class(_)
+            | clrmeta::TypeSig::Primitive(clrmeta::ElementType::Object) => {
+                let Type::Object(class) = bound_type(resolver, assembly, inner)? else {
+                    return Err("Invalid object reference cell".into());
+                };
+                Ok(Type::ReferenceCell(ReferenceCell::Object(class)))
+            }
+            clrmeta::TypeSig::Primitive(clrmeta::ElementType::String) => {
+                Ok(Type::ReferenceCell(ReferenceCell::String))
+            }
+            clrmeta::TypeSig::SzArray(ref element) => Ok(Type::ReferenceCell(
+                ReferenceCell::Array(bound_storage(resolver, assembly, element)?),
+            )),
             _ => integer_type(ty),
         },
         clrmeta::TypeSig::Pinned(inner) => bound_type(resolver, assembly, inner),
@@ -173,8 +201,68 @@ fn bound_storage(
 ) -> Result<Storage, String> {
     let signature = storage_type(resolver, assembly, signature)?;
     match bound_type(resolver, assembly, &signature)? {
+        Type::Object(class) => Ok(Storage::Object(class)),
+        Type::String => Ok(Storage::String),
         Type::Struct(value) => Ok(Storage::Struct(value)),
         _ => Ok(Storage::Scalar(scalar(&signature)?)),
+    }
+}
+
+fn class_type(
+    resolver: &crate::resolve::Resolver<'_>,
+    identity: Definition,
+) -> Result<ClassType, String> {
+    let layout = crate::layout::class(resolver, identity)?;
+    ClassType::new(layout.identity, layout.base, layout.bytes)
+}
+
+fn parent_class(
+    resolver: &crate::resolve::Resolver<'_>,
+    class: ClassType,
+) -> Result<ClassType, String> {
+    match class.base() {
+        Some(id) => class_type(resolver, id),
+        None => Ok(ClassType::root()),
+    }
+}
+
+fn common_class(
+    resolver: &crate::resolve::Resolver<'_>,
+    left: ClassType,
+    mut right: ClassType,
+) -> Result<ClassType, String> {
+    let mut ancestors = vec![left];
+    let mut current = left;
+    while current.identity().is_some() {
+        if ancestors.len() > 64 {
+            return Err("Class ancestry exceeds64".into());
+        }
+        current = parent_class(resolver, current)?;
+        ancestors.push(current);
+    }
+    for _ in 0..=64 {
+        if ancestors.contains(&right) {
+            return Ok(right);
+        }
+        right = parent_class(resolver, right)?;
+    }
+    Err("Inconsistent class ancestry".into())
+}
+
+fn field_storage(
+    resolver: &crate::resolve::Resolver<'_>,
+    assembly: usize,
+    signature: &clrmeta::TypeSig,
+) -> Result<FieldStorage, String> {
+    match bound_type(
+        resolver,
+        assembly,
+        &storage_type(resolver, assembly, signature)?,
+    )? {
+        Type::Array(element) => Ok(FieldStorage::Array(element)),
+        _ => Ok(FieldStorage::Value(bound_storage(
+            resolver, assembly, signature,
+        )?)),
     }
 }
 
@@ -393,7 +481,8 @@ pub struct Method<'a> {
     pub max_stack: u16,
 }
 
-struct Builder {
+struct Builder<'r, 'a> {
+    resolver: Option<&'r crate::resolve::Resolver<'a>>,
     next: u32,
     data_bytes: usize,
     edge_arguments: usize,
@@ -404,12 +493,33 @@ struct Builder {
     offset: u32,
 }
 
-impl Builder {
+impl Builder<'_, '_> {
     fn coerce(&mut self, value: (u32, Type), ty: Type) -> Result<(u32, Type), String> {
-        if value.1 == Type::Null && matches!(ty, Type::Array(_) | Type::String) {
+        if value.1 == Type::Null && matches!(ty, Type::Array(_) | Type::String | Type::Object(_)) {
             self.value(ty, Op::Constant(0))
         } else if value.1 == ty {
             Ok(value)
+        } else if let (Type::Object(mut source), Type::Object(target)) = (value.1, ty) {
+            let resolver = self.resolver.ok_or("Object coercion requires metadata")?;
+            let mut value = value;
+            for _ in 0..64 {
+                if source.identity().is_none() {
+                    break;
+                }
+                let parent = parent_class(resolver, source)?;
+                value = self.value(
+                    Type::Object(parent),
+                    Op::Upcast {
+                        value: value.0,
+                        class: parent,
+                    },
+                )?;
+                if parent == target {
+                    return Ok(value);
+                }
+                source = parent;
+            }
+            Err("Object reference is not assignable to requested class".into())
         } else {
             Err(format!(
                 "CIL operand type mismatch: {:?}, expected {ty:?}",
@@ -504,6 +614,15 @@ impl Builder {
     fn compare(&mut self, op: Comparison) -> Result<(u32, Type), String> {
         let mut right = self.pop()?;
         let mut left = self.pop()?;
+        if let (Type::Object(a), Type::Object(b)) = (left.1, right.1) {
+            let class = common_class(
+                self.resolver.ok_or("Object comparison requires metadata")?,
+                a,
+                b,
+            )?;
+            left = self.coerce(left, Type::Object(class))?;
+            right = self.coerce(right, Type::Object(class))?;
+        }
         if left.1 == Type::Null {
             left = self.coerce(left, right.1)?;
         }
@@ -597,6 +716,7 @@ fn lower_inner(
     let mut locals = method.parameters.clone();
     locals.extend_from_slice(&method.locals);
     let mut builder = Builder {
+        resolver,
         next: method.parameters.len() as u32,
         data_bytes: 0,
         edge_arguments: 0,
@@ -712,11 +832,22 @@ fn lower_inner(
                     return Err("Incompatible evaluation stack heights".into());
                 }
                 for (old, &new) in expected.iter_mut().zip(&shape) {
-                    if *old == Type::Null && matches!(new, Type::Array(_) | Type::String) {
+                    if let (Type::Object(a), Type::Object(b)) = (*old, new) {
+                        let merged = Type::Object(common_class(
+                            resolver.ok_or("Object merge requires metadata")?,
+                            a,
+                            b,
+                        )?);
+                        changed |= *old != merged;
+                        *old = merged;
+                    } else if *old == Type::Null
+                        && matches!(new, Type::Array(_) | Type::String | Type::Object(_))
+                    {
                         *old = new;
                         changed = true;
                     } else if *old != new
-                        && !(new == Type::Null && matches!(old, Type::Array(_) | Type::String))
+                        && !(new == Type::Null
+                            && matches!(old, Type::Array(_) | Type::String | Type::Object(_)))
                     {
                         return Err(format!(
                             "IL_{:04x}: Incompatible evaluation stacks at merge IL_{:04x}",
@@ -759,18 +890,11 @@ fn lower_inner(
                 .iter_mut()
                 .zip(incoming[edge.block].as_deref().unwrap_or(&[]))
             {
-                if types[argument] == Type::Null && matches!(ty, Type::Array(_) | Type::String) {
-                    let id = builder.next;
-                    builder.next += 1;
-                    if builder.next > 262_144 {
-                        return Err("Null merge conversions exceed value limit".into());
-                    }
-                    body.instructions.push(Instruction {
-                        result: Some((id, ty)),
-                        op: Op::Constant(0),
-                        il_offset: body.terminator.il_offset,
-                    });
-                    *argument = id;
+                if types[argument] != ty {
+                    builder.offset = body.terminator.il_offset;
+                    let converted = builder.coerce((*argument, types[argument]), ty)?;
+                    body.instructions.append(&mut builder.instructions);
+                    *argument = converted.0;
                 }
             }
         }
@@ -1081,8 +1205,9 @@ fn translate(
             let value = b.value(Type::Native, Op::ArrayLength(array.0))?;
             b.stack.push(value);
         }
-        0x8f..=0x97 | 0x9b..=0x9f | 0xa3 | 0xa4 => {
-            let store = matches!(i.opcode, 0x9b..=0x9f | 0xa4);
+        0x8f..=0x97 | 0x9a..=0x9f | 0xa2..=0xa4 => {
+            let reference = matches!(i.opcode, 0x9a | 0xa2);
+            let store = matches!(i.opcode, 0x9b..=0x9f | 0xa2 | 0xa4);
             let stored = if store { Some(b.pop()?) } else { None };
             let index = b.pop()?;
             if !matches!(index.1, Type::I32 | Type::Native) {
@@ -1115,7 +1240,11 @@ fn translate(
             let array = if raw.1 == Type::Null {
                 b.coerce(
                     raw,
-                    Type::Array(explicit.unwrap_or(Storage::Scalar(default))),
+                    Type::Array(explicit.unwrap_or(if reference {
+                        Storage::Object(ClassType::root())
+                    } else {
+                        Storage::Scalar(default)
+                    })),
                 )?
             } else {
                 raw
@@ -1125,8 +1254,12 @@ fn translate(
             };
             if explicit.is_some_and(|ty| ty != element)
                 || (explicit.is_none()
-                    && (element.bytes() * 8 != u16::from(default.bits())
-                        || element.stack_type() != default.stack_type()))
+                    && if reference {
+                        !matches!(element, Storage::Object(_) | Storage::String)
+                    } else {
+                        element.bytes() * 8 != u16::from(default.bits())
+                            || element.stack_type() != default.stack_type()
+                    })
             {
                 return Err("Array opcode differs from element storage type".into());
             }
@@ -1140,9 +1273,7 @@ fn translate(
             if i.opcode == 0x8f {
                 b.stack.push(address);
             } else if let Some(value) = stored {
-                if value.1 != element.stack_type() {
-                    return Err("Array store value type mismatch".into());
-                }
+                let value = b.coerce(value, element.stack_type())?;
                 b.instructions.push(Instruction {
                     result: None,
                     op: Op::StoreMemory {
@@ -1158,7 +1289,7 @@ fn translate(
                 } else {
                     matches!(i.opcode, 0x90 | 0x92 | 0x94 | 0x96 | 0x97)
                 };
-                let ty = if explicit.is_some() {
+                let ty = if explicit.is_some() || reference {
                     element.stack_type()
                 } else {
                     default.stack_type()
@@ -1186,6 +1317,22 @@ fn translate(
                 Operand::Token(token) => token,
                 _ => return Err("Missing call method token".into()),
             };
+            if resolver.object_constructor(method.identity.assembly, token)? {
+                if constructing {
+                    let object = b.value(
+                        Type::Object(ClassType::root()),
+                        Op::NewObject(ClassType::root()),
+                    )?;
+                    b.stack.push(object);
+                } else if i.opcode == 0x28 {
+                    if !matches!(b.pop()?.1, Type::Object(_)) {
+                        return Err("Object constructor requires an object receiver".into());
+                    }
+                } else {
+                    return Err("Object constructor requires call or newobj".into());
+                }
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
             if !constructing {
                 if let Some(indexed) = resolver.string_member(method.identity.assembly, token)? {
                     let index = if indexed {
@@ -1210,9 +1357,6 @@ fn translate(
                     b.stack.push(value);
                     return Ok(Control::Jump(b.edge(next()?)));
                 }
-            }
-            if i.opcode == 0x6f {
-                return Err("callvirt requires a supported System.String member".into());
             }
             if !constructing && resolver.array_initializer(method.identity.assembly, token)? {
                 let handle = b.pop()?;
@@ -1253,6 +1397,15 @@ fn translate(
                 return Err("Generic call instantiation is not lowered yet".into());
             }
             let metadata = resolver.assembly(target.definition.assembly)?;
+            if i.opcode == 0x6f {
+                let signature = metadata.method_signature(target.definition.token)?;
+                if !signature.calling_convention.has_this() {
+                    return Err("callvirt requires an instance method".into());
+                }
+                if metadata.method(target.definition.token)?.flags & 0x40 != 0 {
+                    return Err("Virtual reference calls require dispatch lowering".into());
+                }
+            }
             if constructing {
                 let definition = metadata.method(target.definition.token)?;
                 let signature = metadata.method_signature(target.definition.token)?;
@@ -1292,10 +1445,21 @@ fn translate(
                 bound_signature(resolver, target.definition.assembly, &metadata_signature)?;
             let mut arguments = Vec::with_capacity(signature.parameters.len());
             let constructed = if constructing {
-                let Some(Type::StructRef(shape)) = signature.parameters.first() else {
-                    return Err("newobj requires an unmanaged value-type constructor".into());
-                };
-                Some(*shape)
+                Some(match signature.parameters.first() {
+                    Some(Type::StructRef(shape)) => Type::Struct(*shape),
+                    Some(Type::Object(class)) => {
+                        let owner = owner_type(resolver, target.definition)?;
+                        if metadata.metadata().type_defs[(owner.token & 0xffffff) as usize - 1]
+                            .flags
+                            & 0x80
+                            != 0
+                        {
+                            return Err("newobj cannot instantiate an abstract class".into());
+                        }
+                        Type::Object(*class)
+                    }
+                    _ => return Err("newobj requires a value or reference constructor".into()),
+                })
             } else {
                 None
             };
@@ -1397,7 +1561,22 @@ fn translate(
                 }
                 return Ok(Control::Jump(b.edge(next()?)));
             }
-            if let Some(shape) = constructed {
+            if let Some(Type::Object(class)) = constructed {
+                let object = b.value(Type::Object(class), Op::NewObject(class))?;
+                arguments.insert(0, object.0);
+                b.instructions.push(Instruction {
+                    result: None,
+                    op: Op::Call {
+                        target: target.definition,
+                        signature,
+                        arguments,
+                    },
+                    il_offset: b.offset,
+                });
+                b.stack.push(object);
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
+            if let Some(Type::Struct(shape)) = constructed {
                 let local = if let Some(&(local, old)) = b.constructions.get(&b.offset) {
                     if old != shape {
                         return Err("Constructor storage type changed during stack merging".into());
@@ -1449,6 +1628,14 @@ fn translate(
                 return Ok(Control::Jump(b.edge(next()?)));
             }
             let returns = signature.returns;
+            if i.opcode == 0x6f {
+                let receiver = *arguments.first().ok_or("Missing callvirt receiver")?;
+                b.instructions.push(Instruction {
+                    result: None,
+                    op: Op::CheckObject(receiver),
+                    il_offset: b.offset,
+                });
+            }
             let op = Op::Call {
                 target: target.definition,
                 signature,
@@ -1524,6 +1711,8 @@ fn translate(
                     Type::I64 => Scalar::I64,
                     Type::Native => Scalar::NativeSigned,
                     Type::ByRef(_)
+                    | Type::Object(_)
+                    | Type::ReferenceCell(_)
                     | Type::Array(_)
                     | Type::String
                     | Type::Null
@@ -1662,8 +1851,6 @@ fn translate(
                 return Err("Generic instance fields require instantiated lowering".into());
             }
             let owner = owner_type(resolver, target.definition)?;
-            let layout = crate::layout::value(resolver, owner)?;
-            let shape = ValueType::new(layout.identity, layout.bytes)?;
             let image = resolver.assembly(target.definition.assembly)?;
             let row = (target.definition.token & 0xffffff)
                 .checked_sub(1)
@@ -1686,18 +1873,67 @@ fn translate(
                     );
                 }
             }
-            let field = layout
-                .fields
-                .iter()
-                .find(|field| field.identity == target.definition)
-                .ok_or("Field is not in aggregate layout")?;
-            let storage = bound_storage(resolver, target.definition.assembly, &field.signature)?;
             let stored = if i.opcode == 0x7d {
                 Some(b.pop()?)
             } else {
                 None
             };
             let receiver = b.pop()?;
+            let owner_row = &image.metadata().type_defs[(owner.token & 0xffffff) as usize - 1];
+            let value_owner = owner_row.extends.table == Some(clrmeta::TableId::TypeRef)
+                && crate::resolve::framework_type(
+                    image.metadata(),
+                    0x01000000 | owner_row.extends.row,
+                )? == Some(("System", "ValueType"));
+            if !value_owner {
+                let layout = crate::layout::class(resolver, owner)?;
+                let class = class_type(resolver, owner)?;
+                let field = layout
+                    .fields
+                    .iter()
+                    .find(|f| f.identity == target.definition)
+                    .ok_or("Field is absent from class layout")?;
+                let storage =
+                    field_storage(resolver, target.definition.assembly, &field.signature)?;
+                let receiver = b.coerce(receiver, Type::Object(class))?;
+                let address = b.value(
+                    storage.reference_type(),
+                    Op::ObjectFieldAddress {
+                        object: receiver.0,
+                        owner: class,
+                        offset: field.offset,
+                        storage,
+                    },
+                )?;
+                if let Some(value) = stored {
+                    let value = b.coerce(value, storage.stack_type())?;
+                    b.instructions.push(Instruction {
+                        result: None,
+                        op: Op::StoreMemory {
+                            address: address.0,
+                            value: value.0,
+                            bits: storage.bytes() * 8,
+                        },
+                        il_offset: b.offset,
+                    });
+                } else if i.opcode == 0x7c {
+                    b.stack.push(address);
+                } else {
+                    let value = b.value(storage.stack_type(), Op::LoadMemory { address: address.0,
+                        bits: storage.bytes() * 8,
+                        signed: matches!(storage, FieldStorage::Value(Storage::Scalar(scalar)) if scalar.signed()) })?;
+                    b.stack.push(value);
+                }
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
+            let layout = crate::layout::value(resolver, owner)?;
+            let shape = ValueType::new(layout.identity, layout.bytes)?;
+            let field = layout
+                .fields
+                .iter()
+                .find(|f| f.identity == target.definition)
+                .ok_or("Field is not in aggregate layout")?;
+            let storage = bound_storage(resolver, target.definition.assembly, &field.signature)?;
             if receiver.1 == Type::Struct(shape) && i.opcode == 0x7b {
                 let value = b.value(
                     storage.stack_type(),
@@ -1814,6 +2050,12 @@ fn translate(
                 .unwrap_or((ty.bits(), !matches!(ty, Type::Struct(_))));
             let address_type = if let Type::Struct(value) = ty {
                 Type::StructRef(value)
+            } else if let Type::Object(class) = ty {
+                Type::ReferenceCell(ReferenceCell::Object(class))
+            } else if ty == Type::String {
+                Type::ReferenceCell(ReferenceCell::String)
+            } else if let Type::Array(element) = ty {
+                Type::ReferenceCell(ReferenceCell::Array(element))
             } else if i.opcode == 0x7f {
                 Type::ByRef(scalar(&signature)?)
             } else {

@@ -44,7 +44,7 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilClassStringFieldTests.cs
 
 A constructor string argument must survive field storage and later length/index reads. Ordinary reference-value flow and Text.Draw callers justify this; no particular string header layout is required.
 
-- **PORT** `StringCtorParameter_StoredInClassField_ReadBackViaLengthAndIndexer`.
+- **PORT, complete** `StringCtorParameter_StoredInClassField_ReadBackViaLengthAndIndexer` — `driver::native_object_identity_fields_and_faults`, `ObjectCore::BannerFields`, exact string/score packets and heap/bank checks in Debug/Release × DMG/CGB; see test-disposition.md.
 
 ### CilDelegateTests.cs
 
@@ -454,7 +454,7 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilVirtualDispatchTests.cs`
 
 Inherited fields never overlap, base-typed calls dispatch by runtime receiver, scene changes retain constructor state and interrupt-only roots participate. Interface shapes outside supported closed-world analysis must diagnose. Prefix/tag layouts are optional.
 
-- **PORT** `InheritedFields_UsePrefixLayout_NoOverlap`.
+- **PORT, complete** `InheritedFields_UsePrefixLayout_NoOverlap` — same native driver, `ObjectCore::InheritedFields`; exact base/derived/alias packets and final heap descriptors in Debug/Release × DMG/CGB; see test-disposition.md.
 - **PORT** `UntraceableInterfaceCall_IsDiagnostic`.
 - **PORT** `VirtualCalls_TagDispatchThroughBaseTypedStatic`.
 - **PORT** `SceneMachine_GameRun_DeferredChangeWithCtorState`.

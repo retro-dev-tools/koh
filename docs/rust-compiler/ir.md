@@ -18,6 +18,20 @@ and reference-returning calls; it is not a general scoped-reference solver.
 [String](strings.md) is a distinct reference type with literal, length and checked
 character operations. It cannot be used as an array, native memory address or
 numeric operand. UTF-16 char results use unsigned int32 evaluation values.
+
+[Objects](class-layout.md) carry a validated class identity, immediate base and
+storage extent. `NewObject` is effectful; `Upcast` only names an immediate base
+whose prefix fits the source. Lowering inserts each step for inherited views
+and common-ancestor SSA joins. `CheckObject` preserves nonvirtual callvirt's null
+fault even when its target does not access fields. `ObjectFieldAddress` requires
+the exact owner type and an extent beyond the two-byte header, within the object.
+Reference cells distinguish class, string and array storage from scalar byrefs.
+Managed-reference loads require the matching cell; a native-address load cannot
+fabricate an object directly or through an object array. Static identities have
+one compatible reference-cell shape across the program, preventing equal-width
+aliases from changing their class or numeric/reference kind. Constructors and
+direct calls retain ordinary verified function signatures and source IL offsets.
+
 Typed constant reuse and local forwarding preserve SSA dominance. Cross-block
 forwarding requires the identical SSA value on every incoming path and excludes
 address-exposed or pinned locals. Calls and memory writes cannot alias the remaining

@@ -51,7 +51,7 @@ public static unsafe class Program
 
     public static int UnsupportedGeneric() => new GenericConstructed<int>(1).Value;
 
-    public static int UnsupportedClass() => new ReferenceConstructed(1).Value;
+    public static int ReferenceConstructor() => new ReferenceConstructed(1).Value;
 
     public static int BankedConstructors()
     {

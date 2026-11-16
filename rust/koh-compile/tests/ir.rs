@@ -3,6 +3,244 @@ use koh_compile::resolve::Definition;
 use rstest::rstest;
 
 #[rstest]
+#[case("same", true)]
+#[case("bytes", false)]
+#[case("base", false)]
+#[case("value-kind", false)]
+fn class_identity_has_one_shape_across_functions(#[case] shape: &str, #[case] valid: bool) {
+    let id = Definition {
+        assembly: 0,
+        token: 0x02000002,
+    };
+    let class = ClassType::new(id, None, 2).unwrap();
+    let other = match shape {
+        "bytes" => Type::Object(ClassType::new(id, None, 3).unwrap()),
+        "base" => Type::Object(
+            ClassType::new(
+                id,
+                Some(Definition {
+                    token: 0x02000003,
+                    ..id
+                }),
+                2,
+            )
+            .unwrap(),
+        ),
+        "value-kind" => Type::Struct(ValueType::new(id, 2).unwrap()),
+        _ => Type::Object(class),
+    };
+    let function = |token, ty| {
+        let mut f = diamond();
+        f.identity.token = token;
+        f.parameters = vec![ty];
+        f.locals.clear();
+        f.returns = None;
+        f.blocks = vec![Block {
+            parameters: vec![(0, ty)],
+            instructions: vec![],
+            terminator: Terminator {
+                il_offset: 0,
+                kind: Control::Return(None),
+            },
+        }];
+        f
+    };
+    let first = function(0x06000001, Type::Object(class));
+    let second = function(0x06000002, other);
+    verify(&first).unwrap();
+    verify(&second).unwrap();
+    assert_eq!(verify_program(&[first, second]).is_ok(), valid, "{shape}");
+}
+
+#[rstest]
+#[case("same", true)]
+#[case("class", false)]
+#[case("native", false)]
+#[case("string", false)]
+#[case("array", false)]
+fn static_reference_identity_has_one_storage_type(#[case] shape: &str, #[case] valid: bool) {
+    let class = |row| {
+        ClassType::new(
+            Definition {
+                assembly: 0,
+                token: 0x02000000u32 | row,
+            },
+            None,
+            2,
+        )
+        .unwrap()
+    };
+    let first = Type::ReferenceCell(ReferenceCell::Object(class(2)));
+    let second = match shape {
+        "class" => Type::ReferenceCell(ReferenceCell::Object(class(3))),
+        "native" => Type::Native,
+        "string" => Type::ReferenceCell(ReferenceCell::String),
+        "array" => Type::ReferenceCell(ReferenceCell::Array(Storage::Object(class(2)))),
+        _ => first,
+    };
+    let address = Op::StaticAddress {
+        field: Definition {
+            assembly: 0,
+            token: 0x04000001,
+        },
+        bytes: 2,
+        alignment: 1,
+    };
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = None;
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![
+            instruction(0, first, address.clone()),
+            instruction(1, second, address),
+        ],
+        terminator: Terminator {
+            il_offset: 2,
+            kind: Control::Return(None),
+        },
+    }];
+    assert!(verify(&f).is_ok());
+    assert_eq!(verify_program(&[f]).is_ok(), valid, "{shape}");
+}
+
+#[rstest]
+#[case("valid", true)]
+#[case("unrelated", false)]
+#[case("larger-base", false)]
+#[case("fabricated", false)]
+#[case("integer-check", false)]
+#[case("raw-load", false)]
+#[case("raw-array-load", false)]
+#[case("raw-string-load", false)]
+fn object_identity_cannot_be_fabricated_or_reinterpreted(
+    #[case] scenario: &str,
+    #[case] valid: bool,
+) {
+    let id = |row: u32| Definition {
+        assembly: 0,
+        token: 0x02000000 | row,
+    };
+    let parent =
+        ClassType::new(id(2), None, if scenario == "larger-base" { 8 } else { 3 }).unwrap();
+    let child = ClassType::new(
+        id(3),
+        Some(if scenario == "unrelated" {
+            id(4)
+        } else {
+            id(2)
+        }),
+        6,
+    )
+    .unwrap();
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = None;
+    let mut instructions = vec![
+        instruction(0, Type::Object(child), Op::NewObject(child)),
+        instruction(
+            1,
+            Type::Object(parent),
+            Op::Upcast {
+                value: 0,
+                class: parent,
+            },
+        ),
+    ];
+    if scenario == "fabricated" {
+        instructions[0].op = Op::Constant(0xc000);
+    }
+    if scenario == "integer-check" {
+        instructions[0] = instruction(0, Type::Native, Op::Constant(0xc000));
+        instructions.truncate(1);
+        instructions.push(Instruction {
+            result: None,
+            op: Op::CheckObject(0),
+            il_offset: 1,
+        });
+    }
+    if matches!(scenario, "raw-load" | "raw-array-load" | "raw-string-load") {
+        instructions[0] = instruction(0, Type::Native, Op::Constant(0xc000));
+        instructions[1] = instruction(
+            1,
+            match scenario {
+                "raw-array-load" => Type::Array(Storage::Object(parent)),
+                "raw-string-load" => Type::String,
+                _ => Type::Object(parent),
+            },
+            Op::LoadMemory {
+                address: 0,
+                bits: 16,
+                signed: false,
+            },
+        );
+    }
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions,
+        terminator: Terminator {
+            il_offset: 2,
+            kind: Control::Return(None),
+        },
+    }];
+    assert_eq!(verify(&f).is_ok(), valid, "{scenario}");
+}
+
+#[rstest]
+#[case(2, true)]
+#[case(3, false)]
+fn object_fields_require_typed_owners_and_bounds(#[case] offset: u16, #[case] valid: bool) {
+    let class = ClassType::new(
+        Definition {
+            assembly: 0,
+            token: 0x02000002,
+        },
+        None,
+        6,
+    )
+    .unwrap();
+    let mut f = diamond();
+    f.parameters.clear();
+    f.locals.clear();
+    f.returns = None;
+    f.blocks = vec![Block {
+        parameters: vec![],
+        instructions: vec![
+            instruction(0, Type::Object(class), Op::NewObject(class)),
+            instruction(
+                1,
+                Type::ByRef(Scalar::I32),
+                Op::ObjectFieldAddress {
+                    object: 0,
+                    owner: class,
+                    offset,
+                    storage: FieldStorage::Value(Storage::Scalar(Scalar::I32)),
+                },
+            ),
+        ],
+        terminator: Terminator {
+            il_offset: 3,
+            kind: Control::Return(None),
+        },
+    }];
+    assert_eq!(verify(&f).is_ok(), valid);
+    if valid {
+        koh_compile::optimize::simplify(&mut f).unwrap();
+        assert!(
+            f.blocks[0]
+                .instructions
+                .iter()
+                .any(|i| matches!(i.op, Op::NewObject(_)))
+        );
+        koh_compile::sm83::emit(&f).unwrap();
+        f.blocks[0].instructions[0].result = Some((0, Type::Native));
+        assert!(verify(&f).is_err());
+    }
+}
+
+#[rstest]
 #[case(Type::Native, Type::I32, Type::I32, 0xff43, true)]
 #[case(Type::Native, Type::I32, Type::I32, 0xff42, true)]
 #[case(Type::Native, Type::I32, Type::I32, 0xff47, true)]

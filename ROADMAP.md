@@ -22,7 +22,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   bounded1024-byte DMA bursts; raw CPU copy has explicit ordered semantics.
   Full Linux Rust workspace/all-features passes924/924, plus separate rustdoc;
   actual SDK build/run checks pass. Final selected-bank probes pass4/4.
-  Forty-five legacy methods have complete replacements;520 remain partial/
+  Forty-seven legacy methods have complete replacements;518 remain partial/
   outstanding, none deleted. Racing-beam now passes all four native configurations
   with actual SCX/scanline traces; the shared all256-phase CLR sweep now has
   Rust-owned assertions in Debug/Release and its redundant C# verifier is removed.
@@ -34,8 +34,14 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   The phase commit's hosted Rust suites pass987 Linux/macOS and985 Windows
   cases, plus rustdoc/artifact checks. New reference-class metadata layouts pass
   the58-case layout/reference regression, including cache-order and signature
-  amplification guards. Native object IR/allocation/dispatch are still pending;
-  the2048v2/JRPG class blocker remains and no class tests are marked complete.
+  amplification guards. Typed native objects now cover fresh allocation,
+  constructors/direct calls, inherited/reference fields, reference arrays and
+  checked null/exhaustion faults:60 ROM probes in Debug/Release × DMG/CGB.
+  Object regression passes376/376, with277/277 final focused checks after
+  verifier review fixes and fixture formatting. Two class test methods now have
+  complete replacements. Virtual/interface dispatch and2048v2/JRPG acceptance
+  remain required. Metadata commitb4caf55 hosted Rust suites pass1012 Linux/macOS
+  and1010 Windows cases; those results predate the object-core increment.
   Full current-head workspace/hosted acceptance, source debugging, broader
   runtime/gameplay, test closure, release integration and legacy deletion remain
   incomplete. Container cleanup is done. Existing API shapes are evidence,

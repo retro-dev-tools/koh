@@ -218,7 +218,11 @@ fn startup(entry: &Function, globals: u16, dma: bool) -> Result<Object, String> 
     })
 }
 
-pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, String> {
+pub(crate) fn emit(
+    functions: &[Function],
+    entry: Definition,
+    known_classes: &[crate::ir::ClassType],
+) -> Result<Object, String> {
     verify_program(functions)?;
     let root = functions
         .iter()
@@ -233,6 +237,7 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
             matches!(
                 i.op,
                 crate::ir::Op::NewArray { .. }
+                    | crate::ir::Op::NewObject(_)
                     | crate::ir::Op::ArenaAllocate(_)
                     | crate::ir::Op::ArenaReset
             )
@@ -352,8 +357,93 @@ pub(crate) fn emit(functions: &[Function], entry: Definition) -> Result<Object, 
             symbols,
         });
     }
+    let mut classes = BTreeMap::new();
     for function in functions {
+        for ty in function
+            .parameters
+            .iter()
+            .chain(&function.locals)
+            .chain(function.returns.iter())
+            .copied()
+            .chain(function.blocks.iter().flat_map(|b| {
+                b.parameters
+                    .iter()
+                    .map(|p| p.1)
+                    .chain(b.instructions.iter().filter_map(|i| i.result.map(|p| p.1)))
+            }))
+        {
+            if let Some(class) = ty.class() {
+                let key = sm83::class_symbol(class.identity());
+                if classes.insert(key, class).is_some_and(|old| old != class) {
+                    return Err("Conflicting class type descriptors".into());
+                }
+            }
+        }
         objects.push(sm83::emit_with_strings(function, Some(&strings), true)?);
+    }
+    if !classes.is_empty() {
+        classes.insert(sm83::class_symbol(None), crate::ir::ClassType::root());
+        let known: BTreeMap<_, _> = known_classes
+            .iter()
+            .map(|class| (sm83::class_symbol(class.identity()), *class))
+            .collect();
+        let mut pending: Vec<_> = classes.values().copied().collect();
+        while let Some(class) = pending.pop() {
+            if class.identity().is_none() {
+                continue;
+            }
+            let key = sm83::class_symbol(class.base());
+            if !classes.contains_key(&key) {
+                let parent = *known.get(&key).ok_or("Missing parent class descriptor")?;
+                pending.push(parent);
+                classes.insert(key, parent);
+            }
+        }
+        let mut data = Vec::new();
+        let symbols: Vec<_> = classes
+            .keys()
+            .enumerate()
+            .map(|(i, name)| symbol(name.clone(), 0, i * 2))
+            .collect();
+        let indices: BTreeMap<_, _> = classes
+            .keys()
+            .enumerate()
+            .map(|(i, name)| (name, i))
+            .collect();
+        let mut patches = Vec::new();
+        for class in classes.values() {
+            let mut current = *class;
+            let mut depth = 0;
+            while current.identity().is_some() {
+                depth += 1;
+                if depth > 64 {
+                    return Err("Class descriptor inheritance cycle/depth exceeds64".into());
+                }
+                let parent = classes
+                    .get(&sm83::class_symbol(current.base()))
+                    .ok_or("Missing parent class descriptor")?;
+                if parent.bytes() > current.bytes() {
+                    return Err("Class descriptor overlaps base storage".into());
+                }
+                current = *parent;
+            }
+            if class.identity().is_some() {
+                let key = sm83::class_symbol(class.base());
+                patches.push(patch(0, data.len(), indices[&key]));
+            }
+            data.extend([0, 0]);
+        }
+        objects.push(Object {
+            sections: vec![Section {
+                name: ".rodata.koh.types".into(),
+                kind: 0,
+                size: data.len() as u32,
+                data,
+                patches,
+                ..Default::default()
+            }],
+            symbols,
+        });
     }
     combine(objects)
 }
@@ -403,7 +493,7 @@ mod string_tests {
         if reverse {
             functions.reverse();
         }
-        let object = emit(&functions, entry).unwrap();
+        let object = emit(&functions, entry, &[]).unwrap();
         let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
         let pool: Vec<_> = object
             .sections
@@ -427,12 +517,12 @@ mod string_tests {
     fn pool_capacity_is_checked_before_link_layout() {
         let functions = vec![function(0, vec![0; 4096]), function(1, vec![1; 4096])];
         assert!(
-            emit(&functions, functions[0].identity)
+            emit(&functions, functions[0].identity, &[])
                 .unwrap_err()
                 .contains("Interned string data exceeds ROM0")
         );
         let functions = vec![function(0, vec![0; 8191])];
-        let object = emit(&functions, functions[0].identity).unwrap();
+        let object = emit(&functions, functions[0].identity, &[]).unwrap();
         assert!(
             koh_link::link(&[object], &Default::default())
                 .unwrap_err()

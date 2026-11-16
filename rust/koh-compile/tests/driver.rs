@@ -15,6 +15,182 @@ fn host() -> Host {
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
+fn native_object_identity_fields_and_faults(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "ObjectCore");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for (name, fault) in [
+        ("Main", 0),
+        ("NullCall", 4),
+        ("NullField", 4),
+        ("Exhaust", 5),
+        ("MergeTrue", 0),
+        ("MergeFalse", 0),
+        ("NullMerge", 0),
+        ("ObjectMerge", 0),
+        ("Recursive", 0),
+        ("FieldReference", 0),
+        ("ArrayOfObjects", 0),
+        ("NullElement", 4),
+        ("BannerFields", 0),
+        ("InheritedFields", 0),
+        ("StaticReference", 0),
+    ] {
+        let object = compile::object(&resolver, Some(&format!("Program::{name}")))
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            if fault == 0 {
+                "__koh_exit"
+            } else {
+                "__koh_abort"
+            },
+            "--native-heap",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 6 } else { 5 }, "{name}: {report}");
+        assert_eq!(fields[0], format!("{fault:02X}"), "{name}: {report}");
+        assert_eq!(fields[3], "OK", "{name}: stack guards");
+        if fault == 0 {
+            assert_eq!((fields[1], fields[2]), ("0000002A", "D000"), "{report}");
+        }
+        let descriptor_for = |owner: &str| {
+            let metadata = resolver.assembly(0).unwrap().metadata();
+            let index = metadata
+                .type_defs
+                .iter()
+                .position(|t| metadata.strings.get(t.type_name).unwrap() == owner)
+                .unwrap();
+            let name = koh_compile::sm83::class_symbol(Some(koh_compile::resolve::Definition {
+                assembly: 0,
+                token: 0x02000001 + index as u32,
+            }));
+            u16::try_from(
+                linked
+                    .symbols
+                    .iter()
+                    .find(|s| s.name == name)
+                    .unwrap()
+                    .value,
+            )
+            .unwrap()
+        };
+        if name == "Main" {
+            let symbol = |name: &str| {
+                u16::try_from(
+                    linked
+                        .symbols
+                        .iter()
+                        .find(|s| s.name == name)
+                        .unwrap()
+                        .value,
+                )
+                .unwrap()
+            };
+            let metadata = resolver.assembly(0).unwrap().metadata();
+            let index = metadata
+                .type_defs
+                .iter()
+                .position(|t| metadata.strings.get(t.type_name).unwrap() == "Box")
+                .unwrap();
+            let descriptor = symbol(&koh_compile::sm83::class_symbol(Some(
+                koh_compile::resolve::Definition {
+                    assembly: 0,
+                    token: 0x02000001 + index as u32,
+                },
+            )));
+            let parent = descriptor_for("Parent");
+            let root = symbol(&koh_compile::sm83::class_symbol(None));
+            for (address, value) in [(descriptor, parent), (parent, root), (root, 0)] {
+                assert_eq!(
+                    &linked.rom[usize::from(address)..usize::from(address) + 2],
+                    value.to_le_bytes()
+                );
+            }
+            let text = symbol("__koh_string_0");
+            let mut expected = [0x5a; 4096];
+            expected[..34].fill(0);
+            for (offset, value, extra, bytes, next) in [
+                (0usize, 13u32, 1u8, 0xd00du16, 0xd011u16),
+                (17, 20, 0, 0xd01e, 0),
+            ] {
+                expected[offset..offset + 2].copy_from_slice(&descriptor.to_le_bytes());
+                expected[offset + 2] = extra;
+                expected[offset + 3..offset + 7].copy_from_slice(&value.to_le_bytes());
+                expected[offset + 7..offset + 9].copy_from_slice(&text.to_le_bytes());
+                expected[offset + 9..offset + 11].copy_from_slice(&bytes.to_le_bytes());
+                expected[offset + 11..offset + 13].copy_from_slice(&next.to_le_bytes());
+            }
+            expected[13] = 2;
+            expected[16] = 2;
+            expected[30] = 2;
+            expected[33] = 2;
+            assert_heap_snapshot(fields[4], &expected, name);
+        }
+        if matches!(name, "BannerFields" | "InheritedFields") {
+            let mut expected = [0x5a; 4096];
+            let packet: [u8; 16] = if name == "BannerFields" {
+                expected[..12].fill(0);
+                let descriptor = descriptor_for("Banner");
+                for (offset, label, score) in
+                    [(0, "__koh_string_1", 2048u16), (6, "__koh_string_0", 512)]
+                {
+                    let text = u16::try_from(
+                        linked
+                            .symbols
+                            .iter()
+                            .find(|s| s.name == label)
+                            .unwrap()
+                            .value,
+                    )
+                    .unwrap();
+                    expected[offset..offset + 2].copy_from_slice(&descriptor.to_le_bytes());
+                    expected[offset + 2..offset + 4].copy_from_slice(&text.to_le_bytes());
+                    expected[offset + 4..offset + 6].copy_from_slice(&score.to_le_bytes());
+                }
+                [8, 9, b'Y', b'W', b'G', b'O', 0, 8, 0, 2, 0, 0, 0, 0, 0, 0]
+            } else {
+                expected[..2].copy_from_slice(&descriptor_for("Boss").to_le_bytes());
+                expected[2..8].copy_from_slice(&[77, 0x88, 0x13, 3, 0xbc, 2]);
+                [
+                    42, 0x88, 0x13, 3, 0xbc, 2, 42, 0x88, 0x13, 77, 3, 0, 0, 0, 0, 0,
+                ]
+            };
+            expected[4080..].copy_from_slice(&packet);
+            assert_heap_snapshot(fields[4], &expected, name);
+        }
+        if color {
+            assert_heap_snapshot(fields[5], &[0x6b; 4096], name);
+        }
+        if matches!(name, "NullCall" | "NullField") {
+            assert_heap_snapshot(fields[4], &[0x5a; 4096], name);
+        }
+    }
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
 fn hblank_stream_boundaries_and_hardware_state(
     host: &Host,
     #[case] configuration: &str,
@@ -2679,7 +2855,7 @@ fn value_constructor_metadata_and_private_storage_diagnose(
     host: &Host,
     #[case] configuration: &str,
 ) {
-    let (_directory, images) = gameboy_images(host, configuration, "Structs");
+    let (directory, images) = gameboy_images(host, configuration, "Structs");
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
     let assembly = resolver.assembly(0).unwrap();
     let method = |name: &str| {
@@ -2776,16 +2952,47 @@ fn value_constructor_metadata_and_private_storage_diagnose(
             "{kind}: {checked}"
         );
     }
-    for (entry, expected) in [
-        ("Program::UnsupportedGeneric", "Generic call instantiation"),
-        ("Program::UnsupportedClass", "System.ValueType"),
-    ] {
+    for (entry, expected) in [("Program::UnsupportedGeneric", "Generic call instantiation")] {
         let error = compile::object(&resolver, Some(entry)).unwrap_err();
         assert!(
             error.contains(expected) && error.contains(entry) && error.contains("IL_"),
             "{error}"
         );
     }
+    let object = compile::object(&resolver, Some("Program::ReferenceConstructor")).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(&[object], &Default::default()).unwrap();
+    let report = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-heap",
+    );
+    let fields: Vec<_> = report.split_whitespace().collect();
+    assert_eq!(&fields[..4], &["00", "00000001", "D000", "OK"]);
+    let class = assembly
+        .metadata()
+        .type_defs
+        .iter()
+        .position(|t| {
+            assembly.metadata().strings.get(t.type_name).unwrap() == "ReferenceConstructed"
+        })
+        .unwrap();
+    let symbol = koh_compile::sm83::class_symbol(Some(koh_compile::resolve::Definition {
+        assembly: 0,
+        token: 0x02000001 + class as u32,
+    }));
+    let descriptor = linked
+        .symbols
+        .iter()
+        .find(|s| s.name == symbol)
+        .unwrap()
+        .value as u16;
+    let mut heap = vec![0x5a; 4096];
+    heap[..2].copy_from_slice(&descriptor.to_le_bytes());
+    heap[2..6].copy_from_slice(&1i32.to_le_bytes());
+    assert_heap_snapshot(fields[4], &heap, "ReferenceConstructor");
 }
 
 #[rstest]
@@ -3062,6 +3269,7 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
     for (entry, fault) in [
         (if color { "Banked" } else { "Main" }, 0),
         (if color { "BankedTypes" } else { "Types" }, 0),
+        ("ObjectArray", 0),
         ("NullArray", 4),
         ("Negative", 5),
         ("TooLarge", 5),
@@ -3116,13 +3324,26 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
         assert_eq!(fields[3], "OK", "{entry}: corrupted frame guards");
         let mut heap = vec![0x5a; 0x1000];
         if fault == 0 {
-            assert_eq!((fields[1], fields[2]), ("0000002A", "D000"), "{entry}");
+            assert_eq!(
+                (fields[1], fields[2]),
+                (
+                    if entry == "ObjectArray" {
+                        "00000002"
+                    } else {
+                        "0000002A"
+                    },
+                    "D000"
+                ),
+                "{entry}"
+            );
             let mut expected = vec![];
             let mut array = |count: u16, data: &[u8]| {
                 expected.extend_from_slice(&count.to_le_bytes());
                 expected.extend_from_slice(data);
             };
-            if matches!(entry, "Types" | "BankedTypes") {
+            if entry == "ObjectArray" {
+                array(2, &[0; 4]);
+            } else if matches!(entry, "Types" | "BankedTypes") {
                 array(1, &[1]);
                 array(1, &0xf123u16.to_le_bytes());
                 array(1, &(-1234i16).to_le_bytes());
@@ -3167,12 +3388,7 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
             assert_heap_snapshot(fields[5], &[0x6b; 0x1000], entry);
         }
     }
-    for entry in [
-        "FloatArray",
-        "ObjectArray",
-        "NestedArray",
-        "Multidimensional",
-    ] {
+    for entry in ["FloatArray", "NestedArray", "Multidimensional"] {
         let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
             .arg(output.join("Arrays.dll"))
             .arg("-r")

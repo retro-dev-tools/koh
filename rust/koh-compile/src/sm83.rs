@@ -254,7 +254,13 @@ impl Code {
     fn check_reference(&mut self, ty: Type) {
         if matches!(
             ty,
-            Type::ByRef(_) | Type::StructRef(_) | Type::Array(_) | Type::String | Type::Null
+            Type::ByRef(_)
+                | Type::StructRef(_)
+                | Type::Array(_)
+                | Type::String
+                | Type::Null
+                | Type::Object(_)
+                | Type::ReferenceCell(_)
         ) {
             self.bytes(&[0x78, 0xb1]);
             let target = self.import("__koh_trap_null".into());
@@ -1145,6 +1151,13 @@ impl Layout {
     }
 }
 
+pub fn class_symbol(identity: Option<Definition>) -> String {
+    match identity {
+        Some(id) => format!("__koh_type_a{}_t{:08x}", id.assembly, id.token),
+        None => "__koh_type_object".into(),
+    }
+}
+
 pub fn emit(function: &Function) -> Result<Object, String> {
     emit_with_strings(function, None, false)
 }
@@ -1207,7 +1220,7 @@ pub(crate) fn emit_with_strings(
         .blocks
         .iter()
         .flat_map(|b| &b.instructions)
-        .any(|i| matches!(i.op, Op::NewArray { .. }))
+        .any(|i| matches!(i.op, Op::NewArray { .. } | Op::NewObject(_)))
         .then(|| code.label());
     let aligned = function
         .blocks
@@ -1267,6 +1280,42 @@ pub(crate) fn emit_with_strings(
             let width = output.map(|p| p.2).unwrap_or(0);
             let destination = output.map(|p| p.0).unwrap_or(0);
             match instruction.op {
+                Op::Upcast { value, .. } => code.copy(slot(value), destination, 2),
+                Op::CheckObject(object) => {
+                    code.indirect(slot(object));
+                    code.check_reference(layout.values[&object].1);
+                }
+                Op::ObjectFieldAddress { object, offset, .. } => {
+                    code.indirect(slot(object));
+                    code.check_reference(layout.values[&object].1);
+                    code.bytes(&[
+                        0x60,
+                        0x69,
+                        0x11,
+                        offset as u8,
+                        (offset >> 8) as u8,
+                        0x19,
+                        0x44,
+                        0x4d,
+                    ]);
+                    code.save_word(destination);
+                }
+                Op::NewObject(class) => {
+                    let temp = layout.arithmetic;
+                    code.constant(temp + 6, 2, u64::from(class.bytes() - 2));
+                    code.constant(temp + 8, 2, u64::from(class.bytes() - 2));
+                    if aligned {
+                        code.constant(temp + 10, 2, 0);
+                    }
+                    code.jump(0xcd, allocator.ok_or("Missing object allocator")?);
+                    code.copy(temp + 12, destination, 2);
+                    code.indirect(destination);
+                    code.heap_bank(temp + 24);
+                    let descriptor = code.import(class_symbol(class.identity()));
+                    code.jump(0x21, descriptor);
+                    code.bytes(&[0x7d, 0x02, 0x03, 0x7c, 0x02]);
+                    code.restore_bank(temp + 24);
+                }
                 Op::HBlankStream {
                     source,
                     first,

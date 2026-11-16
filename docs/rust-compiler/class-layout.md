@@ -1,9 +1,9 @@
 # Reference-class layout foundation
 
-Status: validated metadata/layout work, not executable class support. The native
-compiler still rejects reference-class lowering, and2048v2/JRPG remain required
-failing samples. This unit does not complete their test dispositions, allocation,
-dispatch, source debugging or the compiler replacement.
+Status: validated metadata/layout foundation and executable object core.
+Native ROM probes cover allocation, constructors, fields and direct calls.
+Virtual/interface dispatch,2048v2/JRPG acceptance and source debugging remain
+required; this does not complete the compiler replacement.
 
 ## Requirements from actual consumers
 
@@ -47,10 +47,12 @@ widths, with target native pointers at16 bits. Self-referential fields are legal
 only inheritance and inline value layouts recurse, not referenced objects.
 
 The two-byte prefix avoids copying the old optional one-byte dispatch-tag limit.
-Actual type-ID assignment, allocation, constructor calls and dispatch are still
-pending. The new typed IR must distinguish references from raw native integers
-and preserve reference-valued fields, including nested arrays; treating every
-object as an untyped bus address would lose the verification contract.
+The prefix contains a ROM0 descriptor address. Each descriptor contains its
+parent descriptor address; the built-in System.Object descriptor contains zero.
+Canonical ELF symbols and relocations carry these addresses to the linker.
+Typed object references retain class identity through calls, locals and SSA
+joins. Reference-valued fields and class/string arrays use typed two-byte cells.
+Nested arrays and dispatch remain pending; raw integers cannot fabricate objects.
 
 AutoLayout is the initial implemented class-layout mode. Sequential/explicit
 class layouts and generic instances diagnose instead of ignoring their metadata;
@@ -75,19 +77,36 @@ still require their separate execution checks.
 
 ## Required following work
 
-Implement typed reference storage/SSA joins/subtyping and checked heap allocation,
-then constructors, fields and direct instance calls with observable ROM tests.
-Each newobj evaluation must produce a fresh object until explicit capacity
-failure; reusing one allocation per IL site would violate identity/aliasing.
-Set runtime type identity before constructor execution, including virtual calls
-from a base constructor. Callvirt must null-check even nonvirtual targets;
-ordinary base calls must remain direct. Virtual/interface reachability needs a
+The object-core implementation allocates fresh zeroed storage per dynamic
+newobj, sets the descriptor before invoking constructors and preserves CGB
+SVBK across heap accesses. It shares the checked4KiB arena with arrays and raw
+allocations. Null access faults with code4; exhaustion faults with code5.
+Nonvirtual callvirt null-checks even when the method never reads this; ordinary
+base calls remain direct. Virtual calls explicitly diagnose pending dispatch.
+Virtual/interface reachability needs a
 bounded fixed point over instantiated types and call sites, not the entire BCL.
 Banked access, reference-valued arrays, callbacks, reentrancy and capacity checks
 must compose with the existing ABI. Keep both real games and all compiler-owned
 semantic tests on the final completion checklist.
 
 ## Current tests and evidence
+
+`driver::native_object_identity_fields_and_faults` executes15 independent
+program entries in Debug/Release on DMG/CGB (60 ROM probes, four rstest cases).
+Final broader regression passes376/376 in338.797s, exit0 (99 unrelated cases
+filtered). A post-format/final-verifier run passes277/277 in40.210s, exit0
+(126 unrelated driver cases filtered). Logs: `/tmp/koh-object-final-regression.log`
+and `/tmp/koh-object-postformat.log`. Cases cover repeated allocation
+at one IL site, zero/null defaults, inherited and aliased fields, sibling/null
+SSA joins, recursive linked objects, returned heap-field references, object
+arrays, null calls/fields/elements and exhaustion. Exact heap packets check
+string constructor arguments, narrow inherited fields, descriptor ancestry,
+untouched arena bytes and CGB bank2 poison. Static reference storage is included.
+Review reproduced a raw-address load fabricating an object (five cases passed,
+one failed before the fix); managed loads now require matching typed cells.
+Follow-up cases reject array indirection, conflicting static reference aliases
+and inconsistent class identities/shapes across functions. Read-only re-review
+found no further blocker; this is not a whole-compiler security certification.
 
 The layout target uses actual Debug/Release Roslyn assemblies with a separate
 base-class reference assembly. It checks exact target offsets and declared field
@@ -123,12 +142,18 @@ Logs: `/tmp/koh-class-workspace-check.log`, `/tmp/koh-class-doctests.log`.
 
 | Legacy requirement | Current native evidence / disposition |
 | --- | --- |
-| `CilVirtualDispatchTests::InheritedFields_UsePrefixLayout_NoOverlap` | PORT remains incomplete: metadata tests preserve base/hidden-field offsets and identities; native constructor/field execution is still required. |
-| `CilClassStringFieldTests::StringCtorParameter_StoredInClassField_ReadBackViaLengthAndIndexer` | PORT remains incomplete: string fields have validated two-byte layout, but constructor/store/load/string-access ROM behavior is not implemented. |
+| `CilVirtualDispatchTests::InheritedFields_UsePrefixLayout_NoOverlap` | PORT complete: native `ObjectCore::InheritedFields` checks exact before/base/after packets in four configurations. Metadata also covers hidden fields. |
+| `CilClassStringFieldTests::StringCtorParameter_StoredInClassField_ReadBackViaLengthAndIndexer` | PORT complete: native `ObjectCore::BannerFields` checks two distinct strings/scores, length and indexed characters in exact heap records. |
 | `CilVirtualDispatchTests::VirtualCalls_TagDispatchThroughBaseTypedStatic` and `SceneMachine_GameRun_DeferredChangeWithCtorState` | PORT remains incomplete: a header reservation is not executable dispatch or scene acceptance. |
 | Old scalar-aligned class layout / element-scaled GEP internals | REPLACE with the documented packed target ABI and independent offset/alias tests; old padding and helper-class names are not compatibility contracts. |
 
-No class method is marked complete or deferred. The565-method ledger remains
-45 complete and520 partial/outstanding. This incremental metadata work stays in
+Two class methods have complete native replacements; none is deferred. The
+565-method ledger now has47 complete and518 partial/outstanding. This work stays in
 the single migration PR; final acceptance still requires integrated native
 objects and real games, followed by removal of the retiring compiler.
+
+The native Arrays fixture previously asserted that `new object[2]` must fail.
+That temporary subset restriction has no language-semantic justification once
+typed reference arrays execute. Its replacement checks return value2, a
+two-byte length header, four zero bytes for null elements and unchanged arena/
+CGB bank2 surroundings. Float/nested/multidimensional array diagnostics remain.

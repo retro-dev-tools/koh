@@ -12,6 +12,18 @@ reference identity across calls and assemblies. Accessors check null/full-width
 indices and never switch WRAM banks. String fields/arguments/results use two
 bytes; Length/char results retain their int32 evaluation/call widths.
 
+[Reference classes](class-layout.md) use distinct typed16-bit references into
+the shared checked WRAM-bank1 arena. Each allocation starts with a two-byte
+ROM0 descriptor address, followed by packed inherited and declared fields.
+The descriptor contains its parent descriptor address; System.Object's root
+contains zero. Standard ELF symbols/relocations let the linker place descriptors.
+Allocation zeroes fields and installs identity before constructor execution.
+Reference-valued fields/static storage/array elements use typed two-byte cells;
+raw memory loads cannot invent managed reference identities. Calls and returns
+pass the reference itself, preserving aliases. Null access faults with code4;
+arena exhaustion faults with code5. Heap accesses preserve CGB SVBK. Virtual
+and interface dispatch remain pending and explicitly diagnose in this increment.
+
 [OAM DMA](oam-dma.md) uses a linker-placed8-byte HRAM routine installed once at
 boot. Its source page is passed in A; no shared WRAM scratch is required. The
 CALL return word is pushed before DMA and read after completion. Current calls

@@ -172,6 +172,39 @@ pub(crate) fn framework_type(
 }
 
 impl<'a> Resolver<'a> {
+    pub(crate) fn object_constructor(&self, assembly: usize, token: u32) -> Result<bool, String> {
+        if token >> 24 != 0x0a {
+            return Ok(false);
+        }
+        let metadata = self.assembly(assembly)?.metadata();
+        let member = row(&metadata.member_refs, token, 0x0a)?;
+        if self.framework_type(assembly, coded(member.class)?)? != Some(("System", "Object")) {
+            return Ok(false);
+        }
+        let name = metadata
+            .strings
+            .get(member.name)
+            .map_err(|e| e.to_string())?;
+        if name != ".ctor" {
+            return Ok(false);
+        }
+        let signature = crate::signature::method(
+            metadata
+                .blobs
+                .get(member.signature)
+                .map_err(|e| e.to_string())?,
+        )?;
+        if signature.calling_convention.0 != 0x20
+            || signature.generic_param_count != 0
+            || signature.sentinel.is_some()
+            || !signature.params.is_empty()
+            || signature.return_type != TypeSig::Primitive(clrmeta::ElementType::Void)
+        {
+            return Err("Invalid System.Object constructor signature".into());
+        }
+        Ok(true)
+    }
+
     fn framework_type(&self, assembly: usize, token: u32) -> Result<Option<(&str, &str)>, String> {
         framework_type(self.assembly(assembly)?.metadata(), token)
     }
@@ -283,7 +316,19 @@ impl<'a> Resolver<'a> {
                 2 => (token & 0xffffff) << 2,
                 _ => return Err("Expected primitive or value-type token".into()),
             };
-            return Ok(TypeSig::ValueType(encoded));
+            let identity = self.resolve_type(assembly, token)?;
+            let metadata = self.assembly(identity.assembly)?.metadata();
+            let definition = row(&metadata.type_defs, identity.token, 2)?;
+            let value = definition.extends.table == Some(TableId::TypeRef)
+                && matches!(
+                    framework_type(metadata, coded(definition.extends)?)?,
+                    Some(("System", "ValueType" | "Enum"))
+                );
+            return Ok(if value {
+                TypeSig::ValueType(encoded)
+            } else {
+                TypeSig::Class(encoded)
+            });
         };
         Ok(TypeSig::Primitive(match name {
             "Boolean" => ElementType::Boolean,
@@ -298,6 +343,8 @@ impl<'a> Resolver<'a> {
             "UInt64" => ElementType::U8,
             "IntPtr" => ElementType::IntPtr,
             "UIntPtr" => ElementType::UIntPtr,
+            "Object" => ElementType::Object,
+            "String" => ElementType::String,
             _ => return Err("Array element is not a supported integer primitive".into()),
         }))
     }

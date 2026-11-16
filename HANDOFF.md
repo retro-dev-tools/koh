@@ -1,5 +1,24 @@
 # PR #55 handoff
 
+PUSHED b4caf551a1428481c547fc0bdde5a626196b7307 class-layoutfoundation.
+Remote/PR55head/masterdraftverified; checklistkeepsclassgamesunchecked.
+All8testedsource/fixturehashesmatchposthook /tmp/koh-class-tested.sha256.
+Alllocalbuilds/tests terminal. NativeCI43781354384 confirmedinprogress.
+ManagedCI43781354492 completedfailure; freshLinuxjob133019035977 logsconfirm
+2048v2/JRPGstillfailAggregate...ValueType atMainIL0000. Notfixed/retired.
+Previousphase d3f2d2a nativeCIgreenallhosts:987Linux/macOS985Windows,0workspace
+skips+rustdoc/artifact/RGBDS; actualcompletedjoblogsread. Notnewheadproof.
+Next: wirevalidatedClassLayout into typedobjectIR, allocation, constructors,
+fieldaccess andcalls, withactualC#DLL→ELF→ROM→existingemulator tests. Distinguish
+referenceidentity fromvaluecopy/nativeintegers. ExistingType::Array(Storage),
+Storage::{Scalar,Struct} areCopy; intentionallyextendtypedreferencemodel for
+class/string/array fields ratherthanerasingallrefs intoNative. Valueconstructor
+per-ILtemporaryreuse mustNOTapplytonewobjclassidentity. ClassLayoutfixtureMain
+alreadyproduces42onCLR withdefault/freshidentity/shadowedfields/crossassembly
+aliases; itisnotyetnativeacceptance. Scenevirtual/interface/delegatesnextafter
+coreobjects; sourcePDB/IRQ/testclosure/compilerdeletion remainrequired. Fullgoal
+active, no merge. Onlythispost-pushhandoffrefreshuncommitted.
+
 CLASS CHECKS COMPLETE: session79068 terminalexit0 /tmp/koh-class-workspace-check.log
 workspace/allfeatures/alltargets46.58s; onepreexistingcubehelperdeadcodewarning.
 Separate /tmp/koh-class-doctests.logexit0,4crates0doctests. Alllocalbuildsterminal.
@@ -372,7 +391,84 @@ Koh.GameBoy remains C# authoring library; tile-sheet build task preserved.
 ELF32/SM83 only; no KOBJ path, no hidden C# compiler route. Old source remains
 pending verified replacement, not final acceptance.
 
+## Uncommitted object-core increment
+
+Native typed object references, checked fresh allocation, constructor/direct
+instance calls, inherited/reference fields, parent-descriptor ELF relocations,
+class/null SSA joins and object/string array storage are implemented in the
+current dirty tree. Virtual/interface dispatch remains explicitly unsupported.
+Do not claim real2048v2/JRPG acceptance or retire legacy tests yet.
+
+ObjectCore fixture exercises14 entries in Debug/Release on DMG/CGB through
+the existing C# emulator:56 ROM probes. Focused test passes4/4 in22.748s,
+exit0,130 unrelated cases filtered (/tmp/koh-object-expanded-green.log).
+Expanded red run first exposed resolver.type_signature assigning ValueType
+to reference-class array elements. Corrected metadata classification plus
+ldelem.ref/stelem.ref now pass. Exact heap records cover constructor strings,
+inherited fields, descriptors and untouched bank2. Broader IR/SM83/storage
+regression is RUNNING: write_stdin session97085,
+/tmp/koh-object-regression.log. Re-poll that handle before another build.
+An earlier invocation used nonexistent --test backend and exited101 before
+building; corrected target is --test sm83.
+
+Five new IR identity/upcast adversarial cases were added AFTER that regression
+compiled, so rerun the IR target afterward. Docs class-layout.md now distinguish
+executable object core from pending dispatch. No object-core commit yet.
+Next: finish regression/negative checks, review descriptors and reference
+storage invariants, then logical commit/push and live PR55 checklist refresh.
+Reference-cell indirect IL and nested-array execution remain pending features.
+
 ## Commands and discipline
+
+### Object-core acceptance before commit
+
+Final broad IR/SM83/storage regression completed376/376 in338.797s, exit0,
+99 unrelated cases filtered (/tmp/koh-object-final-regression.log).
+After CSharpier formatted the two fixtures and the final cross-function class
+identity check was added, focused IR/object/static/constructor checks passed
+277/277 in40.210s, exit0,126 unrelated cases filtered
+(/tmp/koh-object-postformat.log). All15 object entries execute in four configs,
+60 ROM probes. Workspace all-feature/all-target check succeeds7.14s with the
+existing cube support unused-helper warning; separate rustdoc succeeds four
+crates/zero cases. Source hashes match /tmp/koh-object-tested.sha256.
+Read-only object_core_review re-review reports no remaining blocker, including
+the new canonical class/value identity checks. Two legacy class methods now
+have complete stronger native replacements:47/565 complete,518 outstanding,
+zero physically retired. See test-disposition.md for exact mappings.
+
+Prior pushed metadata commitb4caf55 now has completed native hosted evidence:
+run43781354384 actual logs1012Linux in774.586s,1012macOS in1178.527s,
+1010Windows in1792.635s, zero workspace skips; separate rustdoc/artifact/RGBDS
+jobs succeed. This predates current object-core work, not current-head proof.
+Ordinary SDK2048v2 Release build finished exit1 in29.55s:
+/tmp/koh-object-2048-sdk.log. It now reaches Game::Run IL_000c, explicit
+Virtual reference calls require dispatch lowering. Class construction advanced;
+the required game still fails. All local build/test handles now terminal.
+Next: commit this reviewed increment, push same branch, update draft PR55 live
+checklist. Then virtual/interface dispatch and actual class-game execution.
+
+### Latest object-core verification checkpoint
+
+Earlier broad regression completed357pass/6fail in338.093s (exit100).
+All six failures were now-supported ObjectArray and UnsupportedClass rejection
+expectations; replaced them with native length/null-cell and constructor/heap
+checks, preserving generic/malformed/readonly assertions. Review found raw
+Native loads fabricating Object identities. Reproduced5pass/1fail, exit100 in
+/tmp/koh-object-identity-red.log, then required matching typed reference cells
+and typed static Object/String/Array addresses. Follow-up review found array
+indirection and conflicting static cell declarations could bypass this; now
+all managed reference loads require typed cells and static identity validation
+checks reference storage types across functions. Explicit negative tests added.
+
+Intermediate review run /tmp/koh-object-review-green.log passes270/270 in60.788s,
+exit0 (122 filtered), including all15 ObjectCore entries (60 ROM probes) and
+replacement positives. That binary predates the final array/string load and
+static-cell consistency fixes: DO NOT transfer its proof to the latest bytes.
+Final broader regression just started /tmp/koh-object-final-regression.log;
+write_stdin session24941 is live; poll it before another build.
+Code review agent object_core_review is read-only; original findings recorded.
+No object-core commit/push yet. Finish final checks and follow-up review before
+commit. The source fixture method UnsupportedClass is now ReferenceConstructor.
 
 Use RUSTUP_TOOLCHAIN=stable /usr/bin/cargo, target-dir /tmp/koh-header-target,
 -j1, KOH_DOTNET=/home/minorum/.local/share/koh-dotnet-10.0.115/dotnet.

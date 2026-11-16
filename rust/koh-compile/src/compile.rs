@@ -10,7 +10,13 @@ pub fn object(
 ) -> Result<koh_objects::Object, String> {
     let entry = entry(resolver, selected)?;
     let functions = reachable(resolver, entry)?;
-    crate::cartridge::emit(&functions, entry)
+    let classes = resolver
+        .class_layouts
+        .borrow()
+        .values()
+        .map(|layout| crate::ir::ClassType::new(layout.identity, layout.base, layout.bytes))
+        .collect::<Result<Vec<_>, _>>()?;
+    crate::cartridge::emit(&functions, entry, &classes)
 }
 
 pub fn entry(resolver: &Resolver<'_>, selected: Option<&str>) -> Result<Definition, String> {

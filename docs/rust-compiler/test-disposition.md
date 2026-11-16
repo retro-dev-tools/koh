@@ -31,19 +31,45 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: forty-five legacy methods; zero physically retired.**
+**Native behavioral replacements: forty-seven legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining520 methods still have
+The remaining518 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
 
-The new [reference-class layout foundation](class-layout.md) supplies25 native
+The [reference-class layout foundation](class-layout.md) supplies25 native
 metadata cases within the48-case layout target, plus the existing10 reference
-cases in its58-case regression. It deliberately closes no legacy class methods:
-constructor/field/string/dispatch ROM semantics and the real class games remain
-required. This is partial coverage, never DEFER or a claim of executable classes.
+cases in its58-case regression. Executable object-core tests now close two class
+methods below; dispatch and the real class games remain required.
+
+## Reference-object replacements
+
+`driver::native_object_identity_fields_and_faults` is discoverable by nextest:
+four rstest configurations execute15 Roslyn programs each (Debug/Release ×
+DMG/CGB,60 native ROM probes). Two entries port the following two legacy methods
+and their four Roslyn configuration scenarios. Their language observations are
+independently justified by ECMA-335 reference identity, field and call semantics;
+their target packets and untouched bank/arena bytes are asserted directly by
+Rust against existing-emulator execution. Old padding, tag size and SCX/SCY
+completion conventions are implementation details, replaced by stronger memory
+and checked-return observations. Other object entries improve coverage but do
+not close unrelated legacy methods automatically.
+
+| Source method / purpose | Public requirement and independent evidence | Decision / native target |
+| --- | --- | --- |
+| `Frontends/CilClassStringFieldTests.StringCtorParameter_StoredInClassField_ReadBackViaLengthAndIndexer` | Two distinct constructor string/ushort arguments survive field storage and later length, character and score reads | PORT complete: `ObjectCore::BannerFields`, exact packet includes8/9 lengths, Y/W/G/O characters and2048/512 scores; distinct object/string references and unchanged heap/bank2 are also checked |
+| `Frontends/CilVirtualDispatchTests.InheritedFields_UsePrefixLayout_NoOverlap` | Base/derived fields do not overlap; a base alias observes and mutates the same object | PORT complete: `ObjectCore::InheritedFields`, exact42/5000/3/700 before packet, base42/5000 view and77/3 after packet, plus final heap layout and descriptor ancestry |
+
+Final broader object regression passes376/376 in338.797s, exit0 (99 unrelated
+cases filtered). After scoped C# formatting and the final class-shape verifier
+check, all277 focused IR/object/static/constructor cases pass in40.210s, exit0
+(126 unrelated driver cases filtered). Logs: `/tmp/koh-object-final-regression.log`
+and `/tmp/koh-object-postformat.log`. Raw-to-reference loads and incompatible
+static-cell aliases discovered during review have explicit negative coverage.
+No compiler-owned test is deferred; the C# test project remains pending final
+whole-migration deletion.
 
 ## Runtime fill replacements
 

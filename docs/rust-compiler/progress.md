@@ -8,7 +8,22 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current unit: [validated reference-class layout foundation](class-layout.md).
+Current unit: [reference-class layout and executable object core](class-layout.md).
+Object-core work now passes60 ROM probes (15 entries across
+Debug/Release and DMG/CGB) in four rstest cases. Typed references,
+fresh allocation, constructors/direct calls, inherited fields, aliases,
+reference arrays, null faults and exhaustion are exercised. Broader regression
+passes376/376 in338.797s; final focused checks pass277/277 in40.210s, exit0.
+Review-discovered fabrication/alias gaps have negative regressions and fixes.
+Virtual/interface dispatch and real scene games are still required. Two legacy
+class methods now have complete replacements:47/565 complete,518 outstanding.
+Workspace all-feature/all-target check succeeds7.14s (existing cube support
+unused-helper warning); separate rustdoc succeeds for four crates/zero cases.
+An ordinary2048v2 Release SDK build now reaches `Game::Run IL_000c` and rejects
+virtual dispatch explicitly, exit1,29.55s (`/tmp/koh-object-2048-sdk.log`).
+This advances past class construction but is still a failing required sample;
+it is not game acceptance. No fallback compiler is invoked.
+
 Metadata handling now distinguishes packed reference-class layouts from unmanaged
 values, preserves inherited/hidden field identity across assemblies and bounds
 signature parsing/cached inheritance work. Review-discovered depth/cache-order
@@ -20,8 +35,9 @@ references, numeric/array fields, corrupted metadata and bounded amplification
 are covered; read-only re-review found no further blocker in the fixes.
 Workspace/all-features/all-targets check succeeds46.58s with the existing cube
 support dead-code warning; separate rustdoc succeeds with no current doctests.
-This is not executable class support: object IR, allocation, fields/constructors
-and dispatch remain pending, so2048v2/JRPG still fail and dispositions stay45/565.
+Those metadata results alone do not establish execution or dispatch. The new
+object-core probes above extend them;2048v2/JRPG acceptance remains unproven
+and remaining class dispositions stay open.
 
 Hosted phase-sweep commitd3f2d2a has completed successfully:
 [Rust run43777137980](https://github.com/retro-dev-tools/koh/actions/runs/43777137980)
@@ -29,6 +45,14 @@ passes Linux987/987 in776.956s, macOS987/987 in916.300s and Windows985/985
 in1276.868s, zero workspace skips. Windows excludes the same two Unix-only
 assembler tests; compiler targets are included. Separate rustdoc, artifact smoke
 and independent RGBDS jobs succeed. These logs predate the class-layout changes.
+
+The pushed metadata commitb4caf55 also now has completed hosted Rust evidence:
+[run43781354384](https://github.com/retro-dev-tools/koh/actions/runs/43781354384).
+Actual nextest logs show Linux1012/1012 in774.586s, macOS1012/1012 in1178.527s
+and Windows1010/1010 in1792.635s, zero workspace skips. The same two Unix-only
+assembler cases explain the Windows difference. Separate rustdoc, artifact
+smoke and RGBDS jobs succeed. These results predate the uncommitted object core;
+they do not establish its cross-platform acceptance or the real class games.
 
 Previous unit: [Rust-owned cube phase sweep](cube-phase-sweep.md). Two Roslyn
 configurations pass all768 shared-renderer phase/geometry scenarios each;24
@@ -83,7 +107,7 @@ with no current doctests. Final selected-bank strengthening passes4/4 in21.380s
 copy cost. Tested production code is unchanged across those runs. Read-only
 review found no blocking defect. Source mappings, IRQs, banked data, reference
 classes, racing-beam/phase-sweep acceptance, legacy deletion and final hosted/
-release/performance validation remain open. Test dispositions now45/565 complete,
+release/performance validation remain open. At that checkpoint,45/565 dispositions were complete,
 520 partial/outstanding, zero physically retired:8 more runtime-memory methods
 and3 cube methods have independently justified replacements.
 
