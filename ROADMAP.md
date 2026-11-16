@@ -16,20 +16,25 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   See its [test audit](docs/rust-linker/test-disposition.md), [ABI](docs/rust-linker/elf32-sm83.md)
   and [validation record](docs/rust-linker/validation.md) for evidence and limitations.
 - Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) includes the565-method source audit, verified SSA/ELF/SM83 pipeline, integer calls/recursion, arrays/statics/initializers, hardware intrinsics, unmanaged values, UTF-16 text, HRAM-safe OAM DMA and banked managed calls.
-  Closed static [generic methods](docs/rust-compiler/generic-methods.md) now specialize
+  Closed static/instance [generic methods](docs/rust-compiler/generic-methods.md) now specialize
   supported primitive/named arguments, including referenced transitive bodies,
   byref storage and original PDB provenance. Assembly scopes distinguish same-row
   types across DLLs. Closed special/base/interface/parameter constraints now
   validate, including constructor eligibility and malformed-metadata probes.
-  Broader constraints, constructed generic arguments and
-  declaring-type/virtual generic binding remain unfinished; this is not full migration.
+  Runtime class/interface dispatch, generic delegates, base calls and unboxed
+  [constrained calls](docs/rust-compiler/constrained-calls.md) now execute through
+  the same native ABI. Broader constraints, constructed declaring layouts and
+  boxing/runtime fallback remain unfinished; this is not full migration.
+  The current ledger has96/565 complete methods and469 partial/outstanding;
+  all five [struct-return methods](docs/rust-compiler/struct-returns.md) now have
+  native behavioral replacements. No legacy compiler definitions are removed yet.
   The SDK invokes Rust tools, retains tile-sheet generation and runs the existing emulator.
   Native copy/fill and corrected VBlank polling let all eight double-buffered/
   full-frame Debug/Release × DMG/CGB cases pass structural captures. CGB uses
   bounded1024-byte DMA bursts; raw CPU copy has explicit ordered semantics.
   Callback checkpoint Linux workspace/all-features passes1193/1193, plus separate rustdoc;
   actual SDK build/run checks pass. Final selected-bank probes pass4/4.
-  Sixty-eight legacy methods have complete replacements;497 remain partial/
+  That earlier callback/raster checkpoint closed68 methods with497 partial/
   outstanding, none deleted. Racing-beam now passes all four native configurations
   with actual SCX/scanline traces; the shared all256-phase CLR sweep now has
   Rust-owned assertions in Debug/Release and its redundant C# verifier is removed.

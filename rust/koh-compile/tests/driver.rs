@@ -15,6 +15,8 @@ mod mono;
 mod pdb;
 #[path = "driver/rectangular.rs"]
 mod rectangular;
+#[path = "driver/struct_returns.rs"]
+mod struct_returns;
 mod support;
 #[path = "driver/symbols.rs"]
 mod symbols;

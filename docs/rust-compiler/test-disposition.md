@@ -31,13 +31,23 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: ninety-one legacy methods; zero physically retired.**
+**Native behavioral replacements: ninety-six legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining474 methods still have
+The remaining469 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## Struct return replacement
+
+All five `CilStructReturnTests` methods are PORT complete in
+`driver::struct_returns::struct_results_preserve_ordered_fields_and_frame_independence`.
+Factories, chaining, copies, static stores, recursion, generic returns and pattern
+enumeration preserve all22 original value comparisons. Four rstest configurations
+execute20 ROMs and compare39 full-width scalar values per configuration, with
+bank/frame/source checks. See the [per-method matrix and assertion accounting](struct-returns.md).
+No source definition is physically removed or compiler-owned case deferred.
 
 ## Generic method replacement
 
@@ -599,7 +609,7 @@ and `driver`; C# sources are fixture inputs, not compiler test implementations.
 | `CilStructTests.ByValStructParameter_CalleeMutationNotVisibleToCaller` | A by-value parameter has independent storage. | PORT: same driver, `Change(Packet)` mutates four scalar widths and returns a distinct value while the caller's original remains unchanged. |
 | `CilStructTests.RefStructParameter_MutatesCallersStorage` | Byrefs alias original storage. | Partial PORT: actual Sprite implicit-this/out methods and overlapping `Copy(ref Packet,ref Packet)`; retain pending whole-source retirement audit. |
 | `CilStructTests.NestedStructsAndArraysOfStructs_FieldsRoundTrip` | Nested fields and aggregate array elements retain identity. | PORT completed: nested fields and aggregate arrays now execute; see the completed nested/value-array group below. |
-| `CilStructReturnTests` | Value results, chaining, recursion, generic structs and concrete enumerators. | Partial PORT: ordinary factories, calls, nested/static results implemented; remaining shapes still outstanding. |
+| `CilStructReturnTests` | Value results, chaining, recursion, generic methods returning structs and concrete enumerators. | PORT complete for all five methods: full-width ordered result packets and independent expectations; see [matrix](struct-returns.md). |
 | `CilSpritesTests`, `CilSpritesCgbTests`, `CilSpritePaletteHardwareTests` | Real sprite rendering, CGB attributes and hardware state. | Partial PORT: actual handle methods and exact shadow storage implemented; OAM flush, rendered sprites and palette scenarios remain outstanding. |
 | Legacy layout/private IR assumptions | Preserve language layouts, ABI and diagnostics rather than class identity. | REPLACE: bounded metadata mutations, canonical typed descriptors, field bounds/provenance, escape rejection and machine execution. |
 
@@ -617,9 +627,10 @@ executes real nongeneric value construction in Debug/Release × DMG/CGB. The
 fixture checks default versus explicit parameterless construction, scalar/ref/
 value arguments, chaining, static initialization, recursive factories, repeated
 calls, padding and nested readonly addresses. This is a partial PORT of the
-factory/instance/recursive portions of `CilStructReturnTests`; generic returns,
-enumerators and remaining whole-source expectations are still outstanding.
-No additional complete legacy method is claimed from this increment.
+factory/instance/recursive portions of `CilStructReturnTests`. That earlier
+increment was partial; the later [struct-return closure](struct-returns.md) now
+accounts for all five source methods, including generic returns and enumerators.
+Constructor-specific behavior remains separately audited.
 
 `driver::value_constructor_metadata_and_private_storage_diagnose` adds two
 rstest cases with12 explicit rejection probes: malformed flags, nonconstructor

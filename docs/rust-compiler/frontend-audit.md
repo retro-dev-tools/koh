@@ -421,15 +421,15 @@ The old definitions remain temporarily with the still-live C# compiler.
 
 ### CilStructReturnTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStructReturnTests.cs`. Future Rust test group: `cil_struct_return`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStructReturnTests.cs`. Native group: `driver::struct_returns::struct_results_preserve_ordered_fields_and_frame_independence`. All five methods PORT complete; see [matrix and assertion accounting](struct-returns.md).
 
 Value returns must remain copies through factories, chained calls, loops, recursion, generic specialization and pattern foreach. C# value semantics justify requirements; hidden trailing sret pointers are optional ABI.
 
-- **PORT** `StructReturn_BuildConsumeReverseAndChain`.
-- **PORT** `StructReturn_FactoriesInstanceMethodsLoopsAndStatics`.
-- **PORT** `StructReturn_ThroughRecursion`.
-- **PORT** `StructReturn_FromMonomorphizedGenericMethod`.
-- **PORT** `StructReturn_UnlocksPatternBasedForeach`.
+- **PORT, complete** `StructReturn_BuildConsumeReverseAndChain`.
+- **PORT, complete** `StructReturn_FactoriesInstanceMethodsLoopsAndStatics`.
+- **PORT, complete** `StructReturn_ThroughRecursion`.
+- **PORT, complete** `StructReturn_FromMonomorphizedGenericMethod`.
+- **PORT, complete** `StructReturn_UnlocksPatternBasedForeach`.
 
 ### CilStructTests.cs
 

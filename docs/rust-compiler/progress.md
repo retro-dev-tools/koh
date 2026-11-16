@@ -8,7 +8,17 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current constrained-call increment supports class/interface reference cells and
+Current test closure ports all five CilStructReturnTests methods to Rust-driven
+Roslyn/PDB/ELF/ROM execution. Factories, copies, chaining, recursion, generic returns
+and concrete foreach preserve22 original value comparisons and strengthen them to
+39 full-width ordered observations per configuration. Final4/4 passes25.641s,
+exit0 (`/tmp/koh-struct-return-final.log`):20 Debug/Release × DMG/CGB ROMs,624 checked
+bytes plus native completion/frame/bank/source checks. Production compiler code is
+unchanged. Ledger now96/565 complete,469 partial/outstanding, zero physically retired.
+See the [per-method matrix and oracle rationale](struct-returns.md). The full
+migration and old compiler removal remain incomplete.
+
+Previous constrained-call increment supports class/interface reference cells and
 unboxed struct implementations, including explicit MethodImpl and generic method
 arguments. Reference cells are dereferenced before normal dispatch; value receivers
 retain their original pointer, so mutation/copies preserve C# semantics without

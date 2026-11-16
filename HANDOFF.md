@@ -1122,3 +1122,23 @@ rustdocEXIT0 zero cases; rustfmtEXIT0. Read-onlyreviewno confirmedblockers.
 Docconstrained-calls.md definescontract/unsupportedboxing/defaultvalue/staticcases.
 Ledger91unchanged. PriorheadCI43951785684 stillin_progress Rusttests, .NETfast
 completedSUCCESS; no fullCIgreen claimed. Readylogicalcommit/pushafterhookcheck.
+
+Structreturntestclosure starts2faaec1. Auditedall5CilStructReturnTests methods
+(10D/Rexecutions,2sharedTUnitAssertsites/20expandedmarker+verdict assertions,
+22fixturevaluecomparisons). NewStructReturns fixture preservesallcomparisons via
+39orderedfullI32observations, no truncatedshortSumorfieldmasking. Added byval
+Reverseinputmutation, retainedFib0/1/10/11 results, receiverY andenumerationorder.
+Fourrstestcases driver::struct_returns execute5entryROMseach (20ROMs,624bytes)
+D/RDMGCGB, canonicalELF/nativeLink/PDBsource/bankedhelper/SP/frame/bank2guards.
+NativeexistingABI tested; legacyArgScratch/sretcomments notported. Test-onlychange.
+First47221EXIT0 4/4pass30.692s /tmp/koh-struct-return-migration.log. Formattedfixture
+final28705 /tmp/koh-struct-return-final.log shows4/4pass25.641s, pollhandleEXIT.
+Matrixdocs struct-returns.md completePORT5 methods; ledger96/565/469remaining,
+zero physicallyretired. Rootroadmapstalegeneric/ledgertext updated. Needreview,
+finalfmt/hookchecks, logicalcommit/pushPR55/updatevault. Parentownsallbuilds/edits.
+Final28705terminalEXIT0:4/4pass25.641s,284unselecteddrivers. Rustfmt/CSharpier
+checksEXIT0. Read-onlyreviewconfirmsall5fixtures/22oldcomparisons preserved,
+39fullI32observations,20ROMs624bytes; no weakenedrequirement. No reviewerbuilds.
+Notclaimed:constructedgenericstructlayouts/staticarrayenumerator onlymentioned
+byoldcomments; sourceactualtests use nongenericBoxreturn andRange4. Matrixexplicit.
+Ledger96/565469partial/outstanding zero physicallyretired. Readylogicalcommit/push.
