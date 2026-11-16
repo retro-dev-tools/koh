@@ -453,3 +453,44 @@ Next commit/pushlogicalreaderunitandrefreshPR55,keepledger68/565unchanged.
 Then PEdebugGUID+timestamp andzeroedIDchecksumvalidation,adjacent/explicitPDB
 discovery,emittedranges/readablefunctionsymbols andexistingdebuggerexecution.
 Do notclaimdebugging/fullmigrationdone. Maincheckoutbattle.pnguntouched.
+
+## PE/PDB matching unit in progress
+
+Readerunitpushed e36b655bcb6f36b5af3f021ceb1c3c3a58449dea,PRreadbackdraftunmerged.
+HostednewheadCI43873387480/Rust43873387467confirmedLIVE; notpolledterminalyet.
+Currentdirtyunitadds src/pdb/identity.rs, Assembly.image crate-onlyaccessor,
+PortablePdb.for_assembly and SHA2=0.10.9 dependency(defaultfeaturesoff) withlock.
+UsesrawPortableCodeViewGUID16+debugtimestamp4,Age1, boundedpaths/records,
+SHA256/384/512checksumsoverPDBwith20byteIDzeroed, atmost3hashes cachedperalgorithm.
+DoesnotfollowCodeViewpaths. Multiplechecksumrecordsallowamatchingpublic/private
+PDB; multiplePortableCodeViewIDsdiagnose. Checksumrecordversion1.0required.
+CLI/ELF/sourceintegrationstillpending; thisdoesnotclosethedebuggate.
+
+RealRoslynD/Rmatch initiallyREDnotimplemented; afterimplementationvalidPDB+
+all4GUID/stampmutationprobespass. ChecksumtestinitiallyassumednonemptyStrings
+heap(wrongfixtureassumption), changedtoGUIDpayloadmutation;2/2pass10.740s,exit0
+/tmp/koh-pdb-match-roslyn.log. Rawentry/hashvectors8pass1REDunsupportedversion,
+versionvalidationfixed. Finalselected LIVE39681,/tmp/koh-pdb-identity-first-final.log,
+alllib+PDBdrivercases. No concurrentbuild in/tmp/koh-header-target.
+
+Read-onlyreviewidentityunit: reviewerownsnoedits/builds; parentownsallsource.
+Audit rawPEranges/tablebounds,PortableCodeViewIDrepresentation,checksumzeroing/
+multiple-recordsemantics,workamplification,malformedmetadata+hashoracles.
+Comparecurrentdirtytreeagainstpushed e36b655. CLI/discovery/ELF/debuggerknownnext.
+
+## Identity matching unit ready for commit
+
+Finalselection154/154pass11.857s,exit0 /tmp/koh-pdb-match-reviewed-final.log.
+39PDBunit+2RoslynD/Rcases plus113existinglibcases;243drivercasesunselected.
+Bothgame/referencePDBsmatch. GUID/stampmutationsreject,GUIDheapmutationrejects
+checksum. RealPEsecond-checksumfixturetestsbadbeforegood/goodbeforebadaccept,
+allbadreject. Readonlyreviewnoconfirmeddefect,coveragegapclosed. Separatehash
+SHA256/384/512vectors independentlyPythonchecked. ChecksumversionREDthenfixed.
+Workspacecheck19.01spass(existingcubehelperwarning); rustdoc4crates0casespass;
+rustfmtpass. No localbuildlive. Sourcehash /tmp/koh-pdb-match-sources.json.
+
+LicenseinventorypreviousPNGmissingnoticesdetectedandfixedalongnewSHA2notices.
+All60externallockedpackagesnowcoveredwithexactselectedarchiveMIT/Zlibtexts.
+NoAPI/sourceDBuserworkflowchangeclaimeduntilnextunit. Nextcommit/pushmatching
+unit,PRdescriptionreadback; thenadjacent/explicitPDBdiscoveryandELF/KDBGmapping,
+followedactualdebuggerbreakpoint/stacktests. Legacyledgerremains68/565.

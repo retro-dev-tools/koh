@@ -5,7 +5,7 @@ Redistributions containing `koh-asm`, `koh-link` or `koh-compile` must retain th
 the repository's `Cargo.lock`, including host-side procedural macro dependencies.
 It does not assert that every listed package is linked into every target binary.
 
-MIT is selected wherever the package offers an MIT alternative; `foldhash` uses Zlib. For
+MIT is selected wherever the package offers an MIT alternative; `foldhash` and `zlib-rs` use Zlib. For
 `unicode-ident`, the additional Unicode-3.0 terms also apply. The selected MIT
 terms require retaining the copyright and permission notices; the Unicode terms
 require their copyright and permission notice with copies or associated
@@ -98,3 +98,28 @@ only the offered MIT alternative is selected.
 | [thiserror-impl](https://docs.rs/crate/thiserror-impl/2.0.21/source/Cargo.toml) | 2.0.21 | MIT OR Apache-2.0 | [MIT](rust-assembler/MIT.txt) — crate archive `LICENSE-MIT` |
 | [windows-link](https://docs.rs/crate/windows-link/0.2.1/source/Cargo.toml) | 0.2.1 | MIT OR Apache-2.0 | [MIT](rust-assembler/windows-link-MIT.txt) — crate archive `license-mit` |
 | [windows-sys](https://docs.rs/crate/windows-sys/0.61.2/source/Cargo.toml) | 0.61.2 | MIT OR Apache-2.0 | [MIT](rust-assembler/windows-link-MIT.txt) — crate archive `license-mit` |
+
+## PDB checksum and PNG test dependencies
+
+The checksum reader uses RustCrypto SHA-2. The PNG packages support Rust-owned
+image assertions; inclusion in this lockfile inventory does not imply inclusion
+in production compiler binaries. Exact archive license texts are retained.
+
+| Package | Version | Declared license | Selected terms and full text |
+| --- | --- | --- | --- |
+| [adler2](https://docs.rs/crate/adler2/2.0.1/source/Cargo.toml) | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | [MIT](rust-assembler/MIT.txt) — crate archive `LICENSE-MIT` |
+| [block-buffer](https://docs.rs/crate/block-buffer/0.10.4/source/Cargo.toml) | 0.10.4 | MIT OR Apache-2.0 | [MIT](rust-assembler/block-buffer-MIT.txt) — crate archive `LICENSE-MIT` |
+| [cpufeatures](https://docs.rs/crate/cpufeatures/0.2.17/source/Cargo.toml) | 0.2.17 | MIT OR Apache-2.0 | [MIT](rust-assembler/cpufeatures-MIT.txt) — crate archive `LICENSE-MIT` |
+| [crypto-common](https://docs.rs/crate/crypto-common/0.1.7/source/Cargo.toml) | 0.1.7 | MIT OR Apache-2.0 | [MIT](rust-assembler/crypto-common-MIT.txt) — crate archive `LICENSE-MIT` |
+| [digest](https://docs.rs/crate/digest/0.10.7/source/Cargo.toml) | 0.10.7 | MIT OR Apache-2.0 | [MIT](rust-assembler/digest-MIT.txt) — crate archive `LICENSE-MIT` |
+| [fdeflate](https://docs.rs/crate/fdeflate/0.3.7/source/Cargo.toml) | 0.3.7 | MIT OR Apache-2.0 | [MIT](rust-assembler/fdeflate-MIT.txt) — crate archive `LICENSE-MIT` |
+| [flate2](https://docs.rs/crate/flate2/1.1.11/source/Cargo.toml) | 1.1.11 | MIT OR Apache-2.0 | [MIT](rust-assembler/flate2-MIT.txt) — crate archive `LICENSE-MIT` |
+| [generic-array](https://docs.rs/crate/generic-array/0.14.7/source/Cargo.toml) | 0.14.7 | MIT | [MIT](rust-assembler/generic-array-MIT.txt) — crate archive `LICENSE` |
+| [miniz_oxide](https://docs.rs/crate/miniz_oxide/0.8.9/source/Cargo.toml) | 0.8.9 | MIT OR Zlib OR Apache-2.0 | [MIT](rust-assembler/miniz_oxide-MIT.txt) — crate archive `LICENSE-MIT.md` |
+| [miniz_oxide](https://docs.rs/crate/miniz_oxide/0.9.1/source/Cargo.toml) | 0.9.1 | MIT OR Zlib OR Apache-2.0 | [MIT](rust-assembler/miniz_oxide-MIT.txt) — crate archive `LICENSE-MIT.md` |
+| [png](https://docs.rs/crate/png/0.18.1/source/Cargo.toml) | 0.18.1 | MIT OR Apache-2.0 | [MIT](rust-assembler/png-MIT.txt) — crate archive `LICENSE-MIT` |
+| [sha2](https://docs.rs/crate/sha2/0.10.9/source/Cargo.toml) | 0.10.9 | MIT OR Apache-2.0 | [MIT](rust-assembler/sha2-MIT.txt) — crate archive `LICENSE-MIT` |
+| [simd-adler32](https://docs.rs/crate/simd-adler32/0.3.10/source/Cargo.toml) | 0.3.10 | MIT | [MIT](rust-assembler/simd-adler32-MIT.txt) — crate archive `LICENSE.md` |
+| [typenum](https://docs.rs/crate/typenum/1.20.1/source/Cargo.toml) | 1.20.1 | MIT OR Apache-2.0 | [MIT](rust-assembler/typenum-MIT.txt) — crate archive `LICENSE-MIT` |
+| [version_check](https://docs.rs/crate/version_check/0.9.5/source/Cargo.toml) | 0.9.5 | MIT/Apache-2.0 | [MIT](rust-assembler/version_check-MIT.txt) — crate archive `LICENSE-MIT` |
+| [zlib-rs](https://docs.rs/crate/zlib-rs/0.6.8/source/Cargo.toml) | 0.6.8 | Zlib | [Zlib](rust-assembler/zlib-rs-Zlib.txt) — crate archive `LICENSE` |

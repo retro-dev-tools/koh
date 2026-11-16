@@ -306,6 +306,10 @@ impl<'a> Assembly<'a> {
         &self.metadata
     }
 
+    pub(crate) fn image(&self) -> &[u8] {
+        self.bytes
+    }
+
     pub fn user_string(&self, token: u32) -> Result<Vec<u16>, String> {
         user_string(self.metadata.user_strings.data(), token)
             .map_err(|error| format!("User string 0x{token:08x}: {error}"))

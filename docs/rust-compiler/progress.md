@@ -8,16 +8,26 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Portable PDB reader increment: the [source-debugging plan](source-debugging.md)
+Latest PDB increment: identity/checksum matching validates raw Portable CodeView
+GUID+timestamp and checks SHA256/384/512 over the zeroed-ID PDB. Real Roslyn game
+and reference PDBs validate; identity/payload mutations diagnose. Multiple-checksum
+ordering and all-mismatch cases are exercised through mutated real PE fixtures.
+Final selection154/154 passes11.857s, plus workspace check, rustdoc and rustfmt.
+Read-only review found no implementation defect; the requested coverage is added.
+RustCrypto supplies hashing and all60 locked external packages now have license
+notice rows, including previously missing PNG test dependencies. Symbol discovery,
+ELF/KDBG source ranges and actual source debugging still remain required.
+
+Previous Portable PDB reader increment: the [source-debugging plan](source-debugging.md)
 now has a native bounded standalone reader, correct signed deltas, document
 changes and explicit hidden ranges. Real Roslyn Debug/Release DLL/PDB fixtures
 and hand-encoded malformed inputs are covered. Review-found decode-work
 amplification and format edges have reproduced/fixed regressions. The final
 selection passes145/145 in11.896s, exit0, including30 PDB unit cases and two
 Roslyn cases; workspace check, separate rustdoc and rustfmt pass. No new
-dependency or unsafe code is added. PE/PDB identity/checksum matching, symbol
-discovery, emitted ELF/KDBG source ranges and real debugger acceptance remain
-unimplemented. This does not close the debug gate or another legacy method;
+dependency or unsafe code was added at that checkpoint. PE/PDB identity/checksum
+matching was still absent then; symbol discovery, emitted ELF/KDBG source ranges
+and real debugger acceptance remain unimplemented. This does not close the debug gate or another legacy method;
 the ledger remains68/565 complete,497 outstanding.
 
 Latest visual/font increment: [JRPG acceptance](jrpg-acceptance.md) now includes

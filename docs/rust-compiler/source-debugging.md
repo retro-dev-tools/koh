@@ -64,7 +64,7 @@ identity, original IL offsets, source line/column and explicit hidden markers.
 Lookup never borrows a source from a neighboring method or across a hidden point.
 Missing Blob heaps work when no debug rows reference them. Source hashes and
 local-variable custom records are not yet consumed; this is not a claim of
-debugger-ready output or PDB/assembly identity validation.
+debugger-ready output. PDB/assembly validation is described below.
 
 Limits:64MiB file,262144 debug rows/methods,65535 bytes per document name,
 4MiB expanded document names, one million sequence points and64MiB cumulative
@@ -82,3 +82,37 @@ intentionally unselected. The PDB subset comprises30 unit cases plus Debug and
 Release fixture cases. Real `#line` documents100/200/198 and hidden code are
 checked; hand-encoded metadata tests also cover method-row matching and every
 truncated prefix. These are reader tests, not ROM/debugger execution evidence.
+
+## Identity and checksum checkpoint
+
+`PortablePdb::for_assembly` validates the parsed PDB against the assembly's raw
+Portable CodeView GUID and directory timestamp, with Age1. It reads both PE32
+and PE32+ through the existing object reader. It never opens the CodeView path.
+Absent or ambiguous Portable CodeView identities diagnose. Multiple checksum
+records may describe private/public symbol files; at least one must match when
+records are present. SHA256, SHA384 and SHA512 use the specified zeroed20-byte
+PDB ID, with each digest computed at most once. Unsupported algorithms and
+checksum versions diagnose explicitly; no checksum record means ID-only matching.
+
+The PE directory is limited to1024 entries,32 checksum records and65536 path
+bytes. Payload bounds precede parsing and hashing. RustCrypto sha2=0.10.9 supplies
+the algorithms; the compiler does not implement cryptography. New checksum and
+previously missing PNG test dependency notices now cover all60 external locked
+packages, with exact selected archive license texts retained.
+
+Real Roslyn Debug/Release fixture tests validate both game and referenced
+Koh.GameBoy PDBs, reject GUID and timestamp mutations, and reject a valid-format
+GUID-heap mutation by checksum. Mutated real PE directories accept a mismatching
+checksum before or after a matching one; all-mismatching records reject. Hand
+records test ID byte order, all three algorithms, Age, duplicate/truncated
+entries and unsupported checksum versions. Fixed digest vectors were calculated
+independently with Python hashlib. The initial mutation test incorrectly assumed
+nonempty PDB string heaps; the corrected GUID mutation preserves format validity.
+
+Final selection154/154 passes11.857s, exit0, including39 PDB unit cases and two
+Roslyn cases (`/tmp/koh-pdb-match-reviewed-final.log`). Workspace all-feature/
+all-target check passes19.01s with the existing cube-helper warning; separate
+rustdoc and rustfmt pass. Read-only review found no implementation defect; its
+multiple-record coverage request is included. These are selected checks, not
+whole-workspace or cross-platform acceptance. Adjacent/explicit discovery,
+embedded extraction, emitted ELF/KDBG ranges and debugger execution remain open.

@@ -1,4 +1,5 @@
 use clrmeta::reader::Reader;
+mod identity;
 
 #[derive(Debug)]
 pub struct PortablePdb {
@@ -8,6 +9,15 @@ pub struct PortablePdb {
 }
 
 impl PortablePdb {
+    pub fn for_assembly(
+        bytes: &[u8],
+        assembly: &crate::assembly::Assembly<'_>,
+    ) -> Result<Self, String> {
+        let pdb = Self::parse(bytes, assembly.metadata().method_defs.len())?;
+        identity::validate(assembly.image(), bytes, &pdb.id)?;
+        Ok(pdb)
+    }
+
     pub fn parse(bytes: &[u8], methods: usize) -> Result<Self, String> {
         parse_metadata(bytes, methods, 64 * 1024 * 1024).map_err(|e| format!("Portable PDB: {e}"))
     }
