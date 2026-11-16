@@ -11,6 +11,7 @@ pub mod ir;
 pub mod layout;
 pub mod lower;
 pub mod optimize;
+pub mod pdb;
 pub mod resolve;
 pub mod signature;
 pub mod sm83;

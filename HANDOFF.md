@@ -414,3 +414,42 @@ closed with independent art/mask/pixel oracles, retained300framepowerondeadline
 and4framemovementbudget. Allsourcehashes /tmp/koh-jrpg-visual-sources.json.
 Next scopedcommit/push, compareposthookhashes, refreshPR55description/readback.
 No fullmigrationcompletionclaim; PDB/debug/IRQ/language/legacydeletion/perfremain.
+
+## Portable PDB reader unit in progress
+
+Visual/fontunit pushedfd547205b4f11588f8d8275c7d9e4a9224588a56; PRreadbackdraft/
+unmerged,68/565ledger. Worktree nowdirtyONLYnewPDBreader/libdriverwiring/docs.
+Designrequirements docs/rust-compiler/source-debugging.md. Readerusesclrmeta
+root/table/unsignedreader, isolatedcorrect6/13/28signedsignextension. Existing
+clrmetasigneddecoder provedRED; ninefixedvectors nowgreen. Symbolic13.9evaluated
+publiccache discards hiddenpoints, unsuitable for preciseprovenance; nodependency.
+Handencodedmetadata/hidden/docdelta/truncationtests17/17pass; emptytablemissing
+heap regression reproduced thenfixed. RealRoslynD/R fixtureSourceDebug2/2pass.
+Currentfinalselected133cases LIVE96865,/tmp/koh-pdb-reader-final.log; includes
+allcompilerlibtests+twoRoslynPDBcases. Same /tmp/koh-header-target nootherbuild.
+Newreader is notyetCLI/PEmatching/emission/KDBG/debuggeracceptance; noclosureclaim.
+
+Read-only reviewunit: newuntracked src/pdb.rs, tests/driver/pdb.rs, fixture
+SourceDebug and source-debugging.md againstpushedfd54720. Reviewer ownsnofiles,
+runsnobuilds; parentownsalledits/targetdir. Audit malformedinputbounds,delta
+semantics,hidden/documentchanges,tablewidths/worklimits and testoracles. Parent
+will addressconfirmeddefects thencheck/document/commitlogicalreaderincrement.
+
+## PDB reader reviewed terminal checkpoint
+
+Newreader src/pdb.rs implements bounded standalone root/document/methodsequence
+decoding and per-method source lookup. NO PEidentity/CLI/ELF/KDBGintegrationyet.
+Read-onlyreview found cumulativezero-outputblobscanamplification,UTF8separator
+andtrailingdocumentrecord compatibility defects. Each hasindependentREDthen
+greenregression. Cumulative64MiBblobworkbudget includesrepeatedrows; perfile/
+rows/points/expandednamecaps; UTF8one-scalarvalidation; trailingdocvaliditychecked
+thenEOFaccepted. Nodupframework/no newdependency/no unsafe.
+Finalselected145/145pass11.896s,exit0:/tmp/koh-pdb-reader-reviewed-final.log,
+30PDBunit+2RoslynD/Rcases plus113existinglibcases;243drivercasesunselected.
+Workspaceallfeatures/alltargetscheck6.02spass(existingcubehelperwarning),
+separaterustdocfourcrates0casespass,rustfmtpass. Alllocalprocessesterminal.
+Sourcehashsnapshot /tmp/koh-pdb-reader-sources.json forposthookcomparison.
+Next commit/pushlogicalreaderunitandrefreshPR55,keepledger68/565unchanged.
+Then PEdebugGUID+timestamp andzeroedIDchecksumvalidation,adjacent/explicitPDB
+discovery,emittedranges/readablefunctionsymbols andexistingdebuggerexecution.
+Do notclaimdebugging/fullmigrationdone. Maincheckoutbattle.pnguntouched.

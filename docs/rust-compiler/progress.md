@@ -8,6 +8,18 @@ debugging, complete sample acceptance, test-disposition closure and performance
 comparison remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+Portable PDB reader increment: the [source-debugging plan](source-debugging.md)
+now has a native bounded standalone reader, correct signed deltas, document
+changes and explicit hidden ranges. Real Roslyn Debug/Release DLL/PDB fixtures
+and hand-encoded malformed inputs are covered. Review-found decode-work
+amplification and format edges have reproduced/fixed regressions. The final
+selection passes145/145 in11.896s, exit0, including30 PDB unit cases and two
+Roslyn cases; workspace check, separate rustdoc and rustfmt pass. No new
+dependency or unsafe code is added. PE/PDB identity/checksum matching, symbol
+discovery, emitted ELF/KDBG source ranges and real debugger acceptance remain
+unimplemented. This does not close the debug gate or another legacy method;
+the ledger remains68/565 complete,497 outstanding.
+
 Latest visual/font increment: [JRPG acceptance](jrpg-acceptance.md) now includes
 independent PNG/RGB555/bitplane/pixel checks, terrain, four Hero OAM quadrants,
 HUD and rendered no-residue at the original movement budget. Four actual PNG

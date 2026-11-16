@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 mod delegates;
 #[path = "driver/mono.rs"]
 mod mono;
+#[path = "driver/pdb.rs"]
+mod pdb;
 #[path = "driver/rectangular.rs"]
 mod rectangular;
 mod support;
