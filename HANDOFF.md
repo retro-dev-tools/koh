@@ -990,3 +990,12 @@ warning), fmt EXIT0, compiler rustdoc EXIT0 zero cases. Construction contract in
  docs/rust-compiler/generic-construction.md. Ledger87/565 unchanged. Constraints
 head5b hosted43939901009 still in_progress when checked; no success claimed.
 Next: broader compiler/runtime coverage; do not delete legacy before acceptance.
+
+Generic wide-expression closure: original remaining4 CilGenericTests methods now
+mapped to driver::wide_arithmetic::legacy_generic_wide_expressions_match_complete_results.
+Three exact arithmetic/extension expressions use independent full64bit expected
+packets; equality-only method REPLACE requires each mode match oracle. Two rstest
+cases run Debug/Release × DMG/CGB,4ROMs12results; final2/2pass18.073s EXIT0
+/tmp/koh-generic-wide-closure.log. Formatting finalEXIT0. Ledger91/565complete,
+474partial/outstanding, zero physicallyretired. Compiler production code unchanged.
+Next full goal still pending broader runtime/features, all tests and legacy removal.

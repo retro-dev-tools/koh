@@ -8,7 +8,13 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current construction increment supports closed Roslyn `new T()` through trusted
+Current test closure completes all six CilGenericTests methods. The four remaining
+numeric methods now have native full64-bit expression/extension acceptance,
+independent expected bytes in both build modes and DMG/CGB execution. Final2/2
+passes18.073s; four ROMs compare12 complete64-bit results. Ledger now91/565 complete,
+474 partial/outstanding, zero physically retired. See [traceability](generic-methods.md).
+
+Previous construction increment supports closed Roslyn `new T()` through trusted
 Activator metadata and the shared ordinary constructor path. Distinct reference
 allocations, zero defaults, explicit struct constructors and reference-library
 side effects execute in Debug/Release × DMG/CGB. Forged owners retain ordinary

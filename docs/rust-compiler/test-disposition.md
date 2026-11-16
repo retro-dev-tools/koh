@@ -31,9 +31,9 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: eighty-seven legacy methods; zero physically retired.**
+**Native behavioral replacements: ninety-one legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining478 methods still have
+The remaining474 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -49,8 +49,10 @@ reference-DLL reachability, original source mappings and fresh/reused resolver
 determinism. Four rstest configurations now execute48 ROMs, including closed
 constraints and named
 struct/class/enum/interface/delegate arguments with deliberately matching metadata
-rows across separate assemblies. The other four methods
-remain partial pending full expression/extension traceability. See the
+rows across separate assemblies. The remaining four arithmetic methods are now
+complete in `driver::wide_arithmetic::legacy_generic_wide_expressions_match_complete_results`:
+three PORT expression/extension contracts and one REPLACE build-mode-equality
+assertion with independent expected bytes for both modes. See the
 [per-method rationale and unfinished generic shapes](generic-methods.md).
 
 ## Wide arithmetic replacement

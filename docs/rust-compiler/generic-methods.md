@@ -120,6 +120,24 @@ private mangled-name assertions with actual typed behavior, BGP130, reference
 reachability and deterministic instances; `GenericMethod_DebugAndReleaseProduceIdenticalObservableState`
 requires each actual build mode to produce the independently expected same result.
 Both are discoverable through the four rstest cases above. No compiler-owned
-case is deferred. The other four wide-arithmetic/extension methods remain partial
-until all their original expression contracts are traced to native acceptance.
+case is deferred. The other four methods are now complete in
+`driver::wide_arithmetic::legacy_generic_wide_expressions_match_complete_results`:
+
+| Original method | Decision | Native requirement and oracle |
+| --- | --- | --- |
+| LongArithmetic_AddSubMulDivRem_MatchesHostComputedValue | PORT | Original composed add/sub/mul/div/rem formula; Rust i128 calculation, narrowed to full64 bits |
+| ConvI8SignExtends_ConvU8ZeroExtends_MatchesHostComputedValue | PORT | Original negative int and high-bit uint widening; mathematical2147483648−5000000 |
+| UlongDivision_IsUnsigned_NotArithmeticShift | PORT | Original high-bit unsigned divide/remainder formula; exact0x0f00000000000000 |
+| WideIntArithmetic_DebugAndReleaseProduceIdenticalObservableState | REPLACE | Each mode independently matches all24 packet bytes, then matches the other mode |
+
+The shared Roslyn fixture retains the original expression bodies, with mutable
+static inputs passed to helpers so Release does not fold the input arithmetic
+away. Each result is stored in a distinct eight-byte packet slot, avoiding the
+removed compiler's private return-scratch ABI. Two rstest cases execute both build
+modes on DMG/CGB: four ROMs,12 complete64-bit results. Canonical ELF roundtrip,
+banked helper calls, stack/heap guards, result bounds and CGB bank2 guards remain
+asserted. Final2/2 passes18.073s, exit0
+(`/tmp/koh-generic-wide-closure.log`). These test-only additions change no compiler
+semantics. All six original methods are now accounted for; broader generic
+features remain unfinished.
 The C# source definitions remain pending final whole-project removal.

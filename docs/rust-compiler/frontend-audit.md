@@ -137,16 +137,16 @@ Deterministic RNG, timer restart/one-shot behavior, asset handles, input edges/r
 
 ### CilGenericTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilGenericTests.cs`. Native generic group: `driver::generics`; see [contract and dispositions](generic-methods.md). Four numeric/extension methods still need complete traceability.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilGenericTests.cs`. Native groups: `driver::generics` and `driver::wide_arithmetic::legacy_generic_wide_expressions_match_complete_results`; see [contract and dispositions](generic-methods.md). All six methods have complete behavioral replacements.
 
 Transitive generic-method specialization at multiple concrete types plus signed/unsigned 64-bit arithmetic and extension. CIL type substitution and integer semantics justify results, not mangled instance names.
 
 - **REPLACE, complete** `GenericMethod_TwoTypesTransitively_ProducesExpectedValue`.
 - **REPLACE, complete** `GenericMethod_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `LongArithmetic_AddSubMulDivRem_MatchesHostComputedValue`.
-- **PORT** `ConvI8SignExtends_ConvU8ZeroExtends_MatchesHostComputedValue`.
-- **PORT** `UlongDivision_IsUnsigned_NotArithmeticShift`.
-- **PORT** `WideIntArithmetic_DebugAndReleaseProduceIdenticalObservableState`.
+- **PORT, complete** `LongArithmetic_AddSubMulDivRem_MatchesHostComputedValue`.
+- **PORT, complete** `ConvI8SignExtends_ConvU8ZeroExtends_MatchesHostComputedValue`.
+- **PORT, complete** `UlongDivision_IsUnsigned_NotArithmeticShift`.
+- **REPLACE, complete** `WideIntArithmetic_DebugAndReleaseProduceIdenticalObservableState`: independently expected complete bytes in each mode, plus mode equality.
 
 ### CilGraphicsSlice2Tests.cs
 

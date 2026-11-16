@@ -614,3 +614,105 @@ fn roslyn_wide_arithmetic_vectors_match_ordered_rom_bytes(
         }
     }
 }
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn legacy_generic_wide_expressions_match_complete_results(host: &Host, #[case] color: bool) {
+    let source = r#"
+public static unsafe class Program {
+    static int Seed = 5;
+    static int Negative = -5;
+    static uint High = 0x80000000;
+    static ulong Big = 0xF000000000000000UL;
+    static byte[] Results;
+    static long Arithmetic(int seed) {
+        long a = seed;
+        long b = 1234567890123L;
+        long sum = a + b;
+        long diff = b - a;
+        long prod = a * 1000000L;
+        long q = b / 1000000007L;
+        long rem = b % 1000000007L;
+        return sum + diff + prod + q + rem;
+    }
+    static long Conversion(int n, uint u) {
+        long a = n;
+        long b = u;
+        return a * 1000000L + b;
+    }
+    static ulong Unsigned(ulong big) {
+        ulong quotient = big / 16UL;
+        ulong remainder = big % 16UL;
+        return quotient + remainder;
+    }
+    public static int Main() {
+        Results = new byte[24];
+        fixed(byte* p = Results) {
+            *(long*)p = Arithmetic(Seed);
+            *(long*)(p + 8) = Conversion(Negative, High);
+            *(ulong*)(p + 16) = Unsigned(Big);
+            return (ushort)p;
+        }
+    }
+}
+"#;
+    let b = 1_234_567_890_123i128;
+    let expected: String = [
+        (2 * b + 5_000_000 + b / 1_000_000_007 + b % 1_000_000_007) as u64,
+        (2_147_483_648i128 - 5_000_000) as u64,
+        0x0f00_0000_0000_0000,
+    ]
+    .into_iter()
+    .flat_map(u64::to_le_bytes)
+    .map(|byte| format!("{byte:02X}"))
+    .collect();
+    let mut debug = None;
+    for configuration in ["Debug", "Release"] {
+        let (directory, images) = images(host, configuration, source);
+        let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+        let mut object = compile::object(&resolver, Some("Program::Main")).unwrap();
+        let mut bank = 1;
+        for section in &mut object.sections {
+            if section.name.starts_with(".text.__koh_a") {
+                section.bank = Some(bank);
+                bank += 1;
+            }
+        }
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!((fields[0], fields[2], fields[3]), ("00", "D000", "OK"));
+        if color {
+            assert_eq!(fields[5], "6B".repeat(4096));
+        }
+        let pointer = u32::from_str_radix(fields[1], 16).unwrap();
+        assert!((0xd000..=0xe000 - 24).contains(&pointer));
+        let start = (pointer as usize - 0xd000) * 2;
+        let actual = &fields[4][start..start + 48];
+        assert_eq!(actual, expected, "{configuration}");
+        if configuration == "Debug" {
+            debug = Some(actual.to_owned());
+        } else {
+            assert_eq!(Some(actual), debug.as_deref());
+        }
+    }
+}
