@@ -228,22 +228,22 @@ Array and UTF-8 literals retain exact bytes; Int128 arithmetic retains integer b
 
 ### CilLoweringTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilLoweringTests.cs`. Future Rust test group: `cil_lowering`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilLoweringTests.cs`. All 12 complete in native `driver::cil_basics`, with `lowering::cil_stack_join_becomes_typed_block_arguments`; see [matrix and assertion accounting](cil-basics.md).
 
 Register IO, ordinary calls, stack joins, arithmetic/comparisons/conversions and array lengths across calls must behave correctly. The CIL evaluation stack and public API justify outputs; spill count/fixed-global IR representation do not.
 
-- **PORT** `RegisterLoop_WritesExpectedValue_DebugAndRelease`.
-- **REPLACE** `RegisterLoop_IrShape_HasEntryFunctionAndFixedAddressGlobal` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
-- **PORT** `RegisterReadThenWrite_RoundTripsThroughFixedAddressGlobal`.
-- **PORT** `CallToGameModuleStaticMethod_IsLoweredAsDirectCall`.
-- **PORT** `Ternary_NonEmptyStackJoin_IsSpilledCorrectly`.
-- **REPLACE** `Ternary_Release_ActuallyExercisesSpillAllocas` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
-- **PORT** `ArithmeticAndCompareOpcodes_ProduceExpectedValue`.
-- **PORT** `UnsignedAndInequalityLoops_ProduceExpectedValue`.
-- **PORT** `NarrowingConversionOpcodes_ProduceExpectedValue`.
-- **PORT** `UnsupportedExternalCall_ReportsDiagnostic_DoesNotThrow`.
-- **PORT** `ArrayLength_LoopBoundSumsAllElements_DebugAndRelease`.
-- **PORT** `ArrayLength_OnUntraceableArray_ReadsRuntimeLengthPrefix`.
+- **PORT, complete** `RegisterLoop_WritesExpectedValue_DebugAndRelease`.
+- **REPLACE, complete** `RegisterLoop_IrShape_HasEntryFunctionAndFixedAddressGlobal` — actual default-entry ROM and MMIO effect.
+- **PORT, complete** `RegisterReadThenWrite_RoundTripsThroughFixedAddressGlobal`.
+- **PORT, complete** `CallToGameModuleStaticMethod_IsLoweredAsDirectCall`.
+- **PORT, complete** `Ternary_NonEmptyStackJoin_IsSpilledCorrectly`.
+- **REPLACE, complete** `Ternary_Release_ActuallyExercisesSpillAllocas` — both native branches and explicit hand-CIL typed join invariants.
+- **PORT, complete** `ArithmeticAndCompareOpcodes_ProduceExpectedValue`.
+- **PORT, complete** `UnsignedAndInequalityLoops_ProduceExpectedValue`.
+- **PORT, complete** `NarrowingConversionOpcodes_ProduceExpectedValue`.
+- **PORT, complete** `UnsupportedExternalCall_ReportsDiagnostic_DoesNotThrow`.
+- **PORT, complete** `ArrayLength_LoopBoundSumsAllElements_DebugAndRelease`.
+- **PORT, complete** `ArrayLength_OnUntraceableArray_ReadsRuntimeLengthPrefix`.
 
 ### CilMapWriterGdmaTests.cs
 

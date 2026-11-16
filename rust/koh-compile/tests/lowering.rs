@@ -20,13 +20,25 @@ fn method(il: &[u8]) -> Method<'_> {
     }
 }
 
-#[test]
-fn cil_stack_join_becomes_typed_block_arguments() {
+#[rstest]
+#[case(0x16, 7)]
+#[case(0x17, 9)]
+fn cil_stack_join_becomes_typed_block_arguments(#[case] condition: u8, #[case] expected: u64) {
     let f = lower(method(&[0x17, 0x2d, 3, 0x1d, 0x2b, 1, 0x1f, 9, 0x2a]));
     assert!(f.is_err(), "branch into the operand must fail");
-    let f = lower(method(&[0x17, 0x2d, 3, 0x1d, 0x2b, 2, 0x1f, 9, 0x2a])).unwrap();
+    let f = lower(method(&[condition, 0x2d, 3, 0x1d, 0x2b, 2, 0x1f, 9, 0x2a])).unwrap();
     verify(&f).unwrap();
-    assert_eq!(execute(&f), 9);
+    assert_eq!(
+        f.blocks
+            .last()
+            .unwrap()
+            .parameters
+            .iter()
+            .map(|&(_, ty)| ty)
+            .collect::<Vec<_>>(),
+        vec![Type::I32]
+    );
+    assert_eq!(execute(&f), expected);
 }
 
 #[test]

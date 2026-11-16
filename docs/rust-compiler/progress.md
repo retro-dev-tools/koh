@@ -8,13 +8,23 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current test closure ports all five CilStructReturnTests methods to Rust-driven
+Current test closure completes all12 CilLoweringTests methods: ten PORT observable
+contracts and two REPLACE private IR assumptions. Four rstest configurations run40
+ROMs with464 ordered packet bytes and160 actual MMIO bytes; hand-CIL tests check
+both typed stack-join outcomes. The selected lowering/host/struct-return regression
+passes53/53 in62.067s; final default-entry strengthening passes6/6 in27.642s, exit0
+(`/tmp/koh-cil-basics-entry-final.log`). Rustfmt and CSharpier checks pass. Production
+compiler/emulator code is unchanged; the test host adds register observations.
+Ledger now108/565 complete,457 partial/outstanding, zero physically retired.
+See the [basic CIL per-method matrix](cil-basics.md).
+
+Previous test closure ports all five CilStructReturnTests methods to Rust-driven
 Roslyn/PDB/ELF/ROM execution. Factories, copies, chaining, recursion, generic returns
 and concrete foreach preserve22 original value comparisons and strengthen them to
 39 full-width ordered observations per configuration. Final4/4 passes25.641s,
 exit0 (`/tmp/koh-struct-return-final.log`):20 Debug/Release × DMG/CGB ROMs,624 checked
 bytes plus native completion/frame/bank/source checks. Production compiler code is
-unchanged. Ledger now96/565 complete,469 partial/outstanding, zero physically retired.
+unchanged. Ledger then96/565 complete,469 partial/outstanding, zero physically retired.
 See the [per-method matrix and oracle rationale](struct-returns.md). The full
 migration and old compiler removal remain incomplete.
 

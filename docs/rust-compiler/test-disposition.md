@@ -31,13 +31,23 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: ninety-six legacy methods; zero physically retired.**
+**Native behavioral replacements: 108 legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining469 methods still have
+The remaining 457 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+## Basic CIL replacement
+
+All 12 `CilLoweringTests` methods are complete: ten PORT observable contracts and
+two REPLACE private IR assumptions with default-entry/MMIO execution and typed
+stack-join invariants. Four native configurations execute 40 ROMs, checking 464
+ordered packet bytes and 160 actual MMIO bytes. Both ternary outcomes, signed
+narrowing, high-bit unsigned comparisons, real ldlen and source-aware unavailable
+runtime diagnostics are checked. See the [per-method matrix and assertion audit](cil-basics.md).
+No compiler-owned case is deferred or physically removed yet.
 
 ## Struct return replacement
 

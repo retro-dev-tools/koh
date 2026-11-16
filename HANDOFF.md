@@ -1142,3 +1142,23 @@ checksEXIT0. Read-onlyreviewconfirmsall5fixtures/22oldcomparisons preserved,
 Notclaimed:constructedgenericstructlayouts/staticarrayenumerator onlymentioned
 byoldcomments; sourceactualtests use nongenericBoxreturn andRange4. Matrixexplicit.
 Ledger96/565469partial/outstanding zero physicallyretired. Readylogicalcommit/push.
+
+BasicCILclosure starts6147437. Auditedall12CilLoweringTests (25Assertsites,22D/R
+executions). NewCilBasics actualRoslynfixtures preservehardware5,7/8,3,ternary9,
+flags63,loops9,narrow12,arrays150 and3/7/11 withSCXEE. Nativehost test-only
+--native-registers outputsactualSCY/SCX/BGP/WY alongsideheap+guarddata; no emulator
+corechange. Addedternaryfalse1,fullI32 arithmetic/narrowpackets, unsignedhighbits,
+readonlyarray-elementmutation42; explicitldlenfixturepresence andConsoleErrmember/
+ILdiagnostic. Replaces2privateIR-shape tests withactualentry/MMIO+handCILtypedjoin
+both7/9 cases; no .edges privateAPIexport. Initialcompile41381EXIT101 privatetestedges
+before removedC#IRshapeinspection. Finalfirst76671EXIT0 6/6pass33.078s. FormattedC#
+2files3885EXIT0. Current59194live /tmp/koh-cil-basics-final.log selectsall45
+lowering+8drivercases (expected53).
+Needmatrix12 PORT10/REPLACE2, ledger108/565457remaining, review/finalchecks/commit.
+Parentownsserialbuilds/edits. Fullgoalactive; no productioncompilercode changed.
+Final59194terminalEXIT0:53/53pass62.067s. AfterdefaultMain discoverystrengthening,
+35771terminalEXIT0:6/6pass27.642s /tmp/koh-cil-basics-entry-final.log. Read-only
+reviewconfirms12methods22executions25sites47expandedassertions, noweakenedcontracts.
+Rustfmt/CSharpierchecksEXIT0 (2C#files). Matrixcil-basics.md complete10PORT2REPLACE;
+ledger108/565457remaining zero physicallyretired. No productioncompiler/emulator
+changes. Readylogicalcommit/push; fullgoalremainsactive.

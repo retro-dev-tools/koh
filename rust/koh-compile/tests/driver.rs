@@ -1,6 +1,8 @@
 use koh_compile::{compile, resolve::Resolver};
 use rstest::rstest;
 use std::path::{Path, PathBuf};
+#[path = "driver/cil_basics.rs"]
+mod cil_basics;
 #[path = "driver/default_interfaces.rs"]
 mod default_interfaces;
 #[path = "driver/delegates.rs"]
