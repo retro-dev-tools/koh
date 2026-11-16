@@ -20,6 +20,43 @@ fn generic_method_instances_execute_transitively(
     )
     .unwrap();
     let resolver = Resolver::new(&[&images[0], &images[1], &library]).unwrap();
+    let type_row = |assembly, name| {
+        let image = resolver.assembly(assembly).unwrap();
+        image
+            .metadata()
+            .type_defs
+            .iter()
+            .position(|ty| image.metadata().strings.get(ty.type_name).unwrap() == name)
+            .unwrap()
+    };
+    assert_eq!(type_row(0, "Payload"), type_row(2, "RemotePayload"));
+    assert_eq!(type_row(0, "Marker"), type_row(2, "RemoteMarker"));
+    assert_eq!(type_row(0, "LocalCode"), type_row(2, "RemoteCode"));
+    assert_eq!(type_row(0, "IMarker"), type_row(2, "IRemoteMarker"));
+    assert_eq!(type_row(0, "Reader"), type_row(2, "RemoteReader"));
+    for (assembly, name, bytes, offsets) in [
+        (0, "Payload", 3, vec![0, 1]),
+        (2, "RemotePayload", 12, vec![0, 4]),
+    ] {
+        let layout = koh_compile::layout::value(
+            &resolver,
+            koh_compile::resolve::Definition {
+                assembly,
+                token: 0x02000001 + type_row(assembly, name) as u32,
+            },
+        )
+        .unwrap();
+        assert_eq!(layout.bytes, bytes, "{name}");
+        assert_eq!(
+            layout
+                .fields
+                .iter()
+                .map(|field| field.offset)
+                .collect::<Vec<_>>(),
+            offsets,
+            "{name}"
+        );
+    }
     let pdb = std::fs::read(
         directory
             .path()
@@ -39,6 +76,7 @@ fn generic_method_instances_execute_transitively(
         ("Storage", "0000002A"),
         ("Referenced", "00000082"),
         ("PrimitiveWidths", "0000002A"),
+        ("NamedTypes", "0000002A"),
         ("Main", "00000082"),
     ] {
         let mut object = compile::object_with_debug(

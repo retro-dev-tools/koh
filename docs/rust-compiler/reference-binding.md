@@ -22,7 +22,8 @@ implementation for reachable runtime methods.
 
 Only dependencies needed by the requested reference are resolved. Loading a game
 does not eagerly bind every attribute/framework reference or embed BCL code.
-Transitive body reachability and dead-code elimination remain lowering work.
+Transitive body reachability and dead-code elimination belong to compiler lowering,
+not this definition-binding boundary.
 
 ## Types and members
 
@@ -42,7 +43,8 @@ Transitive body reachability and dead-code elimination remain lowering work.
   annotations do not distinguish array types. Runtime array bounds remain data.
 
 Closed static method instantiation now supplies contextual MVAR substitution for
-supported token-free arguments; see [contract and limits](generic-methods.md).
+supported primitive and assembly-scoped named arguments; see
+[contract and limits](generic-methods.md).
 Inherited nongeneric lookup is implemented. Inherited generic substitution and
 vararg call-site binding remain explicit incomplete native paths, not retired
 product capabilities or claimed supported execution. Array pseudo-methods require

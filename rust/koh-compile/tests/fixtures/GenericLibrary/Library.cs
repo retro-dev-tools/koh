@@ -6,3 +6,32 @@ public static class Library
 
     public static float Unused() => 0.25f;
 }
+
+public sealed class RemoteMarker : IRemoteMarker
+{
+    public ushort Value;
+
+    public int Read() => Value;
+}
+
+[System.Runtime.InteropServices.StructLayout(
+    System.Runtime.InteropServices.LayoutKind.Sequential,
+    Pack = 1
+)]
+public struct RemotePayload
+{
+    public int Count;
+    public long Wide;
+}
+
+public enum RemoteCode : long
+{
+    Value = 5000000001,
+}
+
+public interface IRemoteMarker
+{
+    int Read();
+}
+
+public delegate ushort RemoteReader(ushort value);

@@ -43,6 +43,47 @@ public static class Program
     public static int Referenced() =>
         Library.Forward<byte>(5) + (Library.Forward<ushort>(1000) >> 3);
 
+    static int Twice(int value) => value * 2;
+
+    static ushort Next(ushort value) => (ushort)(value + 17);
+
+    public static int NamedTypes()
+    {
+        Payload local = new Payload { Tag = 17, Value = 1000 };
+        Payload returned = Library.Forward(local);
+        returned = Make(returned);
+        RemotePayload remote = new RemotePayload { Count = -70000, Wide = 5000000001 };
+        RemotePayload remoteReturned = Wrap(Library.Forward(remote));
+        Marker marker = new Marker { Value = 7 };
+        Marker alias = Library.Forward(marker);
+        alias.Value = 9000;
+        RemoteMarker remoteMarker = Library.Forward(new RemoteMarker { Value = 1000 });
+        RemoteMarker other = new RemoteMarker { Value = 42 };
+        Swap(ref remoteMarker, ref other);
+        IMarker view = Library.Forward<IMarker>(marker);
+        IRemoteMarker remoteView = Library.Forward<IRemoteMarker>(other);
+        Reader read = Library.Forward<Reader>(Twice);
+        RemoteReader remoteRead = Library.Forward<RemoteReader>(Next);
+        return
+            returned.Tag == 17
+            && returned.Value == 1000
+            && local.Value == 1000
+            && remoteReturned.Count == -70000
+            && remoteReturned.Wide == 5000000001
+            && marker.Value == 9000
+            && alias == marker
+            && remoteMarker.Value == 42
+            && other.Value == 1000
+            && Library.Forward(LocalCode.Value) == LocalCode.Value
+            && Library.Forward(RemoteCode.Value) == RemoteCode.Value
+            && view.Read() == 9000
+            && remoteView.Read() == 1000
+            && read(21) == 42
+            && remoteRead(1000) == 1017
+            ? 42
+            : 0;
+    }
+
     public static int PrimitiveWidths()
     {
         object marker = Wrap<object>(new Marker());
@@ -103,4 +144,31 @@ public static class Program
     }
 }
 
-public sealed class Marker { }
+public sealed class Marker : IMarker
+{
+    public int Value;
+
+    public int Read() => Value;
+}
+
+[System.Runtime.InteropServices.StructLayout(
+    System.Runtime.InteropServices.LayoutKind.Sequential,
+    Pack = 1
+)]
+public struct Payload
+{
+    public byte Tag;
+    public ushort Value;
+}
+
+public enum LocalCode : ushort
+{
+    Value = 60000,
+}
+
+public interface IMarker
+{
+    int Read();
+}
+
+public delegate int Reader(int value);

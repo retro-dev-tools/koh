@@ -4,7 +4,7 @@ use clrmeta::{MethodSig, TableId, TypeSig};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Instance {
     pub method: Definition,
-    pub arguments: Vec<TypeSig>,
+    pub arguments: Vec<Argument>,
 }
 
 fn charge(counter: &std::cell::Cell<usize>, amount: usize) -> Result<(), String> {
@@ -17,13 +17,39 @@ fn charge(counter: &std::cell::Cell<usize>, amount: usize) -> Result<(), String>
     Ok(())
 }
 
-pub(crate) fn substitute(ty: &TypeSig, arguments: &[TypeSig]) -> Result<TypeSig, String> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Argument {
+    pub assembly: usize,
+    pub ty: TypeSig,
+}
+
+fn token_free(ty: &TypeSig) -> bool {
+    match ty {
+        TypeSig::Primitive(_) => true,
+        TypeSig::SzArray(inner)
+        | TypeSig::ByRef(inner)
+        | TypeSig::Ptr(inner)
+        | TypeSig::Pinned(inner)
+        | TypeSig::Array {
+            element_type: inner,
+            ..
+        } => token_free(inner),
+        _ => false,
+    }
+}
+
+pub(crate) fn scoped(
+    assembly: usize,
+    ty: &TypeSig,
+    arguments: &[Argument],
+) -> Result<Argument, String> {
     fn inner(
+        assembly: usize,
         ty: &TypeSig,
-        arguments: &[TypeSig],
+        arguments: &[Argument],
         depth: usize,
         nodes: &mut usize,
-    ) -> Result<TypeSig, String> {
+    ) -> Result<Argument, String> {
         *nodes += 1;
         if *nodes > 65536 {
             return Err("Generic substitution exceeds65536 nodes".into());
@@ -31,59 +57,197 @@ pub(crate) fn substitute(ty: &TypeSig, arguments: &[TypeSig]) -> Result<TypeSig,
         if depth > 64 {
             return Err("Generic substitution exceeds64 levels".into());
         }
-        let mut nested = |ty| inner(ty, arguments, depth + 1, nodes);
-        Ok(match ty {
+        let mut nested = |ty| inner(assembly, ty, arguments, depth + 1, nodes);
+        let ty = match ty {
             TypeSig::MVar(index) => {
                 let argument = arguments
                     .get(*index as usize)
                     .ok_or_else(|| format!("Unbound generic method parameter !!{index}"))?;
-                inner(argument, &[], depth + 1, nodes)?
+                return inner(argument.assembly, &argument.ty, &[], depth + 1, nodes);
             }
             TypeSig::Var(index) => {
                 return Err(format!(
                     "Generic declaring type parameter !{index} requires instantiated storage"
                 ));
             }
-            TypeSig::SzArray(ty) => TypeSig::SzArray(Box::new(nested(ty)?)),
-            TypeSig::ByRef(ty) => TypeSig::ByRef(Box::new(nested(ty)?)),
-            TypeSig::Ptr(ty) => TypeSig::Ptr(Box::new(nested(ty)?)),
-            TypeSig::Pinned(ty) => TypeSig::Pinned(Box::new(nested(ty)?)),
+            TypeSig::SzArray(element)
+            | TypeSig::ByRef(element)
+            | TypeSig::Ptr(element)
+            | TypeSig::Pinned(element) => {
+                let element = nested(element)?;
+                let wrapped = Box::new(element.ty);
+                let ty = match ty {
+                    TypeSig::SzArray(_) => TypeSig::SzArray(wrapped),
+                    TypeSig::ByRef(_) => TypeSig::ByRef(wrapped),
+                    TypeSig::Ptr(_) => TypeSig::Ptr(wrapped),
+                    _ => TypeSig::Pinned(wrapped),
+                };
+                return Ok(Argument {
+                    assembly: element.assembly,
+                    ty,
+                });
+            }
             TypeSig::Array {
                 element_type,
                 rank,
                 sizes,
                 lo_bounds,
-            } => TypeSig::Array {
-                element_type: Box::new(nested(element_type)?),
-                rank: *rank,
-                sizes: sizes.clone(),
-                lo_bounds: lo_bounds.clone(),
-            },
+            } => {
+                let element = nested(element_type)?;
+                return Ok(Argument {
+                    assembly: element.assembly,
+                    ty: TypeSig::Array {
+                        element_type: Box::new(element.ty),
+                        rank: *rank,
+                        sizes: sizes.clone(),
+                        lo_bounds: lo_bounds.clone(),
+                    },
+                });
+            }
             TypeSig::GenericInst {
                 is_value_type,
                 type_ref,
                 type_args,
-            } => TypeSig::GenericInst {
-                is_value_type: *is_value_type,
-                type_ref: *type_ref,
-                type_args: type_args.iter().map(nested).collect::<Result<_, _>>()?,
-            },
+            } => {
+                let args = type_args.iter().map(|argument| {
+                    let argument = nested(argument)?;
+                    if argument.assembly != assembly && !token_free(&argument.ty) {
+                        return Err("Constructed generic signatures with foreign named arguments require scoped layout binding".into());
+                    }
+                    Ok(argument.ty)
+                }).collect::<Result<_, String>>()?;
+                TypeSig::GenericInst {
+                    is_value_type: *is_value_type,
+                    type_ref: *type_ref,
+                    type_args: args,
+                }
+            }
             TypeSig::Modified {
                 required,
                 modifier,
                 inner,
-            } => TypeSig::Modified {
-                required: *required,
-                modifier: *modifier,
-                inner: Box::new(nested(inner)?),
-            },
+            } => {
+                let value = nested(inner)?;
+                if value.assembly != assembly && !token_free(&value.ty) {
+                    return Err("Foreign generic arguments with custom modifiers require scoped modifier binding".into());
+                }
+                TypeSig::Modified {
+                    required: *required,
+                    modifier: *modifier,
+                    inner: Box::new(value.ty),
+                }
+            }
             TypeSig::FnPtr(_) => {
                 return Err("Generic function-pointer substitution is unsupported".into());
             }
             _ => ty.clone(),
+        };
+        Ok(Argument {
+            assembly: if token_free(&ty) { 0 } else { assembly },
+            ty,
         })
     }
-    inner(ty, arguments, 0, &mut 0)
+    inner(assembly, ty, arguments, 0, &mut 0)
+}
+
+pub(crate) fn storage(
+    resolver: &Resolver<'_>,
+    assembly: usize,
+    ty: &TypeSig,
+    arguments: &[Argument],
+) -> Result<Argument, String> {
+    let mut result = scoped(assembly, ty, arguments)?;
+    result.ty = crate::lower::storage_type(resolver, result.assembly, &result.ty)?;
+    Ok(result)
+}
+
+pub(crate) struct MethodTypes {
+    pub parameters: Vec<Argument>,
+    pub returns: Argument,
+    pub signature: crate::ir::Signature,
+}
+
+pub(crate) fn method_types(
+    resolver: &Resolver<'_>,
+    method: Definition,
+    signature: &MethodSig,
+    arguments: &[Argument],
+) -> Result<MethodTypes, String> {
+    if signature.generic_param_count as usize != arguments.len() {
+        return Err("Generic method requires its closed argument list".into());
+    }
+    let signature = crate::lower::storage_signature(resolver, method, signature)?;
+    if signature.calling_convention.0 & 0x0f != 0 || signature.params.len() > 1024 {
+        return Err("Unsupported calling convention or parameter count".into());
+    }
+    let parameters = signature
+        .params
+        .iter()
+        .map(|ty| storage(resolver, method.assembly, ty, arguments))
+        .collect::<Result<Vec<_>, _>>()?;
+    let returns = storage(resolver, method.assembly, &signature.return_type, arguments)?;
+    let signature = crate::ir::Signature {
+        parameters: parameters
+            .iter()
+            .map(|argument| crate::lower::bound_type(resolver, argument.assembly, &argument.ty))
+            .collect::<Result<_, _>>()?,
+        returns: if returns.ty == TypeSig::Primitive(clrmeta::ElementType::Void) {
+            None
+        } else {
+            Some(crate::lower::bound_type(
+                resolver,
+                returns.assembly,
+                &returns.ty,
+            )?)
+        },
+    };
+    Ok(MethodTypes {
+        parameters,
+        returns,
+        signature,
+    })
+}
+
+fn canonical(
+    resolver: &Resolver<'_>,
+    argument: Argument,
+    depth: usize,
+) -> Result<Argument, String> {
+    if depth > 64 {
+        return Err("Generic argument depth exceeds64".into());
+    }
+    let (assembly, ty) = match argument.ty {
+        TypeSig::Primitive(_) => (0, argument.ty),
+        TypeSig::Class(encoded) | TypeSig::ValueType(encoded) => {
+            let definition =
+                resolver.resolve_type(argument.assembly, crate::resolve::type_token(encoded)?)?;
+            resolver.check_arity(definition, 0).map_err(|error| {
+                format!("Generic named arguments require instantiated layouts: {error}")
+            })?;
+            let encoded = (definition.token & 0xffffff) << 2;
+            (
+                definition.assembly,
+                if matches!(argument.ty, TypeSig::Class(_)) {
+                    TypeSig::Class(encoded)
+                } else {
+                    TypeSig::ValueType(encoded)
+                },
+            )
+        }
+        TypeSig::SzArray(element) => {
+            let element = canonical(
+                resolver,
+                Argument {
+                    assembly: argument.assembly,
+                    ty: *element,
+                },
+                depth + 1,
+            )?;
+            (element.assembly, TypeSig::SzArray(Box::new(element.ty)))
+        }
+        _ => return Err("Compound generic arguments require instantiated type binding".into()),
+    };
+    Ok(Argument { assembly, ty })
 }
 
 #[cfg(test)]
@@ -91,6 +255,64 @@ mod tests {
     use super::*;
     use clrmeta::ElementType;
     use rstest::rstest;
+
+    fn substitute(ty: &TypeSig, arguments: &[TypeSig]) -> Result<TypeSig, String> {
+        let arguments = arguments
+            .iter()
+            .cloned()
+            .map(|ty| Argument { assembly: 0, ty })
+            .collect::<Vec<_>>();
+        scoped(0, ty, &arguments).map(|argument| argument.ty)
+    }
+
+    #[rstest]
+    #[case(TypeSig::ValueType(12))]
+    #[case(TypeSig::Class(12))]
+    fn nested_substitution_preserves_foreign_scope(#[case] ty: TypeSig) {
+        let arguments = [Argument {
+            assembly: 7,
+            ty: ty.clone(),
+        }];
+        let input = TypeSig::ByRef(Box::new(TypeSig::SzArray(Box::new(TypeSig::MVar(0)))));
+        let result = scoped(2, &input, &arguments).unwrap();
+        assert_eq!(result.assembly, 7);
+        assert_eq!(
+            result.ty,
+            TypeSig::ByRef(Box::new(TypeSig::SzArray(Box::new(ty))))
+        );
+    }
+
+    #[test]
+    fn constructed_signatures_do_not_reinterpret_foreign_tokens() {
+        let signature = TypeSig::GenericInst {
+            is_value_type: false,
+            type_ref: 8,
+            type_args: vec![TypeSig::MVar(0)],
+        };
+        let foreign = Argument {
+            assembly: 7,
+            ty: TypeSig::Class(12),
+        };
+        assert!(
+            scoped(2, &signature, &[foreign])
+                .unwrap_err()
+                .contains("foreign named")
+        );
+        let primitive = Argument {
+            assembly: 7,
+            ty: TypeSig::Primitive(ElementType::I4),
+        };
+        let result = scoped(2, &signature, &[primitive]).unwrap();
+        assert_eq!(result.assembly, 2);
+        assert_eq!(
+            result.ty,
+            TypeSig::GenericInst {
+                is_value_type: false,
+                type_ref: 8,
+                type_args: vec![TypeSig::Primitive(ElementType::I4)]
+            }
+        );
+    }
 
     #[rstest]
     #[case(TypeSig::MVar(0))]
@@ -157,19 +379,6 @@ mod tests {
     }
 }
 
-pub(crate) fn signature(signature: &MethodSig, arguments: &[TypeSig]) -> Result<MethodSig, String> {
-    let mut result = signature.clone();
-    result.params = signature
-        .params
-        .iter()
-        .map(|ty| substitute(ty, arguments))
-        .collect::<Result<_, _>>()?;
-    result.return_type = substitute(&signature.return_type, arguments)?;
-    result.generic_param_count = 0;
-    result.calling_convention.0 &= !0x10;
-    Ok(result)
-}
-
 impl Resolver<'_> {
     pub(crate) fn instance(&self, identity: Definition) -> Result<Option<Instance>, String> {
         if identity.token >> 24 != 0xfb {
@@ -193,7 +402,7 @@ impl Resolver<'_> {
     pub(crate) fn instantiate(
         &self,
         target: &ResolvedMethod,
-        caller: &[TypeSig],
+        caller: &[Argument],
     ) -> Result<Definition, String> {
         if target.method_arguments.is_empty() && target.type_arguments.is_empty() {
             return Ok(target.definition);
@@ -240,12 +449,12 @@ impl Resolver<'_> {
         let arguments = target
             .method_arguments
             .iter()
-            .map(|ty| substitute(ty, caller))
+            .map(|ty| canonical(self, scoped(target.argument_assembly, ty, caller)?, 0))
             .collect::<Result<Vec<_>, _>>()?;
         let nodes = arguments
             .iter()
             .map(|argument| {
-                let mut current = argument;
+                let mut current = &argument.ty;
                 let mut count = 1usize;
                 while let TypeSig::SzArray(inner) = current {
                     count += 1;
@@ -258,24 +467,9 @@ impl Resolver<'_> {
             &self.generic_work,
             nodes.saturating_mul(self.generic_instances.borrow().len() + 1),
         )?;
-        fn portable(ty: &TypeSig, depth: usize) -> bool {
-            if depth > 64 {
-                return false;
-            }
-            match ty {
-                TypeSig::Primitive(_) => true,
-                TypeSig::SzArray(ty) => portable(ty, depth + 1),
-                _ => false,
-            }
-        }
         for argument in &arguments {
-            if !portable(argument, 0) {
-                return Err(
-                    "Named or compound generic arguments require assembly-aware substitution"
-                        .into(),
-                );
-            }
-            crate::lower::bound_type(self, target.argument_assembly, argument)?;
+            let ty = crate::lower::storage_type(self, argument.assembly, &argument.ty)?;
+            crate::lower::bound_type(self, argument.assembly, &ty)?;
         }
         let instance = Instance {
             method: target.definition,

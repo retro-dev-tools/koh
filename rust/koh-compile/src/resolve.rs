@@ -757,7 +757,11 @@ impl<'a> Resolver<'a> {
         result
     }
 
-    fn check_arity(&self, definition: Definition, expected: usize) -> Result<(), String> {
+    pub(crate) fn check_arity(
+        &self,
+        definition: Definition,
+        expected: usize,
+    ) -> Result<(), String> {
         let table = TableId::from_u8((definition.token >> 24) as u8).map_err(|e| e.to_string())?;
         let actual = self
             .index(definition.assembly)?

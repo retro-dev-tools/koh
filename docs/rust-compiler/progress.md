@@ -8,7 +8,21 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-Current generic-method increment specializes closed unconstrained static methods
+Current named-generic increment preserves assembly scope through substitution,
+then binds individual parameters/returns, locals and typed operands in that scope.
+Canonical named keys retain TypeDef+assembly and enum identity. Same-row types in
+separate DLLs have distinct packed layouts, class fields, enum widths, interface
+dispatch and delegate signatures. No metadata aliases or invented tokens are used.
+Broad575/575 passes362.555s, exit0; after the review-fixed indexed arity lookup,
+final23/23 passes66.511s. Final interface/delegate fixture additions pass4/4 in
+27.890s, with32 Debug/Release × DMG/CGB ROMs, deterministic ELF, source ranges and
+bank/stack guards. Logs and remaining constructed-generic boundaries are in
+[generic methods](generic-methods.md). Ledger remains87/565 complete,478 partial/
+outstanding, zero physically retired; broader generic support is not complete.
+Current-source SDK game regression passes2/2 in172.953s, exit0:2048 Debug/DMG
+and JRPG Release/CGB actual gameplay/rendering/state checks, not just builds.
+
+Previous generic-method increment specializes closed unconstrained static methods
 with supported primitive/string/object/vector arguments. Substitution covers
 transitive reference calls, recursion, local/byref storage and typed operands;
 distinct instance symbols retain original MethodDef/PDB provenance. Final20/20

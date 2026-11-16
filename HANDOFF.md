@@ -878,3 +878,45 @@ physicallyretired. Nootherlocalbuildactive. Source/assets590 snapshot
 /tmp/koh-generic-sources.json needs refresh after final brace-only cleanup before
 commit. Fullgoalactive; keepdraftPR55. Currenthead7f CI43924773314Ruststillrunning,
 .NETfastSUCCESS; genericunitnotpushedyet. Nextcommit/push/updatePR/vault.
+
+Named generic arguments unit starts from2221beb. Parent owns edits/builds.
+First test adds local packed Payload, referenced RemotePayload and Marker aliases
+through transitive Library.Forward/Wrap/Make. Current12381 red run
+/tmp/koh-generic-named-red.log; wait for actual generic named-type rejection.
+Design: scoped type arguments retain metadata assembly identity; substitute each
+signature/local/typed operand in its own scope, then bind existing IR types.
+Do not invent metadata tokens/aliases: malformed raw tokens must not become valid
+because compiler-internal aliases happen to share an out-of-table row number.
+Canonical named argument keys use resolved TypeDef+assembly and keep enum identity.
+No generic class layout/constraints/virtual support claim in this increment.
+
+Named scoped-binding implementation: Argument{assembly,ty} canonical keys preserve
+resolved TypeDef+assembly; MethodTypes binds each parameter/return in its scope.
+Lowering locals/byrefs/typedoperands/transitivecalls use same scope. No fake tokens.
+First86557terminal14/14pass27.511s includes4D/RDMGCGB genericdrivers withNamedTypes.
+Added deliberate equal metadata rows for Payload/RemotePayload and Marker/RemoteMarker,
+Rustassertfixturepreconditions and distinct3/12-byte payloads+4/2-byte classfields.
+Current92956live /tmp/koh-generic-named-regression.log:lib/IR/SM83 plusgeneric,
+interface,value-reference andPDBdriverchecks. Parent owns all edits/builds.
+backend_audit read-only owns review of scopedsubstitution/canonicalization and
+nongeneric regression risk; no builds or edits. Broader constraints/declaringtype/
+virtualgeneric remain unfinished. Ledger87/565 unchanged pending fulltest audit.
+
+Named-unit final evidence:92956terminalEXIT0 575/575pass362.555s (268drivercases
+intentionallyunselected), /tmp/koh-generic-named-regression.log. Broadpredates
+reviewfix replacingforeignGenericParam scan with indexedcheck_arity and final
+fixtureadditions. Final50493terminalEXIT0 23/23pass66.511s coversindexedfix,
+13unitcases+4genericdriver+PDB/constructors/SM83calls. Newinterface/delegate
+same-rowfixturekinds69556terminalEXIT0 4/4pass27.890s includes32actualD/RDMGCGB
+ROMs. Pack1 attributes explicitlyset3/12-bytevalues; root/defaultpackingwould
+have4/16bytes, so onlyfinalPack1probesclaim3/12. Enumushort/long andclassint/ushort
+remain distinct. Rustasserts actual equalTypeDefrows for allfivepairedkinds.
+SDK16865terminalEXIT0 2/2pass172.953s:2048DebugDMGgameplay/graphics andJRPG
+ReleaseCGBdialogue/battle/herostate. No trackedassetwrites. Check88295EXIT0
+13.59s(existingcubesunusedhelperwarning); rustdoc62402EXIT0 zero cases; rustfmt
+andCSharpierpass. Reviewresourcegapfixedusingexistingindex; nootherconfirmed
+blockers. Ledger87/565unchanged,478partial/outstanding,zero physicallyretired.
+Alllocalhandles terminal. Nextcommit/pushsamePR55/updatebodyandvaulthandoff.
+Current2221bebCI43928478533 lastverifiedRustin_progress,.NETfastSUCCESS; recheck
+exactrun beforeclaiminghostedoutcome. Fullmigrationstillactive; genericconstraints,
+constructedargs/declaringtypes/virtualtargets,floats,IRQ,bankdata,etc remainopen.

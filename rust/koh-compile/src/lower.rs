@@ -383,34 +383,31 @@ pub fn assembly_method(
     let assembly = resolver.assembly(identity.assembly)?;
     let result = || -> Result<Function, String> {
         crate::contracts::method(resolver, identity)?;
-        let metadata_signature = assembly.method_signature(identity.token)?;
-        let metadata_signature = if instance.is_some() {
-            crate::generics::signature(&metadata_signature, arguments)?
-        } else {
-            metadata_signature
-        };
-        let signature = storage_signature(resolver, identity, &metadata_signature)?;
-        let typed = bound_signature(resolver, identity.assembly, &signature)?;
+        let crate::generics::MethodTypes {
+            parameters: signature_parameters,
+            returns: signature_return,
+            signature: typed,
+        } = crate::generics::method_types(
+            resolver,
+            identity,
+            &assembly.method_signature(identity.token)?,
+            arguments,
+        )?;
         let local_types = assembly
             .local_types(identity.token)?
             .iter()
-            .map(|ty| {
-                storage_type(
-                    resolver,
-                    identity.assembly,
-                    &crate::generics::substitute(ty, arguments)?,
-                )
-            })
+            .map(|ty| crate::generics::storage(resolver, identity.assembly, ty, arguments))
             .collect::<Result<Vec<_>, _>>()?;
         let locals = local_types
             .iter()
-            .map(|ty| bound_type(resolver, identity.assembly, ty))
+            .map(|ty| bound_type(resolver, ty.assembly, &ty.ty))
             .collect::<Result<_, _>>()?;
         let pinned: Vec<_> = local_types
             .iter()
             .enumerate()
             .filter_map(|(index, ty)| {
-                matches!(ty, clrmeta::TypeSig::Pinned(_)).then_some(index + signature.params.len())
+                matches!(ty.ty, clrmeta::TypeSig::Pinned(_))
+                    .then_some(index + signature_parameters.len())
             })
             .collect();
         let body = assembly.method_body(identity.token)?;
@@ -448,14 +445,13 @@ pub fn assembly_method(
             }
         }
         function.blocks[0].instructions.splice(0..0, prefix);
-        let mut slots: Vec<_> = signature
-            .params
+        let mut slots: Vec<_> = signature_parameters
             .iter()
             .chain(&local_types)
-            .map(narrow_type)
+            .map(|argument| narrow_type(&argument.ty))
             .collect();
         slots.resize(function.locals.len(), None);
-        normalize_storage(&mut function, &slots, narrow_type(&signature.return_type))?;
+        normalize_storage(&mut function, &slots, narrow_type(&signature_return.ty))?;
         function.identity = emitted_identity;
         verify(&function)?;
         Ok(function)
@@ -575,7 +571,7 @@ pub struct Method<'a> {
 
 struct Builder<'r, 'a> {
     resolver: Option<&'r crate::resolve::Resolver<'a>>,
-    method_arguments: Vec<clrmeta::TypeSig>,
+    method_arguments: Vec<crate::generics::Argument>,
     next: u32,
     data_bytes: usize,
     edge_arguments: usize,
@@ -792,7 +788,7 @@ fn lower_with(
     method: Method<'_>,
     resolver: Option<&crate::resolve::Resolver<'_>>,
     pinned: &[usize],
-    method_arguments: &[clrmeta::TypeSig],
+    method_arguments: &[crate::generics::Argument],
 ) -> Result<Function, String> {
     lower_inner(&method, resolver, pinned, method_arguments).map_err(|error| {
         format!(
@@ -806,7 +802,7 @@ fn lower_inner(
     method: &Method<'_>,
     resolver: Option<&crate::resolve::Resolver<'_>>,
     pinned: &[usize],
-    method_arguments: &[clrmeta::TypeSig],
+    method_arguments: &[crate::generics::Argument],
 ) -> Result<Function, String> {
     let cil = decode(method.il)?;
     if cil.len() >= 16_384
@@ -1235,14 +1231,15 @@ fn translate(
                 return Err("Missing scalar type token".into());
             };
             let resolver = resolver.ok_or("Typed scalar operations require metadata resolution")?;
-            let storage = bound_storage(
-                resolver,
-                method.identity.assembly,
-                &crate::generics::substitute(
+            let storage = {
+                let operand = crate::generics::storage(
+                    resolver,
+                    method.identity.assembly,
                     &resolver.type_signature(method.identity.assembly, token)?,
                     &b.method_arguments,
-                )?,
-            )?;
+                )?;
+                bound_storage(resolver, operand.assembly, &operand.ty)?
+            };
             let ty = storage.stack_type();
             if i.opcode == 0xfe1c {
                 let value = b.value(Type::I32, Op::Constant(u64::from(storage.bytes())))?;
@@ -1346,15 +1343,13 @@ fn translate(
                 return Err("Missing castclass type".into());
             };
             let resolver = resolver.ok_or("castclass requires metadata resolution")?;
-            let Type::Object(class) = bound_type(
+            let operand = crate::generics::storage(
                 resolver,
                 method.identity.assembly,
-                &crate::generics::substitute(
-                    &resolver.type_signature(method.identity.assembly, token)?,
-                    &b.method_arguments,
-                )?,
-            )?
-            else {
+                &resolver.type_signature(method.identity.assembly, token)?,
+                &b.method_arguments,
+            )?;
+            let Type::Object(class) = bound_type(resolver, operand.assembly, &operand.ty)? else {
                 return Err("castclass requires a supported reference class".into());
             };
             let object = b.pop()?;
@@ -1379,14 +1374,15 @@ fn translate(
                 return Err("Missing array element type".into());
             };
             let resolver = resolver.ok_or("Array element requires metadata resolution")?;
-            let element = bound_storage(
-                resolver,
-                method.identity.assembly,
-                &crate::generics::substitute(
+            let element = {
+                let operand = crate::generics::storage(
+                    resolver,
+                    method.identity.assembly,
                     &resolver.type_signature(method.identity.assembly, token)?,
                     &b.method_arguments,
-                )?,
-            )?;
+                )?;
+                bound_storage(resolver, operand.assembly, &operand.ty)?
+            };
             let length = b.pop()?;
             if !matches!(length.1, Type::I32 | Type::Native) {
                 return Err("Invalid array length type".into());
@@ -1423,14 +1419,15 @@ fn translate(
                     return Err("Missing array element type".into());
                 };
                 let resolver = resolver.ok_or("Array element requires metadata resolution")?;
-                Some(bound_storage(
-                    resolver,
-                    method.identity.assembly,
-                    &crate::generics::substitute(
+                Some({
+                    let operand = crate::generics::storage(
+                        resolver,
+                        method.identity.assembly,
                         &resolver.type_signature(method.identity.assembly, token)?,
                         &b.method_arguments,
-                    )?,
-                )?)
+                    )?;
+                    bound_storage(resolver, operand.assembly, &operand.ty)?
+                })
             } else {
                 None
             };
@@ -1881,16 +1878,17 @@ fn translate(
             {
                 return Err("Direct CIL calls to type/module constructors are unsupported".into());
             }
-            let template_signature = metadata.method_signature(target.definition.token)?;
-            let template_signature = if let Some(instance) = resolver.instance(instantiated)? {
-                crate::generics::signature(&template_signature, &instance.arguments)?
-            } else {
-                template_signature
-            };
-            let metadata_signature =
-                storage_signature(resolver, target.definition, &template_signature)?;
-            let signature =
-                bound_signature(resolver, target.definition.assembly, &metadata_signature)?;
+            let instance = resolver.instance(instantiated)?;
+            let method_types = crate::generics::method_types(
+                resolver,
+                target.definition,
+                &metadata.method_signature(target.definition.token)?,
+                instance
+                    .as_ref()
+                    .map_or(&[][..], |instance| instance.arguments.as_slice()),
+            )?;
+            let return_narrow = narrow_type(&method_types.returns.ty);
+            let signature = method_types.signature;
             let mut arguments = Vec::with_capacity(signature.parameters.len());
             let constructed = if constructing {
                 Some(match signature.parameters.first() {
@@ -2116,7 +2114,7 @@ fn translate(
             };
             if let Some(ty) = returns {
                 let mut value = b.value(ty, op)?;
-                if let Some((bits, signed)) = narrow_type(&metadata_signature.return_type) {
+                if let Some((bits, signed)) = return_narrow {
                     value = b.value(
                         Type::I32,
                         Op::Convert {
@@ -2162,28 +2160,31 @@ fn translate(
             } else if let Some(resolver) = resolver {
                 let image = resolver.assembly(method.identity.assembly)?;
                 let types = if argument {
-                    storage_signature(
+                    crate::generics::method_types(
                         resolver,
                         method.identity,
-                        &crate::generics::signature(
-                            &image.method_signature(method.identity.token)?,
-                            &b.method_arguments,
-                        )?,
-                    )?
-                    .params
-                } else {
-                    image.local_types(method.identity.token)?
-                };
-                field_storage(
-                    resolver,
-                    method.identity.assembly,
-                    &crate::generics::substitute(
-                        types
-                            .get(raw)
-                            .ok_or("Missing addressed storage signature")?,
+                        &image.method_signature(method.identity.token)?,
                         &b.method_arguments,
-                    )?,
-                )?
+                    )?
+                    .parameters
+                } else {
+                    image
+                        .local_types(method.identity.token)?
+                        .iter()
+                        .map(|ty| {
+                            crate::generics::storage(
+                                resolver,
+                                method.identity.assembly,
+                                ty,
+                                &b.method_arguments,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                };
+                let ty = types
+                    .get(raw)
+                    .ok_or("Missing addressed storage signature")?;
+                field_storage(resolver, ty.assembly, &ty.ty)?
             } else {
                 FieldStorage::Value(Storage::Scalar(match ty {
                     Type::I32 => Scalar::I32,
