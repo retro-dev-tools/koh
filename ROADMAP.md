@@ -43,9 +43,14 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   probes, exact per-type results and wide/byref signatures. Final selected283/283
   checks pass. Workspace1047-case run had1045 passes and two stale forged-reference
   diagnostic assertions; both strengthened replacements pass in that selection.
-  Do not call that original full run green. Interface dispatch, managed-reference
-  structs and2048v2/JRPG acceptance remain required; SDK2048v2 now reaches the
-  struct gap in Assets::Load. Metadata commitb4caf55 hosted Rust suites pass1012 Linux/macOS
+  Do not call that original full run green. Reference-bearing structs and typed
+  reference-cell indirection now pass347 selected regressions, including16 ROM
+  probes; ordinary2048v2 SDK compilation succeeds. Full scene-game acceptance
+  remains open. JRPG's next verified build blocker is its rectangular byte[,]
+  map; [requirements](docs/rust-compiler/rectangular-arrays.md) distinguish CLI
+  semantics from legacy layout and readonly-array folding assumptions. Interface
+  dispatch and the other whole-migration gates remain required.
+  Metadata commitb4caf55 hosted Rust suites pass1012 Linux/macOS
   and1010 Windows cases; those results predate the object-core increment.
   Full current-head workspace/hosted acceptance, source debugging, broader
   runtime/gameplay, test closure, release integration and legacy deletion remain
