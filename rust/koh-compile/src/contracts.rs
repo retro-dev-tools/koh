@@ -221,14 +221,7 @@ pub(crate) fn assembly(resolver: &Resolver<'_>, assembly: usize) -> Result<(), S
                 )?;
             }
             Some(Kind::Interrupt) => {
-                if attribute.parent.table != Some(TableId::MethodDef) {
-                    return Err("Interrupt attribute must target a method".into());
-                }
-                row(&metadata.method_defs, attribute.parent.row)?;
-                return Err(format!(
-                    "Assembly {}: Interrupt handlers require interrupt lowering",
-                    resolver.assembly(assembly)?.name()?
-                ));
+                interrupt_declaration(resolver, assembly, attribute)?;
             }
             Some(Kind::Intrinsic) => {
                 match attribute.parent.table {
@@ -259,18 +252,101 @@ pub(crate) fn assembly(resolver: &Resolver<'_>, assembly: usize) -> Result<(), S
     Ok(())
 }
 
+fn interrupt_declaration(
+    resolver: &Resolver<'_>,
+    assembly: usize,
+    attribute: &CustomAttributeRow,
+) -> Result<(u16, Definition), String> {
+    if attribute.parent.table != Some(TableId::MethodDef) {
+        return Err("Interrupt attribute must target a method".into());
+    }
+    let image = resolver.assembly(assembly)?;
+    let metadata = image.metadata();
+    let method = row(&metadata.method_defs, attribute.parent.row)?;
+    let definition = Definition {
+        assembly,
+        token: 0x06000000 | attribute.parent.row,
+    };
+    let name = image.method_name(definition.token)?;
+    let signature = image.method_signature(definition.token)?;
+    if method.flags & 0x10 == 0
+        || method.flags & 0x2400 != 0
+        || method.rva == 0
+        || signature.calling_convention.0 != 0
+        || signature.generic_param_count != 0
+        || signature.sentinel.is_some()
+        || !signature.params.is_empty()
+        || signature.return_type != TypeSig::Primitive(clrmeta::ElementType::Void)
+    {
+        return Err(format!(
+            "{name}: Interrupt handler requires nongeneric static void ()"
+        ));
+    }
+    let owner = metadata
+        .type_defs
+        .partition_point(|ty| ty.method_list <= attribute.parent.row);
+    resolver
+        .check_arity(
+            Definition {
+                assembly,
+                token: 0x02000000 | owner as u32,
+            },
+            0,
+        )
+        .map_err(|error| format!("{name}: Interrupt declaring type: {error}"))?;
+    let bytes = metadata
+        .blobs
+        .get(attribute.value)
+        .map_err(|e| e.to_string())?;
+    let key = named_payload(bytes, "Interrupt").map_err(|e| format!("{name}: {e}"))?;
+    let vector = match key {
+        "VBlank" => 0x40,
+        "Stat" | "LcdStat" | "Lcd" => 0x48,
+        "Timer" => 0x50,
+        "Serial" => 0x58,
+        "Joypad" => 0x60,
+        _ => return Err(format!("{name}: Unknown Interrupt kind {key}")),
+    };
+    Ok((vector, definition))
+}
+
+pub(crate) fn interrupts(
+    resolver: &Resolver<'_>,
+) -> Result<std::collections::BTreeMap<u16, Definition>, String> {
+    let mut handlers = std::collections::BTreeMap::new();
+    let mut methods = HashSet::new();
+    for assembly in 0..resolver.assembly_count() {
+        for attribute in &resolver.assembly(assembly)?.metadata().custom_attributes {
+            if kind(resolver, assembly, attribute)? == Some(Kind::Interrupt) {
+                let (vector, definition) = interrupt_declaration(resolver, assembly, attribute)?;
+                if !methods.insert(definition) {
+                    return Err(format!("Multiple Interrupt attributes on {definition:?}"));
+                }
+                if handlers.insert(vector, definition).is_some() {
+                    return Err(format!("Duplicate Interrupt vector {vector:04X}"));
+                }
+            }
+        }
+    }
+    Ok(handlers)
+}
+
 fn runtime_payload(bytes: &[u8]) -> Result<&str, String> {
+    named_payload(bytes, "KohRuntime")
+}
+
+fn named_payload<'a>(bytes: &'a [u8], label: &str) -> Result<&'a str, String> {
     let read = || -> Result<&str, clrmeta::error::Error> {
         let mut reader = clrmeta::reader::Reader::new(bytes);
         if reader.read_u16()? != 1 {
             return Err(clrmeta::error::Error::ValidationError(
-                "invalid runtime attribute prolog".into(),
+                "invalid attribute prolog".into(),
             ));
         }
         let length = reader.read_compressed_uint()? as usize;
         if length == 0 || length > 128 || reader.position() != 3 + usize::from(length >= 128) {
             return Err(clrmeta::error::Error::ValidationError(
-                "invalid runtime key length".into(),
+                "invalid attribute key length".into(),
             ));
         }
         let key = std::str::from_utf8(reader.read_bytes(length)?)
@@ -282,12 +358,12 @@ fn runtime_payload(bytes: &[u8]) -> Result<&str, String> {
             || !reader.is_empty()
         {
             return Err(clrmeta::error::Error::ValidationError(
-                "invalid runtime key or named arguments".into(),
+                "invalid attribute key or named arguments".into(),
             ));
         }
         Ok(key)
     };
-    read().map_err(|error| format!("Invalid KohRuntime payload: {error}"))
+    read().map_err(|error| format!("Invalid {label} payload: {error}"))
 }
 
 fn runtime_declaration(

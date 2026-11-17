@@ -52,7 +52,21 @@ fn object_inner(
     pdbs: &[Option<crate::pdb::PortablePdb>],
 ) -> Result<koh_objects::Object, String> {
     let entry = entry(resolver, selected)?;
+    let interrupts = crate::contracts::interrupts(resolver)?;
+    if interrupts.values().any(|&handler| handler == entry) {
+        return Err("Interrupt handler cannot be the cartridge entry".into());
+    }
     let functions = reachable(resolver, entry)?;
+    for &handler in interrupts.values() {
+        let function = functions
+            .iter()
+            .find(|f| f.identity == handler)
+            .ok_or("Interrupt root was not lowered")?;
+        let name = resolver
+            .assembly(handler.assembly)?
+            .method_name(handler.token)?;
+        verify_interrupt(function).map_err(|error| format!("{name}: {error}"))?;
+    }
     let classes = resolver
         .class_layouts
         .borrow()
@@ -89,6 +103,7 @@ fn object_inner(
         &interfaces,
         pdbs,
         &origins,
+        &interrupts,
     )?;
     let mut names = std::collections::HashMap::new();
     let mut name_bytes = 0usize;
@@ -149,6 +164,59 @@ fn object_inner(
     object.symbols.extend(aliases);
     object.validate()?;
     Ok(object)
+}
+
+fn verify_interrupt(function: &Function) -> Result<(), String> {
+    use crate::ir::{Op, Type};
+    let scalar = |ty| matches!(ty, Type::I32 | Type::I64 | Type::Native);
+    if function.locals.iter().any(|&ty| !scalar(ty)) {
+        return Err("Interrupt leaf handlers require integer locals".into());
+    }
+    let statics: HashSet<_> = function
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|i| {
+            matches!(i.op, Op::StaticAddress { .. })
+                .then_some(i.result)
+                .flatten()
+                .map(|r| r.0)
+        })
+        .collect();
+    for block in &function.blocks {
+        if block.parameters.iter().any(|&(_, ty)| !scalar(ty)) {
+            return Err("Interrupt leaf handlers require integer block parameters".into());
+        }
+        for instruction in &block.instructions {
+            let supported = match instruction.op {
+                Op::StaticAddress { .. } => true,
+                Op::LoadMemory { address, .. } | Op::StoreMemory { address, .. } => {
+                    statics.contains(&address)
+                }
+                Op::Constant(_)
+                | Op::Binary { .. }
+                | Op::Compare { .. }
+                | Op::RequireRange(_)
+                | Op::Negate(_)
+                | Op::Not(_)
+                | Op::Convert { .. }
+                | Op::LoadLocal(_)
+                | Op::StoreLocal { .. } => true,
+                _ => false,
+            };
+            if !supported
+                || instruction.result.is_some_and(|(_, ty)| {
+                    !scalar(ty) && !matches!(instruction.op, Op::StaticAddress { .. })
+                })
+            {
+                return Err(format!(
+                    "Interrupt leaf handler operation unsupported at IL_{:04x}: {:?}",
+                    instruction.il_offset, instruction.op
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn entry(resolver: &Resolver<'_>, selected: Option<&str>) -> Result<Definition, String> {
@@ -283,6 +351,12 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
     for assembly in 0..resolver.assembly_count() {
         crate::contracts::assembly(resolver, assembly)?;
     }
+    let interrupts = crate::contracts::interrupts(resolver)?;
+    for &handler in interrupts.values() {
+        if seen.insert(handler) {
+            queue.push_back(handler);
+        }
+    }
     loop {
         while let Some(identity) = queue.pop_front() {
             let function = if identity.token >> 24 == 0xfc {
@@ -321,6 +395,12 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
                     }
                     if let Op::Call { target, .. } | Op::NewDelegate { target, .. } = instruction.op
                     {
+                        if interrupts.values().any(|&handler| handler == target) {
+                            return Err(format!(
+                                "Interrupt handler cannot be called or captured: {identity:?} IL_{:04x}",
+                                instruction.il_offset
+                            ));
+                        }
                         if seen.insert(target) {
                             if seen.len() > 4096 {
                                 return Err("Reachable method count exceeds 4096".into());

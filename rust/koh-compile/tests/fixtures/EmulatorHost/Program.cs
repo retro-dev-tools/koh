@@ -17,6 +17,8 @@ bool scroll = args.Length > 0 && args[0] == "--native-scroll";
 bool registers = args.Length > 0 && args[0] == "--native-registers";
 bool cgbHal = args.Length > 0 && args[0] == "--native-cgb-hal";
 bool scene = args.Length > 0 && args[0] == "--native-scene";
+bool irqAbi = args.Length > 0 && args[0] == "--native-irq-abi";
+bool irqCount = args.Length > 0 && args[0] == "--native-irq-count";
 bool video = frame || oamMode || rawOam || maps || (args.Length > 0 && args[0] == "--native-video");
 bool heap =
     video
@@ -26,6 +28,8 @@ bool heap =
     || registers
     || cgbHal
     || scene
+    || irqAbi
+    || irqCount
     || fillCost
     || fillWrap
     || copyWrap
@@ -125,6 +129,11 @@ foreach (
     int cpuEnables = 0;
     int cpuHalts = 0;
     bool delayedEnable = false;
+    Koh.Emulator.Cpu.CpuRegisters? interrupted = null;
+    bool injectedIrq = false;
+    int irqChecks = 0;
+    ushort irqSp = 0;
+    var vblankTicks = new List<ulong>();
     bool Finished() =>
         rawOam ? timing.OamStarts != 0
         : native ? gb.Cpu.Registers.Pc == stop
@@ -147,7 +156,63 @@ foreach (
             gb.Mmu.DebugWrite(0xff0f, 1);
         }
         byte opcode = cpu && !gb.Cpu.Halted ? gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) : (byte)0;
+        if (
+            irqAbi
+            && !injectedIrq
+            && gb.Cpu.Ime
+            && gb.Cpu.Registers.Sp < 0xC200
+            && gb.Cpu.Registers.FlagSet(Koh.Emulator.Cpu.CpuRegisters.FlagC)
+            && gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) == 0xDA
+        )
+        {
+            gb.Mmu.DebugWrite(0xFF0F, 4);
+            injectedIrq = true;
+        }
+        bool returningIrq =
+            irqAbi && interrupted.HasValue && gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) == 0xD9;
         gb.StepInstruction();
+        if (irqCount && gb.Cpu.Registers.Pc == 0x40)
+        {
+            ulong tick = gb.Clock.SystemTicks;
+            if (gb.Ppu.LY != 144)
+                throw new InvalidOperationException("VBlank dispatched outside line144");
+            if (vblankTicks.Count > 0)
+            {
+                ulong period = tick - vblankTicks[^1];
+                if (period < 70_200 || period > 70_248)
+                    throw new InvalidOperationException($"Invalid VBlank period {period}");
+            }
+            vblankTicks.Add(tick);
+        }
+        if (returningIrq)
+        {
+            var expected = interrupted!.Value;
+            var actual = gb.Cpu.Registers;
+            if (
+                actual.AF != expected.AF
+                || actual.BC != expected.BC
+                || actual.DE != expected.DE
+                || actual.HL != expected.HL
+                || actual.Sp != expected.Sp
+                || actual.Pc != expected.Pc
+                || !gb.Cpu.Ime
+            )
+                throw new InvalidOperationException(
+                    $"Interrupt restore expected={expected.AF:X4},{expected.BC:X4},{expected.DE:X4},{expected.HL:X4},{expected.Sp:X4},{expected.Pc:X4} actual={actual.AF:X4},{actual.BC:X4},{actual.DE:X4},{actual.HL:X4},{actual.Sp:X4},{actual.Pc:X4},IME={gb.Cpu.Ime}"
+                );
+            interrupted = null;
+            irqChecks++;
+        }
+        if (irqAbi && gb.Cpu.Registers.Pc == 0x50 && interrupted is null)
+        {
+            var expected = gb.Cpu.Registers;
+            expected.Pc = (ushort)(
+                gb.Mmu.DebugRead(expected.Sp) | (gb.Mmu.DebugRead((ushort)(expected.Sp + 1)) << 8)
+            );
+            expected.Sp += 2;
+            irqSp = expected.Sp;
+            interrupted = expected;
+        }
         if (cpu)
         {
             if ((opcode == 0xf3 && gb.Cpu.Ime) || (delayedEnable && opcode != 0xf3 && !gb.Cpu.Ime))
@@ -178,6 +243,8 @@ foreach (
         throw new InvalidOperationException(
             $"ROM did not finish: {path}, PC={gb.Cpu.Registers.Pc:X4}, C010={gb.Mmu.DebugRead(0xC010):X2}"
         );
+    if (irqAbi && (irqChecks != 1 || interrupted.HasValue))
+        throw new InvalidOperationException("Interrupt ABI check did not complete exactly once");
     if (frame)
     {
         for (int i = 0; i < 2; i++)
@@ -292,6 +359,10 @@ foreach (
                 $" {((rasterTrace.FinalIme ?? gb.Cpu.Ime) ? 1 : 0)}:{gb.Mmu.DebugRead(0xff70):X2}:{(gb.KeyOne.DoubleSpeed ? 1 : 0)} {string.Join(',', rasterTrace.Reads.DefaultIfEmpty("-"))} {string.Join(',', rasterTrace.Writes.DefaultIfEmpty("-"))}";
         if (scene)
             snapshot += " " + Convert.ToHexString(result);
+        if (irqAbi)
+            snapshot += $" {irqChecks}:{irqSp:X4}";
+        if (irqCount)
+            snapshot += $" {vblankTicks.Count}";
         Console.WriteLine(
             $"{gb.Cpu.Registers.A:X2} {gb.Cpu.Registers.DE:X4}{gb.Cpu.Registers.HL:X4} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}{snapshot}"
         );

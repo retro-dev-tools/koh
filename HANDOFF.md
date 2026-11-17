@@ -1975,3 +1975,35 @@ mode; no emulator production/API/compiler changes. Full neighboring selection
 CSharpier two files/Rustfmt/diff checks pass. Ledger192/565 complete (191native
 +1DELETE),373outstanding. Prior55ff6f2 remains local; batch both after published
 49ac462 CI44027838391 terminal. Never cancel current run; .NET job succeeded.
+
+## Leaf interrupt runtime increment verified locally
+
+Base4065231, separate f2836f6 fixes emulator RETI immediateIME (EI staysdelayed).
+Whole emulator175/175 pass,zero skips afterformat; primary
+/tmp/koh-reti-emulator-final-{build,tests}.log. Rust trace exposed matchingall
+regs/SP/PC butfalseIME; do notadaptcompileroutputtobugs. No emulatorrewrite.
+
+NativeIRQ unit validates5vectors/staticvoid metadata, roots allsuppliedassemblies,
+allowsinteger/static leafIR, rejects calls/heap/indirectMMIO/EI/reentrant/captured
+handlers. ROM0 nonbankedbody and wrappers saveAFBCDEHL,CALL,restore,RETI.
+Every main guard reserves max handler Layout.size+16; hardwarePC2+saved8+CALL2
++scratch4. TypedIRunchanged. Existingruntimehelpers stack-local; no bank shadow.
+
+Native tests6cases:20ROMs (D/R×DMG/CGB,2/3/5 realVBlankcounts/periods,5software
+vectors,mainbanks257+,deepstackCPUrestore atfailingguard beforetrap) and28
+metadata/body/entry diagnostics withpaniccapture. Oldpure recursivefunction
+optimizedtoloop; postcallNOPeffectforcesactualstackdepth. No weakenedIRQIME
+assertion. PendingContracts oldblanketrejectionreplacedbyinvalidreturntest.
+Broad372/372 pass616.386s419excluded beforelate metadata/adapter refinements;
+final200/200 pass63.640s427excluded,EXIT0. Primary/tmp/koh-interrupt-final.log,
+/tmp/koh-interrupt-late-final.log. Workspaceallfeatures/alltargetscheck,
+separaterustdocfourzero,fmt/CSharpier/diffpass. Discovery1739,all6IRQunignored.
+Existingunusedcubeshelperwarning. Independentread-onlyreview no confirmeddefect;
+reviewdidnotexecute tests. Docsinterrupts.md and reti-reference-correction.md.
+
+Ledger198/565 (197native+1obsoleteparserDELETE),367outstanding,zerophysically
+removed. Fullmigrationstillincomplete;broaderIRQ/runtime/banks/games/debug/SDK/
+release/licensing/performance/hostacceptance andfinalC#compilerremoval remain.
+No localbuilds/reviews live. Published4065231 CI44032064732 stillin_progress
+(Rusttests; .NETjobpassed), do notcancel/restart. Commitnativeunitthenbatch with
+f2836f6 afterCIterminal. Preserveunrelatedmaincheckoutdirtybattle.png.

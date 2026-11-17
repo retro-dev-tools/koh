@@ -21,6 +21,7 @@ pub fn static_symbol(identity: Definition) -> String {
 }
 
 struct Code<'a> {
+    stack_reserve: u16,
     data: Vec<u8>,
     readonly: Vec<u8>,
     literals: BTreeMap<Vec<u8>, SymbolId>,
@@ -161,6 +162,7 @@ impl Code<'_> {
     }
 
     fn guard(&mut self, bytes: u16) {
+        let bytes = bytes + self.stack_reserve;
         let negative = 0u16.wrapping_sub(bytes);
         self.bytes(&[
             0xf8,
@@ -1300,6 +1302,21 @@ pub(crate) fn emit_with_strings_origin(
     pdb: Option<&crate::pdb::PortablePdb>,
     source_method: u32,
 ) -> Result<Object, String> {
+    emit_with_stack_reserve(function, strings, banked, pdb, source_method, 0)
+}
+
+pub(crate) fn interrupt_reserve(function: &Function) -> Result<u16, String> {
+    Ok(Layout::new(function, 0)?.size + 16)
+}
+
+pub(crate) fn emit_with_stack_reserve(
+    function: &Function,
+    strings: Option<&BTreeMap<Vec<u16>, String>>,
+    banked: bool,
+    pdb: Option<&crate::pdb::PortablePdb>,
+    source_method: u32,
+    stack_reserve: u16,
+) -> Result<Object, String> {
     verify(function)?;
     let constants: BTreeMap<_, _> = function
         .blocks
@@ -1315,9 +1332,16 @@ pub(crate) fn emit_with_strings_origin(
         .collect();
     let cookie = if banked { 4 } else { 0 };
     let layout = Layout::new(function, cookie)?;
+    if layout.size + stack_reserve + 4 > 0xf00 {
+        return Err(format!(
+            "{}: function frame plus interrupt reserve exceeds WRAM0 stack capacity",
+            symbol(function.identity)
+        ));
+    }
     let cookie = cookie as u16;
     let name = symbol(function.identity);
     let mut code = Code {
+        stack_reserve,
         data: vec![],
         readonly: vec![],
         literals: BTreeMap::new(),

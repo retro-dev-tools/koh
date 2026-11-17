@@ -1,7 +1,9 @@
 # Native CIL compiler migration (PR #55)
 
 Status: migration incomplete. Native CIL reading, typed IR, optimization and
-SM83/ELF emission are implemented, including banked managed calls. The SDK now
+SM83/ELF emission are implemented, including banked managed calls and
+[leaf hardware interrupt roots](interrupts.md). Broader IRQ runtime support remains
+incomplete. The SDK now
 invokes native compiler/linker processes; the legacy compiler source and test
 project still remain pending final replacement acceptance. Complete sample
 acceptance, test-disposition closure, performance comparison and final hosted
@@ -21,7 +23,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-192/565 dispositions complete (191 native replacements, one DELETE),373 outstanding,
+198/565 dispositions complete (197 native replacements, one DELETE),367 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The remaining five [CGB HAL methods](cgb-hal.md) now check actual referenced
 code, both VRAM banks, all palette bytes and CGB-only CPU writes.
@@ -1626,7 +1628,7 @@ documentation; it does not add code verification claims.
 Eleven [comparison/conversion source methods](optimizer-scalar-contracts.md)
 now have complete native replacements:70 new parameterized cases,920 ROM
 executions and44,440 before/after IR evaluations. Both full affected targets
-passed310/310, zero skipped,510.277s, exit0. Ledger192/565 complete,374
+passed310/310, zero skipped,510.277s, exit0. Ledger191/565 complete,374
 outstanding; no legacy compiler/test definitions physically removed.
 
 ## Real framework scene-flow acceptance
@@ -1636,3 +1638,17 @@ with four native Debug/Release × DMG/CGB cases. Actual Game.Run executes two
 deferred transitions and preserves constructor state across three scenes.
 Final neighboring object/virtual/tileset regression16/16 passed112.176s, exit0.
 Ledger192/565 complete,373 outstanding; no legacy definitions removed.
+
+## Leaf interrupt runtime and reference correction
+
+All five hardware vectors now root validated static leaf handlers in Rust.
+ROM0 wrappers save AF/BC/DE/HL, call nonbanked bodies and restore before RETI;
+main guards reserve the worst handler frame plus16 bytes. Real VBlank counts,
+software requests, high MBC5 banks and deep-stack CPU restoration execute in
+Debug/Release × DMG/CGB. Six source methods/11 assertion sites close: ledger
+198/565 complete,367 outstanding; zero definitions physically retired.
+The separately committed RETI correction fixes delayed IME in the C# emulator
+rather than adapting compiler output to that bug. See [IRQ contract](interrupts.md)
+and [reference correction](reti-reference-correction.md). Whole migration remains
+incomplete; richer handlers/reentrancy, game/debug/SDK/release/performance/host
+acceptance and C# compiler removal are still required.

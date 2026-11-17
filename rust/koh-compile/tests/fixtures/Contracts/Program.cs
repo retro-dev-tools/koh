@@ -31,7 +31,7 @@ public static class Program
     public static int Main() => Register;
 #elif INTERRUPT
     [Interrupt("VBlank")]
-    public static void UncalledHandler() { }
+    public static int UncalledHandler() => 42;
 
     public static int Main() => 42;
 #elif PROPERTY

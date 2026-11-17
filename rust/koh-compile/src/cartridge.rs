@@ -100,7 +100,12 @@ fn patch(section: usize, offset: usize, target: usize) -> Patch {
     }
 }
 
-fn startup(entry: &Function, globals: u16, dma: bool) -> Result<Object, String> {
+fn startup(
+    entry: &Function,
+    globals: u16,
+    dma: bool,
+    interrupts: &BTreeMap<u16, Definition>,
+) -> Result<Object, String> {
     if !entry.parameters.is_empty() || !matches!(entry.returns, None | Some(Type::I32)) {
         return Err("Invalid cartridge entry signature".into());
     }
@@ -216,6 +221,25 @@ fn startup(entry: &Function, globals: u16, dma: bool) -> Result<Object, String> 
         boot[vector] = 0xc3;
         boot_patches.push(patch(0, vector + 1, 6));
     }
+    for (&vector, &handler) in interrupts {
+        let wrapper = symbols.len();
+        symbols.push(symbol(format!("__koh_irq_{vector:04x}"), 1, data.len()));
+        let relocation = boot_patches
+            .iter_mut()
+            .find(|patch| patch.offset == usize::from(vector) + 1)
+            .ok_or("Invalid interrupt vector")?;
+        relocation.expression = RelocationExpr::Symbol(SymbolId(wrapper));
+        data.extend_from_slice(&[0xf5, 0xc5, 0xd5, 0xe5, 0xcd]);
+        let target = symbols.len();
+        symbols.push(Symbol {
+            name: sm83::symbol(handler),
+            binding: SymbolBinding::Local,
+            definition: SymbolDefinition::Import,
+            source: None,
+        });
+        patches.push(patch(1, data.len(), target));
+        data.extend_from_slice(&[0, 0, 0xe1, 0xd1, 0xc1, 0xf1, 0xd9]);
+    }
     let far = symbols.len();
     symbols.push(symbol("__koh_far_call".into(), 1, data.len()));
     patches.push(patch(1, far_call, far));
@@ -293,6 +317,7 @@ pub(crate) fn emit(
         &HashMap::new(),
         &[],
         &HashMap::new(),
+        &BTreeMap::new(),
     )
 }
 
@@ -303,6 +328,7 @@ pub(crate) fn emit_with_debug(
     interfaces: &HashMap<Definition, Vec<Definition>>,
     pdbs: &[Option<crate::pdb::PortablePdb>],
     origins: &HashMap<Definition, Definition>,
+    interrupts: &BTreeMap<u16, Definition>,
 ) -> Result<Object, String> {
     verify_program(functions)?;
     let root = functions
@@ -350,7 +376,15 @@ pub(crate) fn emit_with_debug(
         .flat_map(|f| &f.blocks)
         .flat_map(|b| &b.instructions)
         .any(|i| matches!(i.op, crate::ir::Op::OamDma(_)));
-    let mut objects = vec![startup(root, bytes, dma)?];
+    let interrupt_reserve = functions
+        .iter()
+        .filter(|f| interrupts.values().any(|&id| id == f.identity))
+        .map(sm83::interrupt_reserve)
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .max()
+        .unwrap_or(0);
+    let mut objects = vec![startup(root, bytes, dma, interrupts)?];
     if dma {
         objects.push(Object {
             sections: vec![
@@ -475,8 +509,15 @@ pub(crate) fn emit_with_debug(
             .get(&function.identity)
             .copied()
             .unwrap_or(function.identity);
-        let object =
-            sm83::emit_with_strings_origin(function, Some(&strings), true, pdb, origin.token)?;
+        let interrupt = interrupts.values().any(|&id| id == function.identity);
+        let object = sm83::emit_with_stack_reserve(
+            function,
+            Some(&strings),
+            !interrupt,
+            pdb,
+            origin.token,
+            if interrupt { 0 } else { interrupt_reserve },
+        )?;
         account_debug_bytes(&object, &mut debug_bytes)?;
         objects.push(object);
     }

@@ -4,6 +4,8 @@ mod cgb_hal;
 mod checked_arithmetic;
 #[path = "driver/checked_casts.rs"]
 mod checked_casts;
+#[path = "driver/interrupts.rs"]
+mod interrupts;
 #[path = "driver/ir_contracts.rs"]
 mod ir_contracts;
 use koh_compile::{compile, resolve::Resolver};

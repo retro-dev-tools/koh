@@ -125,9 +125,10 @@ behavior required by C# remainder semantics. Hardware/native stack overflow is n
 allowed to become a successful ROM build or silent WRAM corruption.
 
 Static integer calls and recursion are now exercised by the [call increment](calls.md).
-Interrupts, banked data and the wider runtime remain incomplete. Interrupt support must reserve its worst-case
-stack budget before enabling IME and preserve interrupted registers/flags; IRQ
-recursion/nesting constraints need separate tests. The linker-visible stack UNION
+[Leaf interrupts](interrupts.md) now reserve their worst-case frame plus16 bytes
+in every main guard and preserve AF/BC/DE/HL in ROM0 wrappers before RETI.
+Calls/allocation/nested enabling in handlers diagnose. Broader interrupt work,
+banked data and the wider runtime remain incomplete. The linker-visible stack UNION
 reservation, startup, globals, bounded heap and banked calls are integrated.
 The current debugger's heuristic stack scan cannot distinguish spill bytes from
 return addresses; accurate frame inspection needs integration evidence.
