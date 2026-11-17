@@ -23,14 +23,24 @@ public static class Program
     static byte timer;
     static byte serial;
     static byte joypad;
+    static byte wrapping;
+    static ulong checksum;
+    static nuint nativeProof;
+    static bool bankZero;
+    static uint referencedProof;
 
     [Interrupt("VBlank")]
     static void OnVBlank()
     {
-        frames++;
-        Hardware.SCY += 3;
+        frames = Increment(frames);
+        wrapping = Increment(wrapping);
+        checksum = AddWide(checksum, 0x8000000100000002UL);
+        nativeProof = AddNative((nuint)(frames + 0xFF), 0x101);
+        referencedProof = SoftFloat.NegF32(0x8000002Au);
+        Hardware.SCY = Advance(Hardware.SCY, 3);
         Hardware.SCX = (byte)(0xED + (Hardware.IE & 1));
         Hardware.BGP = (byte)(0xE0 | frames);
+        Hardware.LYC = wrapping;
     }
 
     [Interrupt("Stat")]
@@ -44,6 +54,16 @@ public static class Program
 
     [Interrupt("Joypad")]
     static void OnJoypad() => joypad++;
+
+    static byte Increment(byte value) => (byte)AddNative(value, 1);
+
+    static nuint AddNative(nuint left, nuint right) => unchecked(left + right);
+
+    static byte Advance(byte value, byte amount) => (byte)SharedAdd(value, amount);
+
+    static int SharedAdd(int left, int right) => left + right;
+
+    static ulong AddWide(ulong left, ulong right) => unchecked(left + right);
 
     static void Calls() => Main();
 
@@ -85,9 +105,18 @@ public static class Program
 
     static void Recursive() => OnVBlank();
 
+    static void RecursiveHelper() => Cycle(0);
+
+    static int Cycle(int value)
+    {
+        int result = Cycle(value + 1);
+        Hardware.SCY++;
+        return result;
+    }
+
     static int Deep(int depth)
     {
-        int value = Deep(depth + 1);
+        int value = Deep((int)AddNative((nuint)depth, 1));
         Hardware.Nop();
         return value + depth;
     }
@@ -126,7 +155,13 @@ public static class Program
 
     public static int Count5() => Real(5);
 
-    static int Real(byte count)
+    public static int BankZero()
+    {
+        bankZero = true;
+        return Real(2);
+    }
+
+    static unsafe int Real(byte count)
     {
         Hardware.DisableInterrupts();
         Hardware.LCDC = 0;
@@ -134,15 +169,24 @@ public static class Program
         Hardware.SCY = 0;
         Hardware.SCX = 0;
         Hardware.BGP = 0;
+        wrapping = (byte)AddNative(0xFC, 2);
         current = new Doubler();
         int sum = current.Step(7);
         current = new Tripler();
-        sum += current.Step(7);
+        sum = SharedAdd(sum, current.Step(7));
+        if (bankZero)
+        {
+            *(byte*)0x2000 = 0;
+            *(byte*)0x3000 = 0;
+        }
         Hardware.IE = 1;
         Hardware.LCDC = 0x91;
         Hardware.EnableInterrupts();
         while (frames < count) { }
         Hardware.DisableInterrupts();
+        *(ulong*)0xC008 = AddWide(checksum, 0);
+        *(ushort*)0xC020 = (ushort)nativeProof;
+        *(uint*)0xC022 = referencedProof;
         return (frames << 16) | (sum + current.Step(7));
     }
 }

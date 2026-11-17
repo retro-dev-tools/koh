@@ -2,7 +2,7 @@
 
 Status: migration incomplete. Native CIL reading, typed IR, optimization and
 SM83/ELF emission are implemented, including banked managed calls and
-[leaf hardware interrupt roots](interrupts.md). Broader IRQ runtime support remains
+[bounded hardware interrupt roots](irq-calls.md). Broader IRQ runtime support remains
 incomplete. The SDK now
 invokes native compiler/linker processes; the legacy compiler source and test
 project still remain pending final replacement acceptance. Complete sample
@@ -1661,3 +1661,13 @@ Bank/DMA/boot/speed-control writes, wide/dynamic IO and arbitrary pointers diagn
 The larger VBlank body also passes full CPU restoration at a failing stack guard.
 Current24 ROMs/52 diagnostics,207/207 neighboring checks and6/6 final IRQ checks
 pass locally. Ledger remains198/565; no extra source dispositions are claimed.
+
+## Bounded IRQ helper-call ABI
+
+[Scalar IRQ call graphs](irq-calls.md) now use one ordinary ABI/body in ROM0,
+address-based bank-switch elision and a one-byte context flag for shared guards.
+Real16/32/64-bit calls, reference-library inclusion, modular overflow, shared
+main helpers, bankzero/highbanks, exact CPU restoration and source mapping are
+covered. The broad384/384 selection includes all four real2048 SDK game cases.
+KDBG v1/high-bank unwinding remain explicit separate limitations, not execution
+acceptance. Ledger remains198/565; no source test definitions physically removed.

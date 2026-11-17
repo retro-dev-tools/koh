@@ -9,6 +9,7 @@ mod delegates;
 mod dispatch;
 mod generics;
 mod initialize;
+mod interrupts;
 pub mod ir;
 pub mod layout;
 pub mod lower;

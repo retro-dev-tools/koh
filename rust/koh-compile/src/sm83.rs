@@ -162,19 +162,19 @@ impl Code<'_> {
     }
 
     fn guard(&mut self, bytes: u16) {
-        let bytes = bytes + self.stack_reserve;
         let negative = 0u16.wrapping_sub(bytes);
-        self.bytes(&[
-            0xf8,
-            0,
-            0x11,
-            negative as u8,
-            (negative >> 8) as u8,
-            0x19,
-            0x7c,
-            0xfe,
-            0xc1,
-        ]);
+        self.bytes(&[0xf8, 0, 0x11, negative as u8, (negative >> 8) as u8, 0x19]);
+        if self.stack_reserve != 0 {
+            let compare = self.label();
+            let active = self.import("__koh_irq_active".into());
+            self.jump(0xfa, active);
+            self.bytes(&[0xb7]);
+            self.jump(0xc2, compare);
+            let reserve = 0u16.wrapping_sub(self.stack_reserve);
+            self.bytes(&[0x11, reserve as u8, (reserve >> 8) as u8, 0x19]);
+            self.mark(compare);
+        }
+        self.bytes(&[0x7c, 0xfe, 0xc1]);
         self.jump(0xda, SymbolId(1));
     }
 
@@ -1305,8 +1305,8 @@ pub(crate) fn emit_with_strings_origin(
     emit_with_stack_reserve(function, strings, banked, pdb, source_method, 0)
 }
 
-pub(crate) fn interrupt_reserve(function: &Function) -> Result<u16, String> {
-    Ok(Layout::new(function, 0)?.size + 16)
+pub(crate) fn interrupt_frame(function: &Function) -> Result<u16, String> {
+    Ok(Layout::new(function, 4)?.size)
 }
 
 pub(crate) fn emit_with_stack_reserve(

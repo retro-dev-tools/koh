@@ -125,10 +125,12 @@ behavior required by C# remainder semantics. Hardware/native stack overflow is n
 allowed to become a successful ROM build or silent WRAM corruption.
 
 Static integer calls and recursion are now exercised by the [call increment](calls.md).
-[Leaf interrupts](interrupts.md) now reserve their worst-case frame plus16 bytes
-in every main guard and preserve AF/BC/DE/HL in ROM0 wrappers before RETI.
+[Bounded interrupts](irq-calls.md) reserve their complete call-graph stack need
+in main guards and preserve AF/BC/DE/HL in ROM0 wrappers before RETI. Shared
+helpers use the ordinary call cookie and an IRQ-context byte for guard selection.
 Constant-address byte IO is allowed with explicit bank/DMA/boot/speed-control
-write restrictions. Calls/allocation/nested enabling in handlers diagnose. Broader interrupt work,
+write restrictions. Acyclic scalar helper calls are supported; allocation and
+nested enabling in handlers diagnose. Broader interrupt work,
 banked data and the wider runtime remain incomplete. The linker-visible stack UNION
 reservation, startup, globals, bounded heap and banked calls are integrated.
 The current debugger's heuristic stack scan cannot distinguish spill bytes from

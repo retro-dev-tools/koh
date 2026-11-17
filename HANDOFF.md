@@ -2036,3 +2036,53 @@ or reviewers live. Committhisunit;holdlocalwhilepublished e0b05d1 CI44037748828
 runs;nevercancel/restartfornewcommits. Previous4065231 CI44032064732success
 1733/1733,zero skips;log/tmp/koh-ci-4065231-completed.log GH0. e0b05d1 batch
 pushedEXIT0 andPRdraft/master/currentheadverified. Fullmigrationstillincomplete.
+
+## IRQ helper-call unit under implementation/review
+
+Base local1652f39(MMIOverifiedcommitted),published e0b05d1; itsCI44037748828 now
+terminalsuccess(freshstatus),lognotdownloaded yet. Dirtyhelperunit addsnative
+interrupts::Plan: closed scalar callgraph validation, explicit topological
+stackbudget/cyclerejection, shared-main/IRQ member detection. AllIRQreachable
+functions useordinarybankedABI butplacementROM0. Farcall/return skipMBCwrites
+by targetCPUaddress<4000,notbanknumber. Wrappersuseordinaryfarcallcookie4;
+IRQactiveWRAM0byte0→1→0 lets shared code's guards omit globalreserve withinIRQ
+but reserve it frommain. IRQ-onlyfunctions baseguards0; allothercodeglobalreserve.
+Planbudget rootprefix16(hardware2+saved8+cookie4+CALL2),functionframe+max(temp4,
+callargs+ret+cookie4+CALL2+childneed). __koh_irq_stack_reserve absoluteELFsymbol
+exposesbudget. Main ownsallchanges/tests/docs; reviewer read-onlyABI/graph/bank
+scope, no builds/edits. Current22217 runs11cases /tmp/koh-irq-calls-bank-zero.log;
+previous11/11passed39.133s beforeNative16fullproof andBankZeroaddition. Five
+rstestbudgetcases include16/32/64fit and4×1024callarg-onlyoverflow. Nativefixture
+shared16/32/64helpers,bytewrap/full64checksum,52+mutantdiagnostics plushelpercycle.
+Mainhighbank257+; newBankZero forcesmainIRROM0 andselectsphysicalMBC5bank0.
+Testoutput C008..C027 reservedwithELFsection toavoidstaticstoragealias. Adapter
+comparesallCPUregs+IME+bothMBC5bankregisters atRETI, includingrealVBlank2/3/5;
+tightguardprobe boundrelativecompiledreserve. No localbuildconcurrency allowed.
+
+## IRQ helper calls verified locally; ready for commit/batch
+
+Broad384/384 pass892.703s(2slowSDK,440excluded) includesall4 actual2048 SDK
+Debug/Release×DMG/CGB cases; primary/tmp/koh-irq-calls-final.log EXIT0. Latest
+current11/11pass45.960s621excluded withmatching app/referencePDBs,source maps,
+KDBG≤255success/>255expliciterror, strongsharedmainreserveinvariant,high-bit
+64-bitwrap/full16native/bytewrap/referencedNegF32bithelper. Primary
+/tmp/koh-irq-calls-scoped-final.log EXIT0. New5rstest budgetcases+6integration
+cases discoverunignored;workspacecount1744. Workspaceallfeatures/alltargets
+check+separaterustdocfourzero pass. Existingunusedcubeshelperwarning. No local
+builds/reviewslive. 28ROMs/54negativevariants; ledger198/565unchanged367outstanding.
+Read-onlyindependentreviewno confirmedABI/graphdefect;didnotrun tests.
+
+Debugaliasopeningbrace24vsactualreturn25/26 inSoftFloat.NegF32 made anexactline
+assertionwrong;changedtoscopedcode-range/sourcepathmapping,notretainedelidedNOP.
+Failure/tmp/koh-irq-calls-pdb-diagnostic.log. KDBGv1writer+nativeunwinder reject
+callerbanks>255 confirmedprimarysources;physicalexecutionhighbankproofisnot
+large-bankdebugproof. No debuggerrewrite or KDBGformatmigration inthisunit.
+Metadata diagnosticnames nowformattedonlyonfailure,no unboundednamecache.
+
+Commitnativehelperunitthenbatchwith1652f39. Published e0b05d1 CI44037748828
+terminalsuccessconfirmedprimarylog/tmp/koh-ci-e0b05d1-completed.log GH_EXIT0:
+1739/1739Rust1846.886s,zero skips,4rustdoczero,.NET564pass/2UIskips/0fail.
+Nevercancel/restartCIforobservationtimeout. Fullmigrationactive/incomplete;
+constructedgenericlayouts/statics/boxing/bankeddata/debug/SDK/releases/perf/
+hostfinalacceptance/test367closures/legacydeletionstillrequired. Maincheckout
+battle.pngpreexistingdirtyhashunchangedfb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454.

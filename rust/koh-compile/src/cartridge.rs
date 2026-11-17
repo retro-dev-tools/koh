@@ -123,6 +123,14 @@ fn startup(
     boot[0x101] = 0xc3;
     let mut boot_patches = vec![patch(0, 0x102, 0)];
     let mut data = vec![0xf3, 0x31, 0, 0xd0, 0xaf, 0xe0, 0x0f, 0xea, 0xff, 0xff];
+    let irq_init = if interrupts.is_empty() {
+        None
+    } else {
+        data.push(0xea);
+        let offset = data.len();
+        data.extend_from_slice(&[0, 0]);
+        Some(offset)
+    };
     let zero = data.len();
     if globals != 0 {
         data.extend_from_slice(&[
@@ -221,6 +229,18 @@ fn startup(
         boot[vector] = 0xc3;
         boot_patches.push(patch(0, vector + 1, 6));
     }
+    let active = irq_init.map(|offset| {
+        let id = symbols.len();
+        symbols.push(Symbol {
+            name: "__koh_irq_active".into(),
+            binding: SymbolBinding::Local,
+            definition: SymbolDefinition::Import,
+            source: None,
+        });
+        patches.push(patch(1, offset, id));
+        id
+    });
+    let mut irq_calls = Vec::new();
     for (&vector, &handler) in interrupts {
         let wrapper = symbols.len();
         symbols.push(symbol(format!("__koh_irq_{vector:04x}"), 1, data.len()));
@@ -229,7 +249,9 @@ fn startup(
             .find(|patch| patch.offset == usize::from(vector) + 1)
             .ok_or("Invalid interrupt vector")?;
         relocation.expression = RelocationExpr::Symbol(SymbolId(wrapper));
-        data.extend_from_slice(&[0xf5, 0xc5, 0xd5, 0xe5, 0xcd]);
+        data.extend_from_slice(&[0xf5, 0xc5, 0xd5, 0xe5, 0x3e, 1, 0xea]);
+        patches.push(patch(1, data.len(), active.ok_or("Missing IRQ state")?));
+        data.extend_from_slice(&[0, 0, 0xe8, 0xfc, 0xf8, 2, 0x36, 0, 0x23, 0x36, 0, 0x01]);
         let target = symbols.len();
         symbols.push(Symbol {
             name: sm83::symbol(handler),
@@ -238,21 +260,34 @@ fn startup(
             source: None,
         });
         patches.push(patch(1, data.len(), target));
+        data.extend_from_slice(&[0, 0, 0x11]);
+        let mut bank = patch(1, data.len(), target);
+        bank.expression = RelocationExpr::Bank(SymbolId(target));
+        patches.push(bank);
+        data.extend_from_slice(&[0, 0, 0xcd]);
+        irq_calls.push(data.len());
+        data.extend_from_slice(&[0, 0, 0xaf, 0xea]);
+        patches.push(patch(1, data.len(), active.ok_or("Missing IRQ state")?));
         data.extend_from_slice(&[0, 0, 0xe1, 0xd1, 0xc1, 0xf1, 0xd9]);
     }
     let far = symbols.len();
     symbols.push(symbol("__koh_far_call".into(), 1, data.len()));
     patches.push(patch(1, far_call, far));
+    for offset in irq_calls {
+        patches.push(patch(1, offset, far));
+    }
     data.extend_from_slice(&[0xe1, 0xe8, 2, 0xe5, 0x21]);
     let tail_address = data.len();
     data.extend_from_slice(&[
-        0, 0, 0xe5, 0x7b, 0xea, 0, 0x20, 0x7a, 0xea, 0, 0x30, 0x60, 0x69, 0xe9,
+        0, 0, 0xe5, 0x78, 0xfe, 0x40, 0x38, 8, 0x7b, 0xea, 0, 0x20, 0x7a, 0xea, 0, 0x30, 0x60,
+        0x69, 0xe9,
     ]);
     let tail = symbols.len();
     symbols.push(symbol("__koh_far_return".into(), 1, data.len()));
     patches.push(patch(1, tail_address, tail));
     data.extend_from_slice(&[
-        0xc1, 0xd1, 0x7b, 0xea, 0, 0x20, 0x7a, 0xea, 0, 0x30, 0x60, 0x69, 0xe9,
+        0xc1, 0xd1, 0x78, 0xfe, 0x40, 0x38, 8, 0x7b, 0xea, 0, 0x20, 0x7a, 0xea, 0, 0x30, 0x60,
+        0x69, 0xe9,
     ]);
     if globals != 0 {
         let id = symbols.len();
@@ -317,7 +352,7 @@ pub(crate) fn emit(
         &HashMap::new(),
         &[],
         &HashMap::new(),
-        &BTreeMap::new(),
+        &crate::interrupts::Plan::default(),
     )
 }
 
@@ -328,7 +363,7 @@ pub(crate) fn emit_with_debug(
     interfaces: &HashMap<Definition, Vec<Definition>>,
     pdbs: &[Option<crate::pdb::PortablePdb>],
     origins: &HashMap<Definition, Definition>,
-    interrupts: &BTreeMap<u16, Definition>,
+    interrupts: &crate::interrupts::Plan,
 ) -> Result<Object, String> {
     verify_program(functions)?;
     let root = functions
@@ -368,7 +403,7 @@ pub(crate) fn emit_with_debug(
     let bytes = offset
         .checked_add(if heap { 4 } else { 0 })
         .ok_or("Static storage exceeds capacity")?;
-    if bytes > 0x100 {
+    if usize::from(bytes) + usize::from(!interrupts.vectors.is_empty()) > 0x100 {
         return Err("Compiler static storage exceeds available WRAM0 capacity (256 bytes)".into());
     }
     let dma = functions
@@ -376,15 +411,27 @@ pub(crate) fn emit_with_debug(
         .flat_map(|f| &f.blocks)
         .flat_map(|b| &b.instructions)
         .any(|i| matches!(i.op, crate::ir::Op::OamDma(_)));
-    let interrupt_reserve = functions
-        .iter()
-        .filter(|f| interrupts.values().any(|&id| id == f.identity))
-        .map(sm83::interrupt_reserve)
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .max()
-        .unwrap_or(0);
-    let mut objects = vec![startup(root, bytes, dma, interrupts)?];
+    let interrupt_reserve = interrupts.reserve;
+    let mut objects = vec![startup(root, bytes, dma, &interrupts.vectors)?];
+    if !interrupts.vectors.is_empty() {
+        objects.push(Object {
+            sections: vec![Section {
+                name: ".koh.irq.active".into(),
+                kind: 4,
+                size: 1,
+                ..Default::default()
+            }],
+            symbols: vec![
+                symbol("__koh_irq_active".into(), 0, 0),
+                Symbol {
+                    name: "__koh_irq_stack_reserve".into(),
+                    binding: SymbolBinding::Exported,
+                    definition: SymbolDefinition::Absolute(i32::from(interrupts.reserve)),
+                    source: None,
+                },
+            ],
+        });
+    }
     if dma {
         objects.push(Object {
             sections: vec![
@@ -509,15 +556,22 @@ pub(crate) fn emit_with_debug(
             .get(&function.identity)
             .copied()
             .unwrap_or(function.identity);
-        let interrupt = interrupts.values().any(|&id| id == function.identity);
-        let object = sm83::emit_with_stack_reserve(
+        let interrupt = interrupts.functions.contains(&function.identity);
+        let mut object = sm83::emit_with_stack_reserve(
             function,
             Some(&strings),
-            !interrupt,
+            true,
             pdb,
             origin.token,
-            if interrupt { 0 } else { interrupt_reserve },
+            if interrupt && !interrupts.shared.contains(&function.identity) {
+                0
+            } else {
+                interrupt_reserve
+            },
         )?;
+        if interrupt {
+            object.sections[0].kind = 0;
+        }
         account_debug_bytes(&object, &mut debug_bytes)?;
         objects.push(object);
     }

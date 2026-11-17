@@ -17,7 +17,8 @@ bool scroll = args.Length > 0 && args[0] == "--native-scroll";
 bool registers = args.Length > 0 && args[0] == "--native-registers";
 bool cgbHal = args.Length > 0 && args[0] == "--native-cgb-hal";
 bool scene = args.Length > 0 && args[0] == "--native-scene";
-bool irqAbi = args.Length > 0 && args[0] == "--native-irq-abi";
+bool irqAbi = args.Length > 0 && args[0].StartsWith("--native-irq-abi:", StringComparison.Ordinal);
+int irqReserve = irqAbi ? Convert.ToInt32(args[0].Split(':')[1], 16) : 0;
 bool irqCount = args.Length > 0 && args[0] == "--native-irq-count";
 bool video = frame || oamMode || rawOam || maps || (args.Length > 0 && args[0] == "--native-video");
 bool heap =
@@ -133,6 +134,8 @@ foreach (
     bool injectedIrq = false;
     int irqChecks = 0;
     ushort irqSp = 0;
+    byte irqBankLow = 0;
+    byte irqBankHigh = 0;
     var vblankTicks = new List<ulong>();
     bool Finished() =>
         rawOam ? timing.OamStarts != 0
@@ -156,11 +159,13 @@ foreach (
             gb.Mmu.DebugWrite(0xff0f, 1);
         }
         byte opcode = cpu && !gb.Cpu.Halted ? gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) : (byte)0;
+        if (irqAbi && gb.Cpu.Ime && gb.Cpu.Registers.Sp < 0xC100 + irqReserve)
+            throw new InvalidOperationException("Main code consumed the IRQ stack reserve");
         if (
             irqAbi
             && !injectedIrq
             && gb.Cpu.Ime
-            && gb.Cpu.Registers.Sp < 0xC200
+            && gb.Cpu.Registers.Sp < 0xC200 + irqReserve
             && gb.Cpu.Registers.FlagSet(Koh.Emulator.Cpu.CpuRegisters.FlagC)
             && gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) == 0xDA
         )
@@ -169,7 +174,9 @@ foreach (
             injectedIrq = true;
         }
         bool returningIrq =
-            irqAbi && interrupted.HasValue && gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) == 0xD9;
+            (irqAbi || irqCount)
+            && interrupted.HasValue
+            && gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) == 0xD9;
         gb.StepInstruction();
         if (irqCount && gb.Cpu.Registers.Pc == 0x40)
         {
@@ -196,6 +203,8 @@ foreach (
                 || actual.Sp != expected.Sp
                 || actual.Pc != expected.Pc
                 || !gb.Cpu.Ime
+                || gb.Cartridge.Mbc1_BankLow != irqBankLow
+                || gb.Cartridge.Mbc1_BankHigh != irqBankHigh
             )
                 throw new InvalidOperationException(
                     $"Interrupt restore expected={expected.AF:X4},{expected.BC:X4},{expected.DE:X4},{expected.HL:X4},{expected.Sp:X4},{expected.Pc:X4} actual={actual.AF:X4},{actual.BC:X4},{actual.DE:X4},{actual.HL:X4},{actual.Sp:X4},{actual.Pc:X4},IME={gb.Cpu.Ime}"
@@ -203,7 +212,7 @@ foreach (
             interrupted = null;
             irqChecks++;
         }
-        if (irqAbi && gb.Cpu.Registers.Pc == 0x40 && interrupted is null)
+        if ((irqAbi || irqCount) && gb.Cpu.Registers.Pc == 0x40 && interrupted is null)
         {
             var expected = gb.Cpu.Registers;
             expected.Pc = (ushort)(
@@ -211,6 +220,8 @@ foreach (
             );
             expected.Sp += 2;
             irqSp = expected.Sp;
+            irqBankLow = gb.Cartridge.Mbc1_BankLow;
+            irqBankHigh = gb.Cartridge.Mbc1_BankHigh;
             interrupted = expected;
         }
         if (cpu)
@@ -363,7 +374,7 @@ foreach (
             snapshot += $" {irqChecks}:{irqSp:X4}";
         if (irqCount)
             snapshot +=
-                $" {vblankTicks.Count}:{gb.Mmu.DebugRead(0xFF42):X2}{gb.Mmu.DebugRead(0xFF43):X2}{gb.Mmu.DebugRead(0xFF47):X2}";
+                $" {vblankTicks.Count}:{gb.Mmu.DebugRead(0xFF42):X2}{gb.Mmu.DebugRead(0xFF43):X2}{gb.Mmu.DebugRead(0xFF47):X2}{gb.Mmu.DebugRead(0xFF45):X2}:{Convert.ToHexString(result)}:{gb.Mmu.DebugRead(0xC020):X2}{gb.Mmu.DebugRead(0xC021):X2}:{irqBankHigh:X2}{irqBankLow:X2}:{gb.Mmu.DebugRead(0xC022):X2}{gb.Mmu.DebugRead(0xC023):X2}{gb.Mmu.DebugRead(0xC024):X2}{gb.Mmu.DebugRead(0xC025):X2}";
         Console.WriteLine(
             $"{gb.Cpu.Registers.A:X2} {gb.Cpu.Registers.DE:X4}{gb.Cpu.Registers.HL:X4} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}{snapshot}"
         );

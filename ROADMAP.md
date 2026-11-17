@@ -25,9 +25,10 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   [constrained calls](docs/rust-compiler/constrained-calls.md) now execute through
   the same native ABI. Broader constraints, constructed declaring layouts and
   boxing/runtime fallback remain unfinished; this is not full migration.
-  [Leaf interrupt handlers](docs/rust-compiler/interrupts.md) now execute all five
+  [Bounded interrupt handlers](docs/rust-compiler/irq-calls.md) now execute all five
   vectors with saved registers, a reserved stack budget and bank-preserving ROM0
-  bodies; calls/allocation/nested IRQ enabling remain explicit diagnostics.
+  bodies and shared scalar helper calls; allocation/nested IRQ enabling remain
+  explicit diagnostics.
   The current ledger has198/565 complete dispositions and367 partial/outstanding
   (197 native replacements, one obsolete private-parser DELETE decision);
   five [IR construction/verifier methods](docs/rust-compiler/ir-construction.md)

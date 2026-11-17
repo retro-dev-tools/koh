@@ -57,16 +57,7 @@ fn object_inner(
         return Err("Interrupt handler cannot be the cartridge entry".into());
     }
     let functions = reachable(resolver, entry)?;
-    for &handler in interrupts.values() {
-        let function = functions
-            .iter()
-            .find(|f| f.identity == handler)
-            .ok_or("Interrupt root was not lowered")?;
-        let name = resolver
-            .assembly(handler.assembly)?
-            .method_name(handler.token)?;
-        verify_interrupt(function).map_err(|error| format!("{name}: {error}"))?;
-    }
+    let interrupts = crate::interrupts::Plan::new(resolver, &functions, entry, interrupts)?;
     let classes = resolver
         .class_layouts
         .borrow()
@@ -164,79 +155,6 @@ fn object_inner(
     object.symbols.extend(aliases);
     object.validate()?;
     Ok(object)
-}
-
-fn verify_interrupt(function: &Function) -> Result<(), String> {
-    use crate::ir::{Op, Type};
-    let scalar = |ty| matches!(ty, Type::I32 | Type::I64 | Type::Native);
-    if function.locals.iter().any(|&ty| !scalar(ty)) {
-        return Err("Interrupt leaf handlers require integer locals".into());
-    }
-    let statics: HashSet<_> = function
-        .blocks
-        .iter()
-        .flat_map(|b| &b.instructions)
-        .filter_map(|i| {
-            matches!(i.op, Op::StaticAddress { .. })
-                .then_some(i.result)
-                .flatten()
-                .map(|r| r.0)
-        })
-        .collect();
-    let registers: std::collections::HashMap<_, _> = function
-        .blocks
-        .iter()
-        .flat_map(|b| &b.instructions)
-        .filter_map(|instruction| match (instruction.result, &instruction.op) {
-            (Some((value, Type::Native)), Op::Constant(address)) => Some((value, *address as u16)),
-            _ => None,
-        })
-        .collect();
-    let memory = |address, bits, write| {
-        statics.contains(&address)
-            || (bits == 8
-                && registers
-                    .get(&address)
-                    .is_some_and(|&physical| interrupt_register(physical, write)))
-    };
-    for block in &function.blocks {
-        if block.parameters.iter().any(|&(_, ty)| !scalar(ty)) {
-            return Err("Interrupt leaf handlers require integer block parameters".into());
-        }
-        for instruction in &block.instructions {
-            let supported = match instruction.op {
-                Op::StaticAddress { .. } => true,
-                Op::LoadMemory { address, bits, .. } => memory(address, bits, false),
-                Op::StoreMemory { address, bits, .. } => memory(address, bits, true),
-                Op::Constant(_)
-                | Op::Binary { .. }
-                | Op::Compare { .. }
-                | Op::RequireRange(_)
-                | Op::Negate(_)
-                | Op::Not(_)
-                | Op::Convert { .. }
-                | Op::LoadLocal(_)
-                | Op::StoreLocal { .. } => true,
-                _ => false,
-            };
-            if !supported
-                || instruction.result.is_some_and(|(_, ty)| {
-                    !scalar(ty) && !matches!(instruction.op, Op::StaticAddress { .. })
-                })
-            {
-                return Err(format!(
-                    "Interrupt leaf handler operation unsupported at IL_{:04x}: {:?}",
-                    instruction.il_offset, instruction.op
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn interrupt_register(address: u16, write: bool) -> bool {
-    matches!(address, 0xff00..=0xff7f | 0xffff)
-        && (!write || !matches!(address, 0xff46 | 0xff4d | 0xff4f | 0xff50 | 0xff55 | 0xff70))
 }
 
 pub fn entry(resolver: &Resolver<'_>, selected: Option<&str>) -> Result<Definition, String> {
