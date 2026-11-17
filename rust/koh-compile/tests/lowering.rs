@@ -21,6 +21,61 @@ fn method(il: &[u8]) -> Method<'_> {
 }
 
 #[rstest]
+#[case(0xd6u8)]
+#[case(0xd7)]
+#[case(0xda)]
+#[case(0xdb)]
+fn checked_arithmetic_rejects_invalid_operand_shapes(
+    #[case] opcode: u8,
+    #[values((Type::F32,Type::F32),(Type::F64,Type::F64),(Type::I32,Type::I64))] inputs: (
+        Type,
+        Type,
+    ),
+) {
+    let il = [0x02, 0x03, opcode, 0x2a];
+    let mut input = method(&il);
+    input.parameters = vec![inputs.0, inputs.1];
+    let error = lower(input).unwrap_err();
+    assert!(
+        error.contains("Checked arithmetic") && error.contains("IL_0002"),
+        "{error}"
+    );
+}
+
+#[rstest]
+#[case(0xd8u8)]
+#[case(0xd9)]
+fn checked_multiplication_remains_an_explicit_diagnostic(#[case] opcode: u8) {
+    let il = [0x02, 0x03, opcode, 0x2a];
+    let mut input = method(&il);
+    input.parameters = vec![Type::I32, Type::I32];
+    let error = lower(input).unwrap_err();
+    assert!(
+        error.contains("no lowering") && error.contains("IL_0002"),
+        "{error}"
+    );
+}
+
+#[rstest]
+#[case(0xd7u8, Type::ByRef(Scalar::I32), Type::I32)]
+#[case(0xd7, Type::I32, Type::ByRef(Scalar::I32))]
+#[case(0xdb, Type::ByRef(Scalar::I32), Type::ByRef(Scalar::I32))]
+fn valid_checked_reference_shapes_are_diagnosed_as_unsupported(
+    #[case] opcode: u8,
+    #[case] left: Type,
+    #[case] right: Type,
+) {
+    let il = [0x02, 0x03, opcode, 0x2a];
+    let mut input = method(&il);
+    input.parameters = vec![left, right];
+    let error = lower(input).unwrap_err();
+    assert!(
+        error.contains("managed-reference arithmetic is unsupported") && error.contains("IL_0002"),
+        "{error}"
+    );
+}
+
+#[rstest]
 #[case(Type::F32, 0x80000000)]
 #[case(Type::F32, 0x7fa12345)]
 #[case(Type::F32, 0xffc12345)]

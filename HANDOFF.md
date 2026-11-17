@@ -1849,3 +1849,54 @@ Rust1715.064szeroskips;rustdoc4crates0cases; .NETfast564total/0fail/2UI-skips.
 Downloadedcompletedlog/tmp/koh-ci-54ab305-completed.logGH_EXIT0. Pushgatecleared.
 CommitHALthenONEbatchpush49cf1e2+2c9c676+b405992+HAL;updatePRcurrent180/newCI
 andverifyexactremotehead/draft/master. No localbuildsremain. Fullgoalactive.
+
+Checkedadd/subincrementREADONLYREVIEWscope:dirtytreeagainstpublishedHEAD
+401622ad42c7d867f25967c589e12120ae2c0dd0. Parentownsalledits/builds. New
+Rustchecked::arithmeticD6/D7/DA/DBforI32/I64/native16,mixedNative/I32widen
+thenchecknativebounds,signedXOR/ANDsignoverflow,unsignedcarry/borrow,existing
+RequireRangeeffectguardfault2. No newABI/helper/backendops. Sourcefiles
+src/lower/checked.rs+src/lower.rs; testsdriver/checked_arithmetic.rs/new
+CheckedArithmeticfixture,sm83.rs/lowering.rs. C#cases153(106success47fault)
+×4=612ROMspass64.772s;directCIL20op/typecases×13inputs×beforeafter=520ROMs
+plus12invalidshapechecks32/32pass41.967s. Red26010EXIT100D6unsupportedbefore
+implementation. Broad79343LIVE/tmp/koh-checked-arithmetic-final.log780cases
+last678pass. Do notbuildtesteditcommitspawn. Reviewmath/typing/native16
+policy/guardplacement/testoracles/coverageandreportconcretedefectsonly.
+Afterbroadbuildbegan,added3-linebyref-specificunsupporteddiagnosticand3
+validECMAbyrefshapeunsupportedtests;mustfollowupfocusedafter79343terminal.
+ECMA3356thTableIII7rejectsFoperands(notMSAPIcopiedordinary-addtable),permits
+selectedmanaged-reference.unarithmetic;weexplicitlydocumentunsupportednot
+malformed. Floats/I32I64invalidtests andmulD8D9unsupporteddiagnostics. Docs
+checked-arithmetic.md+ABI/progress/ROADMAP/floatlinks updated;ledger180unchanged.
+Published401622aCI44020313613live;nevercancel/restart. Parentownsallbuilds.
+
+Reviewbackend_auditFINAL:noconfirmeddefects;signedbitidentities,unsigned
+carry/borrow,mixedNative/I32wide/finalrangeguards,effectfulguardand i128oracles
+sound. No builds/tests/editsbyreviewer. Scopedoutcheckedmul/managedreferences/EH
+explicitunsupported. Parentstillowns79343live780suite;last752passing. Late
+3byrefshapechecks+unsupporteddiagnosticneedfollowupafterterminal,thenalltarget
+check/rustdoc. Rustfmt/CSharpier1filePASS. Counts153roots=106success47fault
+perconfig,612ROMs;directCIL520ROMs.Ledger180unchanged;newfeaturedoesnotclose
+unrelatedlegacycases.No oldsourceAdd_Ovf/Sub_Ovf testsfoundinbaseline.
+
+79343TERMINALEXIT0:780/780462.124s416unselected. Afterlatebyrefdiagnostic,
+40355TERMINALEXIT0:119/119112.746s519unselected,complete lowering+all4new
+C#configurations+20directCILnativecases.40610workspacealltarget/allfeature
+checkEXIT0(7.59s,existingunusedcubeshelperwarn);separaterustdocEXIT0fourzero.
+Added8byte/sbyte/short/ushortfixturecombinationroots (promotedI32ariththen
+checkednarrow),testsonly.63876TERMINALEXIT0:4/4pass66.741s420unselected,
+161roots×4=644ROMs(110success51fault/config). No productionchangesafter119.
+DirectCIL520ROMsbefore/after=1164arithmeticexecutionsacrosstwoindependent
+paths. Wholeheappayload/guards/sourcePDB/KDBGchecksretained. Rustfmt/CSharpier
+1filePASS.7887nextestworkspaceallfeaturesdiscoveryEXIT0(13.12s),1633cases,
+all41newcasesnonignored(4driver20native12invalid2muldiag3byrefunsupported).
+Primaryfinalmathlog/tmp/koh-checked-arithmetic-diagnostics-final.log;latest
+smallwidthlog/tmp/koh-checked-arithmetic-small-final.log;fullbroadlog
+/tmp/koh-checked-arithmetic-final.log. Read-onlyreviewnoconfirmeddefects.
+Commitunitlocally;published401622aCI44020313613stilllive,don'tcancel/restart.
+Ledger180/565unchangednewfeaturedoesnotcloseunrelatedsourcecases. Current
+unsupportedcheckedmul/managedrefarithmetic/EHexplicit;docs/ABI/ROADMAPupdated.
+Nextusefulruntimeunitcheckedmul:smallwidthproductviaI64+checkednarrow,64-bit
+fullproducthigh/lowlimbs+signedextensioncheckcouldreuseexistingIRopswithout
+newruntimeABI;independentlyprovehighproductcarrybounds/measurebankcapacity.
+Do nottreatthiscandidateasimplemented. No localbuildsremain.Parentownsstate.

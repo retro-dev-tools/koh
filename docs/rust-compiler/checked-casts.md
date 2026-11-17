@@ -8,8 +8,8 @@ fail. Negative fractions between−1 and0 therefore convert to unsigned zero.
 These rules follow [ECMA-335, III.3.28–3.29 and Table III.8](https://ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf).
 
 Failure reaches the existing unhandled arithmetic-fault ABI: fault code2,
-`__koh_trap_arithmetic` and `__koh_abort`. Catchable exceptions and checked
-addition/subtraction/multiplication remain unsupported. This does not promise
+`__koh_trap_arithmetic` and `__koh_abort`. [Checked addition/subtraction](checked-arithmetic.md)
+now uses the same guard; catchable exceptions and checked multiplication remain unsupported. This does not promise
 general support for every expression inside a C# `checked` block.
 
 Integer checks use explicit signed/unsigned comparisons before conversion.

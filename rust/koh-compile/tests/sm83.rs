@@ -12,6 +12,87 @@ mod support;
 use support::{Host, dotnet};
 
 #[rstest::rstest]
+#[case(0xd6u8)]
+#[case(0xd7)]
+#[case(0xda)]
+#[case(0xdb)]
+fn checked_cil_add_sub_match_wide_integer_oracles(
+    host: &Host,
+    #[case] opcode: u8,
+    #[values((Type::Native,Type::Native),(Type::I32,Type::I32),(Type::I64,Type::I64),(Type::Native,Type::I32),(Type::I32,Type::Native))]
+    inputs: (Type, Type),
+) {
+    let returns = if inputs.0 == Type::Native || inputs.1 == Type::Native {
+        Type::Native
+    } else {
+        inputs.0
+    };
+    let function = koh_compile::lower::lower(koh_compile::lower::Method {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        il: &[0x02, 0x03, opcode, 0x2a],
+        parameters: vec![inputs.0, inputs.1],
+        returns: Some(returns),
+        locals: vec![],
+        init_locals: true,
+        max_stack: 2,
+    })
+    .unwrap();
+    let mut optimized = function.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    let mask = |ty: Type| u64::MAX >> (64 - ty.bits());
+    let sign = |ty: Type| 1u64 << (ty.bits() - 1);
+    let unsigned = matches!(opcode, 0xd7 | 0xdb);
+    let number = |raw: u64, ty: Type| {
+        let raw = raw & mask(ty);
+        if !unsigned && raw & sign(ty) != 0 {
+            raw as i128 - (1i128 << ty.bits())
+        } else {
+            raw as i128
+        }
+    };
+    let min = if unsigned {
+        0
+    } else {
+        -(1i128 << (returns.bits() - 1))
+    };
+    let max = (1i128 << (returns.bits() - u16::from(!unsigned))) - 1;
+    let mut cases = Vec::new();
+    for (left, right) in [
+        (0, 0),
+        (1, 2),
+        (mask(inputs.0), 1),
+        (sign(inputs.0) - 1, 1),
+        (sign(inputs.0), mask(inputs.1)),
+        (0, mask(inputs.1)),
+        (mask(inputs.0), mask(inputs.1)),
+        (sign(inputs.0), sign(inputs.1)),
+        (0, 65536 & mask(inputs.1)),
+        (1, 65535 & mask(inputs.1)),
+        (0, sign(inputs.1) - 1),
+        (65536 & mask(inputs.0), 0),
+        (65535 & mask(inputs.0), 1),
+    ] {
+        let value = if matches!(opcode, 0xda | 0xdb) {
+            number(left, inputs.0) - number(right, inputs.1)
+        } else {
+            number(left, inputs.0) + number(right, inputs.1)
+        };
+        let expected = if (min..=max).contains(&value) {
+            Ok(value as u64 & mask(returns))
+        } else {
+            Err(2)
+        };
+        for f in [&function, &optimized] {
+            cases.push((f.clone(), vec![left, right], expected));
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
 #[case(Type::Native, "entry")]
 #[case(Type::I32, "entry")]
 #[case(Type::I64, "entry")]

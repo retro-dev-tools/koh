@@ -289,7 +289,8 @@ assertions. That includes the required missing-remainder diagnostic; it does
 not mean every .NET floating operation or internal-F shape is
 supported. No legacy definition is physically retired by this increment.
 Subsequent [checked-cast support](checked-casts.md) guards integer conversions;
-catchable exceptions and checked arithmetic remain unsupported.
+catchable exceptions and checked multiplication remain unsupported. Checked
+integer addition/subtraction is implemented separately.
 
 Verification: the expanded focused run passed22/22 cases in195.205s. After
 adding the signed short/native wrapping boundaries, the broader regression

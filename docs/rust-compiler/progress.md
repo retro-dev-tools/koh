@@ -13,7 +13,8 @@ float constants/calls/joins/byrefs/fields/arrays and metadata-selected software
 addition/subtraction/multiplication/division, direct sign-bit negation and ordered/unordered comparisons.
 Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
 covered. [Checked numeric casts](checked-casts.md) now guard integer and floating
-conversions; checked arithmetic and bare internal-F expressions remain unsupported. Floating
+conversions; [checked integer addition/subtraction](checked-arithmetic.md) now uses
+the same guard. Checked multiplication and bare internal-F expressions remain unsupported. Floating
 remainder now executes through the [exact shared runtime core](floating-remainder.md). All22 methods in the legacy CilFloatTests group now have
 native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have

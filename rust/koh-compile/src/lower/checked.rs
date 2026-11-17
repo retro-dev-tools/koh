@@ -1,5 +1,118 @@
 use super::*;
 
+pub(super) fn arithmetic(b: &mut Builder<'_, '_>, opcode: u16) -> Result<(), String> {
+    let mut right = b.pop()?;
+    let mut left = b.pop()?;
+    let unsigned = matches!(opcode, 0xd7 | 0xdb);
+    let subtract = matches!(opcode, 0xda | 0xdb);
+    if left.1.is_byref() || right.1.is_byref() {
+        return Err("Checked managed-reference arithmetic is unsupported".into());
+    }
+    if !matches!(left.1, Type::I32 | Type::I64 | Type::Native)
+        || !matches!(right.1, Type::I32 | Type::I64 | Type::Native)
+    {
+        return Err("Checked arithmetic requires integer operands".into());
+    }
+    let mixed = matches!(
+        (left.1, right.1),
+        (Type::Native, Type::I32) | (Type::I32, Type::Native)
+    );
+    if mixed {
+        for value in [&mut left, &mut right] {
+            if value.1 == Type::Native {
+                *value = b.value(
+                    Type::I32,
+                    Op::Convert {
+                        value: value.0,
+                        bits: 16,
+                        signed: !unsigned,
+                    },
+                )?;
+            }
+        }
+    }
+    if left.1 != right.1 {
+        return Err("Checked arithmetic operand type mismatch".into());
+    }
+    let result = b.value(
+        left.1,
+        Op::Binary {
+            op: if subtract {
+                Binary::Subtract
+            } else {
+                Binary::Add
+            },
+            left: left.0,
+            right: right.0,
+        },
+    )?;
+    let overflow = if unsigned {
+        b.value(
+            Type::I32,
+            Op::Compare {
+                op: Comparison::LessUnsigned,
+                left: if subtract { left.0 } else { result.0 },
+                right: if subtract { right.0 } else { left.0 },
+            },
+        )?
+    } else {
+        let x = b.value(
+            left.1,
+            Op::Binary {
+                op: Binary::Xor,
+                left: left.0,
+                right: if subtract { right.0 } else { result.0 },
+            },
+        )?;
+        let y = b.value(
+            left.1,
+            Op::Binary {
+                op: Binary::Xor,
+                left: if subtract { left.0 } else { right.0 },
+                right: result.0,
+            },
+        )?;
+        let signs = b.value(
+            left.1,
+            Op::Binary {
+                op: Binary::And,
+                left: x.0,
+                right: y.0,
+            },
+        )?;
+        let zero = b.value(left.1, Op::Constant(0))?;
+        b.value(
+            Type::I32,
+            Op::Compare {
+                op: Comparison::LessSigned,
+                left: signs.0,
+                right: zero.0,
+            },
+        )?
+    };
+    let zero = b.value(Type::I32, Op::Constant(0))?;
+    let valid = b.value(
+        Type::I32,
+        Op::Compare {
+            op: Comparison::Equal,
+            left: overflow.0,
+            right: zero.0,
+        },
+    )?;
+    b.instructions.push(Instruction {
+        result: None,
+        op: Op::RequireRange(valid.0),
+        il_offset: b.offset,
+    });
+    let result = if mixed {
+        convert(b, result, if unsigned { 0x8b } else { 0xd4 })?
+    } else {
+        result
+    };
+    b.stack.push(result);
+    Ok(())
+}
+
 pub(super) fn convert(
     b: &mut Builder<'_, '_>,
     mut value: (u32, Type),

@@ -2984,6 +2984,7 @@ fn translate(
                 il_offset: b.offset,
             });
         }
+        0xd6 | 0xd7 | 0xda | 0xdb => checked::arithmetic(b, i.opcode)?,
         0x58..=0x64 => {
             let op = [
                 Binary::Add,

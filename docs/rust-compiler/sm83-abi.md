@@ -265,3 +265,7 @@ The guard reads its legalized predicate width and reaches the existing
 arithmetic-fault code2 on failure. Floating predicates use `f32.checkInt`
 `byte(uint,byte,byte)` or `f64.checkInt` `byte(ulong,byte,byte)`, with destination
 width and signed flag following raw bits. See [checked casts](checked-casts.md).
+Checked integer addition/subtraction uses the same effectful guard and fault2;
+all normal results retain the existing16/32/64-bit integer ABI. Mixed Native/I32
+operations check the final16-bit result after a wide operation. See
+[checked arithmetic](checked-arithmetic.md).
