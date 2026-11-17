@@ -2,6 +2,8 @@ use koh_compile::{ir::*, resolve::Definition, sm83};
 use koh_objects::*;
 use rstest::fixture;
 use std::path::Path;
+#[path = "support/allocation_contracts.rs"]
+mod allocation_contracts;
 #[path = "support/compare_branch.rs"]
 mod compare_branch;
 #[path = "support/control_flow_scalars.rs"]
@@ -18,6 +20,177 @@ mod recursion_fixture;
 mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case(8)]
+#[case(16)]
+#[case(32)]
+#[case(64)]
+fn allocation_choices_preserve_arithmetic_and_live_producer_graphs(host: &Host, #[case] bits: u8) {
+    let mut cases = Vec::new();
+    let inputs = allocation_contracts::cases(bits);
+    assert_eq!(
+        inputs.len(),
+        match bits {
+            8 => 14,
+            16 => 16,
+            32 => 18,
+            64 => 22,
+            _ => unreachable!(),
+        }
+    );
+    for (f, arguments, expected) in inputs {
+        for (f, arguments) in [
+            (f.clone(), arguments.clone()),
+            (control_flow_scalars::constant_inputs(f, &arguments), vec![]),
+        ] {
+            let mut optimized = f.clone();
+            koh_compile::optimize::simplify(&mut optimized).unwrap();
+            for f in [f, optimized] {
+                verify(&f).unwrap();
+                cases.push((f, arguments.clone(), Ok(expected)));
+            }
+        }
+    }
+    for batch in cases.chunks(32) {
+        run(host, batch);
+    }
+}
+
+#[rstest::rstest]
+fn loop_backedges_preserve_arguments_across_clobbering_operations(host: &Host) {
+    let original = allocation_contracts::parameter_loop();
+    let mut optimized = original.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    let mut cases = Vec::new();
+    for (value, iterations, expected) in [(127, 1, 128), (127, 3, 128), (3, 4, 12), (255, 2, 0)] {
+        for f in [&original, &optimized] {
+            cases.push((f.clone(), vec![value, iterations], Ok(expected)));
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+#[case(Type::Native)]
+#[case(Type::I32)]
+#[case(Type::I64)]
+fn predicate_normalization_preserves_order_signedness_and_equality(host: &Host, #[case] ty: Type) {
+    let bits = ty.bits();
+    let mask = u64::MAX >> (64 - bits);
+    let sign = 1u64 << (bits - 1);
+    let mut cases = Vec::new();
+    for (op, invert, a, b, expected) in [
+        (Comparison::GreaterUnsigned, false, 1, 2, 0),
+        (Comparison::GreaterUnsigned, false, 2, 1, 1),
+        (Comparison::GreaterUnsigned, false, mask, 1, 1),
+        (Comparison::GreaterUnsigned, false, 1, mask, 0),
+        (Comparison::GreaterUnsigned, false, sign, sign, 0),
+        (Comparison::GreaterSigned, true, mask, 0, 1),
+        (Comparison::GreaterSigned, true, 0, mask, 0),
+        (Comparison::GreaterSigned, true, sign, sign, 1),
+        (Comparison::GreaterSigned, true, sign, 1, 1),
+        (Comparison::GreaterSigned, true, 1, sign, 0),
+        (Comparison::GreaterSigned, true, mask, mask, 1),
+        (Comparison::Equal, false, sign, sign, 1),
+        (Comparison::Equal, false, sign, mask, 0),
+        (Comparison::Equal, false, mask, mask, 1),
+    ] {
+        let mut f = function(
+            ty,
+            Op::Compare {
+                op,
+                left: 0,
+                right: 1,
+            },
+        );
+        f.returns = Some(Type::I32);
+        f.blocks[0].instructions[0].result = Some((2, Type::I32));
+        if invert {
+            f.blocks[0].instructions.extend([
+                Instruction {
+                    result: Some((3, Type::I32)),
+                    op: Op::Constant(0),
+                    il_offset: 1,
+                },
+                Instruction {
+                    result: Some((4, Type::I32)),
+                    op: Op::Compare {
+                        op: Comparison::Equal,
+                        left: 2,
+                        right: 3,
+                    },
+                    il_offset: 2,
+                },
+            ]);
+            f.blocks[0].terminator.kind = Control::Return(Some(4));
+        }
+        for (f, arguments) in [
+            (f.clone(), vec![a, b]),
+            (control_flow_scalars::constant_inputs(f, &[a, b]), vec![]),
+        ] {
+            let mut optimized = f.clone();
+            koh_compile::optimize::simplify(&mut optimized).unwrap();
+            for f in [f, optimized] {
+                cases.push((f, arguments.clone(), Ok(expected)));
+            }
+        }
+    }
+    for batch in cases.chunks(32) {
+        run(host, batch);
+    }
+}
+
+#[test]
+fn scalar_leaf_call_passes_byte_arguments_and_full_return_buffer() {
+    let host = host();
+    let mut leaf = function(
+        Type::I32,
+        Op::Binary {
+            op: Binary::Add,
+            left: 0,
+            right: 1,
+        },
+    );
+    leaf.identity.token = 0x06000002;
+    leaf.blocks[0].instructions.push(Instruction {
+        result: Some((3, Type::I32)),
+        op: Op::Convert {
+            value: 2,
+            bits: 8,
+            signed: false,
+        },
+        il_offset: 1,
+    });
+    leaf.blocks[0].terminator.kind = Control::Return(Some(3));
+    let caller = function(
+        Type::I32,
+        Op::Call {
+            target: leaf.identity,
+            signature: Signature {
+                parameters: vec![Type::I32; 2],
+                returns: Some(Type::I32),
+            },
+            arguments: vec![0, 1],
+        },
+    );
+    let mut programs = Vec::new();
+    for optimized in [false, true] {
+        let mut functions = vec![caller.clone(), leaf.clone()];
+        if optimized {
+            for f in &mut functions {
+                koh_compile::optimize::simplify(f).unwrap();
+            }
+        }
+        for (arguments, expected) in [(vec![40, 2], 42), (vec![255, 1], 0)] {
+            programs.push((
+                rom_program(&functions, caller.identity, &arguments, 0xd000),
+                Ok(expected),
+            ));
+        }
+    }
+    run_roms(&host, &programs, 0xd000);
+}
 
 #[rstest::rstest]
 #[case(Type::Native, 1, 2)]

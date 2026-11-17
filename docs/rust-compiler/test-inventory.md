@@ -15,8 +15,8 @@ attributes at line starts and permits whitespace/newlines in `Assert.That`.
 Counts do not represent independently justified scenarios or executed assertions:
 parameterization and loops expand execution, and embedded C# fixtures need review.
 
-Current source-method totals:286/565 complete, comprising285 native behavioral
-replacements and one obsolete-parser DELETE decision;279 remain outstanding.
+Current source-method totals:309/565 complete, comprising308 native behavioral
+replacements and one obsolete-parser DELETE decision;256 remain outstanding.
 These count source methods, not distinct Rust declarations or parameter-expanded
 executions. Scenario/assertion accounting belongs to each completed group's
 matrix; a workspace test count does not prove source coverage. For example, the

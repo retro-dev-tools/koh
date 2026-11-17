@@ -160,30 +160,32 @@ Proposed future location: `rust/koh-compiler/tests/mir_effects.rs` (not implemen
 
 Classification: Mixed language behavior, debug contract, and allocator details. Return values and source mappings are observable; E/HL choices, default toggles and exact slots are private allocation decisions.
 
-Proposed future location: `rust/koh-compiler/tests/backend_semantics.rs` (not implemented).
+All20 methods are complete in [allocation-independent acceptance](allocation-contracts.md):
+41 assertion sites reviewed; private register/slot defaults replaced by native values,
+liveness, caller/callee ABI and real-PDB source mapping.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `Emits_ExpectedBytes_ForConstantFolding` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
-| `Residency_AssignsShortLivedByteValueToRegister` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
-| `Residency_IsDisabledByDefault` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
-| `Residency_ComputesCorrectResultThroughRegister` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Residency_SkipsValueUsedByNonGentleOp` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
-| `Residency_AssignsSixteenBitValueToHL` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
-| `Residency_ComputesCorrectSixteenBitResultThroughHL` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Residency_GivesSimultaneouslyLiveValuesDistinctRegisters` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
-| `Residency_CoalescesChainIntoOneRegister` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
-| `Residency_CoalescesSixteenBitChainInHL` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
-| `Residency_UsesHalfOfHLUnderBytePressure` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
-| `Residency_ReceivesLeafParametersInRegisters` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
-| `Residency_ParameterPassingIsOffWithoutOptIn` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
-| `Residency_RejectsParameterWhenEntryIsLoopHeader` | Mixed | REPLACE | Preserve live values and argument semantics under pressure/control flow; omit specific register, slot and opt-in assertions. |
-| `Residency_LeafCallPassesArgsInRegisters` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Allocation_ReusesSlotsForNonOverlappingValues` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
-| `LineMap_MapsInstructionsToSourceLines` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Runs_ConstantChain_InEmulator` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Runs_RegisterPathSubtraction_InEmulator` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Runs_BitwiseOps_InEmulator` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Emits_ExpectedBytes_ForConstantFolding` | Detail | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_AssignsShortLivedByteValueToRegister` | Mixed | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_IsDisabledByDefault` | Mixed | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_ComputesCorrectResultThroughRegister` | Requirement | PORT complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_SkipsValueUsedByNonGentleOp` | Mixed | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_AssignsSixteenBitValueToHL` | Mixed | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_ComputesCorrectSixteenBitResultThroughHL` | Requirement | PORT complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_GivesSimultaneouslyLiveValuesDistinctRegisters` | Mixed | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_CoalescesChainIntoOneRegister` | Mixed | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_CoalescesSixteenBitChainInHL` | Mixed | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_UsesHalfOfHLUnderBytePressure` | Mixed | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_ReceivesLeafParametersInRegisters` | Mixed | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_ParameterPassingIsOffWithoutOptIn` | Mixed | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_RejectsParameterWhenEntryIsLoopHeader` | Mixed | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Residency_LeafCallPassesArgsInRegisters` | Requirement | PORT complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Allocation_ReusesSlotsForNonOverlappingValues` | Detail | REPLACE complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `LineMap_MapsInstructionsToSourceLines` | Requirement | PORT complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Runs_ConstantChain_InEmulator` | Requirement | PORT complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Runs_RegisterPathSubtraction_InEmulator` | Requirement | PORT complete | [Native requirement and removed private assertions](allocation-contracts.md). |
+| `Runs_BitwiseOps_InEmulator` | Requirement | PORT complete | [Native requirement and removed private assertions](allocation-contracts.md). |
 
 ### Backends/Sm83CompareBranchFusionTests.cs (7)
 
@@ -304,11 +306,13 @@ legacy compiler/test deletion.
 
 Classification: Private emitter byte count. An eleven-byte I8 add is not a language or ABI requirement; runtime addition with wrapping is.
 
-Proposed future location: `rust/koh-compiler/tests/backend_semantics.rs` (not implemented).
+Complete in [allocation-independent acceptance](allocation-contracts.md): actual
+compiler-emitted caller/callee addition and wrapping replace the private emitter
+constructor and byte-count/prefix assertions.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `ArithmeticEmitter_LowersI8Add` | Detail | REPLACE | Execute wrapping I8 addition; remove the eleven-byte contract. |
+| `ArithmeticEmitter_LowersI8Add` | Detail | REPLACE complete | [Native addition/ABI acceptance and removed assertions](allocation-contracts.md). |
 
 ### Backends/Sm83EncodingTests.cs (4)
 
@@ -355,13 +359,15 @@ Proposed future location: `rust/koh-compiler/tests/loops.rs` (not implemented).
 
 Classification: ISA arithmetic helper facts and private normalization. ADC/SBC carry propagation, sign extension and predicate reversal follow integer/ISA semantics; helper names do not.
 
-Proposed future location: `rust/koh-compiler/tests/integer_semantics.rs` (not implemented).
+Two methods complete in [allocation-independent acceptance](allocation-contracts.md).
+The128-bit method stays pending: the legacy frontend really supports Int128/UInt128,
+so its six assertions cannot be retired as a private-only helper convention.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `AluOpcodes_UseCarryFormForHighBytes` | Requirement | REPLACE | Check resulting arithmetic/predicate values rather than C# helper outputs alone. |
-| `ByteOf_SignExtendsBeyond64Bits` | Requirement | REPLACE | Check resulting arithmetic/predicate values rather than C# helper outputs alone. |
-| `Normalize_SwapsAndSignsPredicates` | Requirement | REPLACE | Check resulting arithmetic/predicate values rather than C# helper outputs alone. |
+| `AluOpcodes_UseCarryFormForHighBytes` | Requirement | REPLACE complete | [Native carry/borrow and bitwise values](allocation-contracts.md). |
+| `ByteOf_SignExtendsBeyond64Bits` | Requirement | REPLACE pending | [Real128-bit behavior remains outstanding](allocation-contracts.md#deliberately-outstanding128-bit-behavior). Current64-bit packing is partial evidence only. |
+| `Normalize_SwapsAndSignsPredicates` | Requirement | REPLACE complete | [Unsigned greater, signed less-or-equal and equality](allocation-contracts.md). |
 
 ### Backends/Sm83PeepholeTests.cs (38)
 

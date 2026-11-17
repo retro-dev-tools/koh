@@ -113,8 +113,19 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-286/565 dispositions complete (285 native replacements, one DELETE),279 outstanding,
+309/565 dispositions complete (308 native replacements, one DELETE),256 outstanding,
 including four [live-value preservation replacements](liveness.md).
+The23 [allocation-independent backend methods](allocation-contracts.md) now
+replace private register/slot/byte-shape expectations with executable arithmetic,
+pressure, caller/callee, backedge and source-map contracts. Nine new cases run460
+ROMs; the focused selection including malformed-IR guards passed40/40 in14.775s,
+exit0 (`/tmp/koh-allocation-contracts-acceptance.log`). The separate128-bit helper
+stays pending: legacy Int128/UInt128 frontend/operator support is real and needs
+native acceptance or an explicit product decision, not accidental retirement.
+Completed [CI44153557742](https://github.com/retro-dev-tools/koh/actions/runs/44153557742)
+on preceding1acc333 passed1,835/1,835 in1409.395s, zero skipped, plus separate
+rustdoc and .NET fast checks. This predates the two metadata/owner fixes and this
+backend acceptance batch. No controlled whole-suite speedup is inferred.
 The34 [scalar control-flow contracts](control-flow-scalars.md) now retain all37
 original numeric assertions and strengthen carry/borrow/sign boundaries through
 188 native executions. The remaining20
