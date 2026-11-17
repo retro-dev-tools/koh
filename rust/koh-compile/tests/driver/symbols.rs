@@ -20,14 +20,24 @@ fn sm83_disassembly_preserves_independent_instruction_boundaries(
     #[case] bytes: &[u8],
     #[case] length: usize,
 ) {
-    use koh_objects::{Object, Section, read_elf, write_elf};
-    use serde_json::json;
     let directory = tempfile::tempdir().unwrap();
+    let mut data = bytes.to_vec();
+    data.push(0);
+    let (rom, kdbg) = instruction_rom(directory.path(), &data);
+    let instructions = disassemble_vectors(debugger, &rom, &kdbg, &[(0x3000, 2)]);
+    assert_instruction(&instructions[0][0], bytes, 0x3000);
+    assert_eq!(bytes.len(), length);
+    assert_eq!(
+        instructions[0][1]["address"],
+        format!("0x{:04X}", 0x3000 + length)
+    );
+}
+
+fn instruction_rom(directory: &Path, data: &[u8]) -> (std::path::PathBuf, std::path::PathBuf) {
+    use koh_objects::{Object, Section, read_elf, write_elf};
     let mut boot = vec![0; 0x153];
     boot[0x100..0x104].copy_from_slice(&[0, 0xc3, 0x50, 1]);
     boot[0x150..].copy_from_slice(&[0x76, 0x18, 0xfd]);
-    let mut data = bytes.to_vec();
-    data.push(0);
     let object = Object {
         sections: vec![
             Section {
@@ -43,7 +53,7 @@ fn sm83_disassembly_preserves_independent_instruction_boundaries(
                 kind: 0,
                 address: Some(0x3000),
                 size: data.len() as u32,
-                data,
+                data: data.to_vec(),
                 ..Default::default()
             },
         ],
@@ -51,31 +61,125 @@ fn sm83_disassembly_preserves_independent_instruction_boundaries(
     };
     let object = read_elf(&write_elf(&object).unwrap()).unwrap();
     let linked = koh_link::link(&[object], &Default::default()).unwrap();
-    assert_eq!(&linked.rom[0x3000..0x3000 + bytes.len()], bytes);
-    let rom = directory.path().join("instructions.gb");
+    assert_eq!(&linked.rom[0x3000..0x3000 + data.len()], data);
+    let rom = directory.join("instructions.gb");
     let kdbg = rom.with_extension("kdbg");
     std::fs::write(&rom, &linked.rom).unwrap();
     std::fs::write(&kdbg, linked.kdbg().unwrap()).unwrap();
-    let requests = [
+    (rom, kdbg)
+}
+
+fn disassemble_vectors(
+    debugger: &Host,
+    rom: &Path,
+    kdbg: &Path,
+    vectors: &[(usize, usize)],
+) -> Vec<Vec<serde_json::Value>> {
+    use serde_json::json;
+    let mut requests = vec![
         json!({"seq":1,"type":"request","command":"launch","arguments":{"program":rom,"debugInfo":kdbg}}).to_string(),
-        json!({"seq":2,"type":"request","command":"disassemble","arguments":{"memoryReference":"0x3000","instructionCount":2}}).to_string(),
     ];
+    for (index, &(address, count)) in vectors.iter().enumerate() {
+        requests.push(json!({"seq":index + 2,"type":"request","command":"disassemble","arguments":{"memoryReference":format!("0x{address:04X}"),"instructionCount":count}}).to_string());
+    }
     let replies = debugger_replies(debugger, &requests);
     assert!(replies.iter().all(|r| r["success"] == true), "{replies:#?}");
-    let instructions = replies[1]["body"]["instructions"].as_array().unwrap();
-    assert_eq!(instructions.len(), 2);
-    let actual: Vec<_> = instructions[0]["instructionBytes"]
+    replies[1..]
+        .iter()
+        .zip(vectors)
+        .map(|(reply, &(_, count))| {
+            let instructions = reply["body"]["instructions"].as_array().unwrap();
+            assert_eq!(instructions.len(), count);
+            instructions.clone()
+        })
+        .collect()
+}
+
+fn assert_instruction(instruction: &serde_json::Value, bytes: &[u8], address: usize) {
+    let actual: Vec<_> = instruction["instructionBytes"]
         .as_str()
         .unwrap()
         .split_whitespace()
         .map(|b| u8::from_str_radix(b, 16).unwrap())
         .collect();
     assert_eq!(actual, bytes);
-    assert_eq!(actual.len(), length);
-    assert_eq!(
-        instructions[1]["address"],
-        format!("0x{:04X}", 0x3000 + length)
-    );
+    assert_eq!(instruction["address"], format!("0x{address:04X}"));
+    assert!(!instruction["instruction"].as_str().unwrap().is_empty());
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn sm83_disassembly_covers_every_encoding(debugger: &Host, #[case] prefixed: bool) {
+    let directory = tempfile::tempdir().unwrap();
+    let mut data = Vec::new();
+    let mut vectors = Vec::new();
+    let mut lengths = Vec::new();
+    for op in 0..=255u8 {
+        let length = if prefixed {
+            2
+        } else {
+            match op {
+                0x01 | 0x08 | 0x11 | 0x21 | 0x31 | 0xc2 | 0xc3 | 0xc4 | 0xca | 0xcc | 0xcd
+                | 0xd2 | 0xd4 | 0xda | 0xdc | 0xea | 0xfa => 3,
+                0x06 | 0x0e | 0x10 | 0x16 | 0x18 | 0x1e | 0x20 | 0x26 | 0x28 | 0x2e | 0x30
+                | 0x36 | 0x38 | 0x3e | 0xc6 | 0xcb | 0xce | 0xd6 | 0xde | 0xe0 | 0xe6 | 0xe8
+                | 0xee | 0xf0 | 0xf6 | 0xf8 | 0xfe => 2,
+                _ => 1,
+            }
+        };
+        vectors.push((0x3000 + data.len(), 2));
+        lengths.push(length);
+        if prefixed {
+            data.extend_from_slice(&[0xcb, op, 0, 0]);
+        } else {
+            data.extend_from_slice(&[op, 0, 0, 0]);
+        }
+    }
+    let (rom, kdbg) = instruction_rom(directory.path(), &data);
+    let decoded = disassemble_vectors(debugger, &rom, &kdbg, &vectors);
+    for (index, instructions) in decoded.iter().enumerate() {
+        let address = vectors[index].0;
+        let length = lengths[index];
+        assert_instruction(
+            &instructions[0],
+            &data[index * 4..index * 4 + length],
+            address,
+        );
+        assert_instruction(&instructions[1], &[0], address + length);
+        let illegal = !prefixed
+            && matches!(
+                index,
+                0xd3 | 0xdb | 0xdd | 0xe3 | 0xe4 | 0xeb | 0xec | 0xed | 0xf4 | 0xfc | 0xfd
+            );
+        assert_eq!(
+            instructions[0]["instruction"]
+                .as_str()
+                .unwrap()
+                .starts_with("??"),
+            illegal,
+            "encoding {index:02X}, CB={prefixed}"
+        );
+    }
+}
+
+#[rstest]
+fn sm83_disassembly_preserves_mixed_stream_bytes_and_offsets(debugger: &Host) {
+    let directory = tempfile::tempdir().unwrap();
+    let bytes = [
+        0xaf, 0x3e, 0x05, 0x47, 0x04, 0x89, 0xcb, 0x27, 0xe0, 0x40, 0xea, 0x00, 0xc0, 0x20, 0xfc,
+        0xcd, 0x50, 0x01, 0xd3, 0xc9,
+    ];
+    let offsets = [0, 1, 3, 4, 5, 6, 8, 10, 13, 15, 18, 19, 20];
+    let (rom, kdbg) = instruction_rom(directory.path(), &bytes);
+    let decoded = disassemble_vectors(debugger, &rom, &kdbg, &[(0x3000, 12)]);
+    for (instruction, bounds) in decoded[0].iter().zip(offsets.windows(2)) {
+        assert_instruction(
+            instruction,
+            &bytes[bounds[0]..bounds[1]],
+            0x3000 + bounds[0],
+        );
+    }
 }
 
 fn source_document<'a>(lines: &'a [koh_link::LinkedLine], source: &Path, line: usize) -> &'a Path {

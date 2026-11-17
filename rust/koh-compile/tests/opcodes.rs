@@ -61,6 +61,14 @@ fn encodings_match_the_dotnet_opcode_catalog() {
         };
         let end = bytes.len() + width;
         bytes.resize(end, 0);
+        for truncated in 0..end {
+            let error = decode(&bytes[..truncated])
+                .expect_err(&format!("Accepted truncated {line} at byte {truncated}"));
+            assert!(
+                !error.to_string().is_empty(),
+                "Missing diagnostic for {line} at byte {truncated}"
+            );
+        }
         bytes.push(0x2a);
         let decoded = decode(&bytes).unwrap_or_else(|error| panic!("{line}: {error}"));
         assert_eq!(decoded.len(), 2, "{line}");
