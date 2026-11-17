@@ -1,6 +1,5 @@
 use crate::{
     cil::{Instruction, Operand},
-    generics::Argument,
     resolve::{Definition, Resolver},
 };
 use std::collections::{HashMap, HashSet};
@@ -57,10 +56,8 @@ pub(crate) fn value_target(
     value: Definition,
     method: Definition,
 ) -> Result<Definition, String> {
-    use clrmeta::{TableId, TypeSig};
-    if resolver.type_instance(value)?.is_some() {
-        return Err("Constructed generic constrained dispatch is unfinished".into());
-    }
+    use clrmeta::TableId;
+    let raw_value = resolver.type_definition(value)?;
     let owner = crate::lower::owner_type(resolver, method)?;
     let declared_image = resolver.assembly(method.assembly)?;
     let declared = declared_image.method(method.token)?;
@@ -68,7 +65,7 @@ pub(crate) fn value_target(
     if declared.flags & 0x10 != 0 || !signature.calling_convention.has_this() {
         return Err("Constrained call requires an instance method".into());
     }
-    if owner == value {
+    if owner == raw_value {
         if declared.flags & 0x400 != 0 || declared.rva == 0 {
             return Err("Constrained value method has no body".into());
         }
@@ -77,20 +74,14 @@ pub(crate) fn value_target(
     if !crate::layout::class(resolver, owner)?.interface {
         return Err("Constrained value call requires boxing/base-value runtime support".into());
     }
-    let supplied = Argument {
-        assembly: value.assembly,
-        ty: TypeSig::ValueType((value.token & 0xffffff) << 2),
-    };
-    let required = Argument {
-        assembly: owner.assembly,
-        ty: TypeSig::Class((owner.token & 0xffffff) << 2),
-    };
+    let supplied = resolver.type_argument(value)?;
+    let required = resolver.type_argument(owner)?;
     if !crate::generics::assignable(resolver, &supplied, &required)? {
         return Err("Constrained value does not implement the declared interface".into());
     }
-    let image = resolver.assembly(value.assembly)?;
+    let image = resolver.assembly(raw_value.assembly)?;
     let metadata = image.metadata();
-    let row = (value.token & 0xffffff)
+    let row = (raw_value.token & 0xffffff)
         .checked_sub(1)
         .ok_or("Invalid constrained value identity")? as usize;
     let ty = metadata
@@ -109,7 +100,7 @@ pub(crate) fn value_target(
         (end - ty.method_list) as usize + metadata.method_impls.len(),
     )?;
     let matches = |body: Definition| -> Result<bool, String> {
-        if crate::lower::owner_type(resolver, body)? != value {
+        if crate::lower::owner_type(resolver, body)? != raw_value {
             return Err("Constrained MethodImpl body must belong to its value type".into());
         }
         let body_image = resolver.assembly(body.assembly)?;
@@ -125,7 +116,7 @@ pub(crate) fn value_target(
     for mapping in metadata
         .method_impls
         .iter()
-        .filter(|row| row.class == value.token & 0xffffff)
+        .filter(|row| row.class == raw_value.token & 0xffffff)
     {
         let resolve = |index: clrmeta::CodedIndex| -> Result<Definition, String> {
             let table = index.table.ok_or("Null constrained MethodImpl token")?;
@@ -133,7 +124,7 @@ pub(crate) fn value_target(
                 return Err("Invalid constrained MethodImpl token".into());
             }
             let target =
-                resolver.resolve_method(value.assembly, ((table as u32) << 24) | index.row)?;
+                resolver.resolve_method(raw_value.assembly, ((table as u32) << 24) | index.row)?;
             if target.declaring.is_some()
                 || !target.type_arguments.is_empty()
                 || !target.method_arguments.is_empty()
@@ -184,7 +175,7 @@ pub(crate) fn value_target(
             continue;
         }
         let body = Definition {
-            assembly: value.assembly,
+            assembly: raw_value.assembly,
             token: 0x06000000 | index,
         };
         if matches(body)? && selected.replace(body).is_some() {

@@ -1,5 +1,31 @@
 # Native compiler migration handoff
 
+## Latest closed-value constrained unit
+
+Published head34a7e9b; CI44104980515 verified running on that head, .NET fast
+job passed. Local increment supports closed generic value receivers under
+constrained.callvirt for nongeneric interface contracts, including methods with
+their own generic arguments. Metadata reads use raw TypeDef; selected call keeps
+the exact closed struct owner through existing specialization/ABI. No boxing or
+new runtime convention. Class/instantiated-interface dispatch remains unfinished.
+
+Actual fixture checks repeated mutation42/43, byte/64-bit payloads, explicit vs
+same-name public selection, packed/64-bit generic returns, foreign value/local
+payload, and MethodImpl borrowing a different generic value definition's body.
+Retains banked ELF round-trip, resolver determinism, stack/heap/alternate-WRAM
+guards. Initial4/4 red at old generic-value guard, basic4/4 pass31.726s, generic
+return checkpoint4/4 passes. Final237/237 pass150.387s,exit0,438 excluded,
+/tmp/koh-closed-constrained-regression.log. Rustfmt/CSharpier and separate
+workspace/all-feature rustdoc pass (4crates,0doc cases). No local builds live.
+Fixture hashes /tmp/koh-closed-constrained-fixture.sha256 saved after final run;
+check unchanged after commit hook. No new rstest declarations; ledger229/565,
+336 outstanding remains. Docs constrained-calls.md/closed-types.md/progress.md.
+
+Commit this coherent unit locally, keep current hosted run alive; publish after
+CI44104980515 is terminal. Update PR55 queued work and vault. Next runtime work is
+constructed generic reference/interface dispatch and instantiated interfaces;
+boxing, broader IRQ/banked-data and full product/test/removal gates remain.
+
 ## Current inherited-member unit
 
 Local d530aec plus pending CI/static and inherited-method increments are ready

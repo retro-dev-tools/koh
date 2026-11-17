@@ -130,10 +130,51 @@ public static class Program
     static int ReadGeneric<T>(ref T value)
         where T : IClosedRead => value.Read();
 
+    static int ReadRemoteGeneric<T>(ref T value)
+        where T : IRemoteMarker => value.Read();
+
+    static U ForwardGeneric<T, U>(ref T receiver, U value)
+        where T : IClosedForward => receiver.Forward(value);
+
     public static int ConstrainedDispatch()
     {
-        var value = new InterfaceValue<byte>();
-        return ReadGeneric(ref value);
+        var value = new InterfaceValue<byte> { Payload = 245 };
+        int first = ReadGeneric(ref value);
+        int second = ReadGeneric(ref value);
+        var wide = new InterfaceValue<ulong> { Payload = 0xFEDCBA9876543210UL, Calls = 10 };
+        int third = ReadGeneric(ref wide);
+        var explicitValue = new ExplicitInterfaceValue<byte> { Payload = 17 };
+        int fourth = ReadGeneric(ref explicitValue);
+        int decoy = explicitValue.Read();
+        var forwarded = ForwardGeneric(ref explicitValue, new Payload { Tag = 34, Value = 60000 });
+        ulong forwardedWide = ForwardGeneric(ref wide, 0xFEDCBA9876543210UL);
+        var remote = new RemoteReadValue<Payload>
+        {
+            Payload = new Payload { Tag = 7, Value = 60000 },
+            Calls = 7,
+        };
+        int fifth = ReadRemoteGeneric(ref remote);
+        return
+            first == 42
+            && second == 43
+            && value.Calls == 2
+            && value.Payload == 245
+            && third == 52
+            && wide.Calls == 14
+            && wide.Payload == 0xFEDCBA9876543210UL
+            && fourth == 101
+            && explicitValue.Calls == 11
+            && explicitValue.Payload == 17
+            && decoy == 201
+            && forwarded.Tag == 34
+            && forwarded.Value == 60000
+            && forwardedWide == 0xFEDCBA9876543210UL
+            && fifth == 78
+            && remote.Calls == 8
+            && remote.Payload.Tag == 7
+            && remote.Payload.Value == 60000
+            ? 42
+            : 0;
     }
 
     static Pair<byte> EchoPair(Pair<byte> value) => value;
@@ -397,9 +438,47 @@ public sealed class InterfaceCell<T> : IClosedRead
     public int Read() => 42;
 }
 
-public struct InterfaceValue<T> : IClosedRead
+public struct InterfaceValue<T> : IClosedRead, IClosedForward
 {
-    public int Read() => 42;
+    public T Payload;
+    public int Calls;
+
+    public int Read()
+    {
+        Calls++;
+        return Calls + 41;
+    }
+
+    public U Forward<U>(U value)
+    {
+        Calls += 3;
+        return value;
+    }
+}
+
+public struct ExplicitInterfaceValue<T> : IClosedRead, IClosedForward
+{
+    public T Payload;
+    public int Calls;
+
+    int IClosedRead.Read()
+    {
+        Calls++;
+        return Calls + 100;
+    }
+
+    public int Read() => Calls + 200;
+
+    U IClosedForward.Forward<U>(U value)
+    {
+        Calls += 10;
+        return value;
+    }
+}
+
+public interface IClosedForward
+{
+    U Forward<U>(U value);
 }
 
 [StructLayout(LayoutKind.Explicit)]

@@ -249,6 +249,7 @@ fn closed_types_preserve_layouts_and_static_initialization(
     for entry in [
         "Values",
         "Inheritance",
+        "ConstrainedDispatch",
         "Objects",
         "Statics",
         "TypeOnly",
@@ -361,7 +362,7 @@ fn closed_types_preserve_layouts_and_static_initialization(
         }
     }
     let image = resolver.assembly(0).unwrap();
-    for entry in ["InterfaceDispatch", "ConstrainedDispatch"] {
+    for entry in ["InterfaceDispatch"] {
         let error = compile::object(&resolver, Some(&format!("Program::{entry}")))
             .err()
             .expect("Constructed declaring dispatch remains unfinished");
@@ -373,6 +374,41 @@ fn closed_types_preserve_layouts_and_static_initialization(
         );
     }
     let data = image.metadata();
+    let explicit_value = data
+        .type_defs
+        .iter()
+        .position(|row| data.strings.get(row.type_name).unwrap() == "ExplicitInterfaceValue`1")
+        .unwrap() as u32
+        + 1;
+    let mapping = data
+        .method_impls
+        .iter()
+        .position(|row| {
+            row.class == explicit_value
+                && image
+                    .method_name(0x06000000 | row.method_body.row)
+                    .unwrap()
+                    .ends_with("::IClosedRead.Read")
+        })
+        .unwrap();
+    let wrong = (1..=data.method_defs.len())
+        .map(|row| 0x06000000 | row as u32)
+        .find(|&token| image.method_name(token).unwrap() == "InterfaceValue`1::Read")
+        .unwrap();
+    let mut bytes = images[0].clone();
+    let (offset, context) = metadata::table_row(&bytes, clrmeta::TableId::MethodImpl, mapping);
+    let offset = offset + context.table_index_size(clrmeta::TableId::TypeDef);
+    let width = context.coded_index_size(clrmeta::CodedIndexKind::MethodDefOrRef);
+    bytes[offset..offset + width]
+        .copy_from_slice(&((wrong & 0xffffff) << 1).to_le_bytes()[..width]);
+    let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let error = compile::object(&changed, Some("Program::ConstrainedDispatch"))
+        .err()
+        .expect("MethodImpl cannot borrow a body from another generic value definition");
+    assert!(
+        error.contains("Constrained MethodImpl body must belong") && error.contains("IL_"),
+        "{error}"
+    );
     let base = data
         .type_defs
         .iter()

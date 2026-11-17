@@ -2232,6 +2232,9 @@ fn translate(
                     value.identity(),
                     target.definition,
                 )?;
+                target.declaring = resolver
+                    .type_instance(value.identity())?
+                    .map(|_| value.identity());
                 true
             } else {
                 false

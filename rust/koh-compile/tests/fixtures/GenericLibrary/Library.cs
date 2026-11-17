@@ -80,3 +80,15 @@ public class RemoteBase<T>
 
     public T Read() => Value;
 }
+
+public struct RemoteReadValue<T> : IRemoteMarker
+{
+    public T Payload;
+    public int Calls;
+
+    public int Read()
+    {
+        Calls++;
+        return Calls + 70;
+    }
+}

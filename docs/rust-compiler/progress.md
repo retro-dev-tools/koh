@@ -16,6 +16,10 @@ base types. [Inherited method references](closed-types.md#inherited-method-refer
 now bind caller scopes and exact closed base identities; field references retain
 their declaring-type requirement. Generic virtual/interface dispatch remains
 open; this does not close another legacy test disposition.
+Closed generic value receivers now support [constrained calls](constrained-calls.md#closed-generic-value-receivers)
+to nongeneric interface contracts, preserving caller mutation and explicit/generic
+method selection. Constructed reference dispatch and instantiated interfaces
+remain unfinished.
 
 Current compiler increment adds distinct binary32 IR, explicit bit transport,
 float constants/calls/joins/byrefs/fields/arrays and metadata-selected software

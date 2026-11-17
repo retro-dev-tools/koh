@@ -129,8 +129,14 @@ current full-workspace pass.
 
 ## Remaining work
 
-Constructed generic virtual/interface/constrained dispatch,
+Constructed generic reference-type virtual/interface dispatch, instantiated
+interface contracts,
 variance-aware assignability and boxing-dependent fallback remain unfinished.
+
+Closed generic value receivers now execute through the existing
+[constrained call contract](constrained-calls.md#closed-generic-value-receivers),
+including explicit implementations and generic interface methods. This does not
+establish constructed generic reference dispatch or instantiated interfaces.
 This increment does not approve their retirement or classify valid unsupported
 CLI shapes as malformed. Existing C# compiler/test definitions remain until full
 migration acceptance. No extra legacy dispositions are claimed:198/565 complete,

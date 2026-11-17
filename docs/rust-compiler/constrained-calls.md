@@ -1,7 +1,8 @@
 # Closed constrained interface calls
 
 The Rust frontend supports `constrained. thisType; callvirt` for supported closed
-class/interface and struct receivers on nongeneric declaring types. Standard C#
+class/interface receivers on nongeneric declaring types and nongeneric or closed
+generic struct receivers implementing nongeneric interface contracts. Standard C#
 generic constraints and `ref T` arguments produce this CIL; authors need no Koh
 attribute or alternative API.
 
@@ -24,8 +25,8 @@ Prefix/call pairs are validated before stack lowering. Branches cannot enter the
 call after its prefix. Dangling prefixes and wrong type tokens diagnose with IL
 offsets. Modern constrained static-interface call/ldftn extensions diagnose as
 unfinished support, rather than malformed metadata. Boxing-dependent base methods,
-default-interface value fallback, primitive receiver runtimes and constructed
-generic declaring dispatch remain unfinished. Closed declaring layouts and static
+default-interface value fallback, primitive receiver runtimes, constructed generic
+reference dispatch and instantiated interface contracts remain unfinished. Closed declaring layouts and static
 storage are implemented separately; see [closed types](closed-types.md).
 None of the unfinished dispatch behavior is approved for retirement.
 
@@ -47,3 +48,38 @@ adding the untouched-heap assertion and interface-alias case, final4/4 passes
 39.612s (`/tmp/koh-constrained-final.log`):116 ROMs across four configurations.
 Read-only review found no confirmed blockers. Selected local runs do not prove
 complete migration acceptance; legacy source-method dispositions remain91/565.
+
+## Closed generic value receivers
+
+Metadata method/MethodImpl rows are read through the underlying TypeDef, while
+the selected call retains the exact closed struct owner. Losing that owner would
+erase field widths or confuse a reference-library payload with a local row of the
+same number. The existing constrained pointer is passed directly through the
+normal specialized call ABI. No boxing, heap allocation or alternate runtime
+calling convention is introduced.
+
+`driver::generic_types::closed_types_preserve_layouts_and_static_initialization`
+now executes `ConstrainedDispatch` in all four Debug/Release × DMG/CGB modes:
+
+- Repeated calls mutate the original struct and return42 then43.
+- Byte and64-bit receiver payloads retain complete values and distinct counters.
+- Explicit interface Read differs from the public same-name method.
+- Interface methods with their own generic arguments forward a packed struct and a full64-bit value;
+  implicit and explicit bodies have distinct counter effects.
+- A referenced generic struct preserves a local packed payload through a call.
+- A MethodImpl edited to borrow another generic value definition's body diagnoses
+  with member/IL context, retaining nominal identity checks.
+
+The existing test also retains banked ELF round-trip, resolver-history byte
+determinism, frame/heap guards and the untouched alternate CGB WRAM bank. Initial
+`/tmp/koh-closed-constrained-red.log` rejects all four configurations at the old
+constructed-value guard. Basic execution then passes4/4 in31.726s. This work adds
+runtime coverage without changing the229/565 legacy disposition ledger.
+
+Final selected library/closed-type/ordinary-generic run passes237/237 in150.387s,
+exit0 (`/tmp/koh-closed-constrained-regression.log`),438 outside the selection.
+The new nominal-body mutation and existing wrong-receiver/MethodImpl checks pass.
+Rustfmt, CSharpier and separate workspace/all-feature rustdoc pass (four crates,
+zero documentation cases). These extend existing rstest configurations; no new
+test declarations or legacy disposition closures are claimed. Complete hosted
+validation and the remaining compiler migration gates are still required.
