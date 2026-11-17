@@ -1,6 +1,8 @@
 use koh_compile::assembly::Assembly;
 use rstest::{fixture, rstest};
 use std::{path::Path, process::Command};
+#[path = "support/image_cache.rs"]
+mod image_cache;
 
 struct Assemblies {
     bytes: [Vec<u8>; 3],
@@ -41,6 +43,12 @@ fn user_strings_preserve_utf16_units(assemblies: &Assemblies, #[case] configurat
 #[fixture]
 #[once]
 fn assemblies() -> Assemblies {
+    Assemblies {
+        bytes: image_cache::images("Reader", || build_assemblies().bytes),
+    }
+}
+
+fn build_assemblies() -> Assemblies {
     let directory = tempfile::Builder::new()
         .prefix("koh compiler fixtures ")
         .tempdir()

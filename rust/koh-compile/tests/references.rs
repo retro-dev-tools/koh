@@ -9,6 +9,8 @@ use std::{path::Path, process::Command};
 #[path = "support/metadata.rs"]
 mod metadata;
 use metadata::table_row;
+#[path = "support/image_cache.rs"]
+mod image_cache;
 
 fn write_index(bytes: &mut [u8], offset: usize, width: usize, value: u32) {
     if width == 2 {
@@ -27,6 +29,25 @@ struct Images {
 #[fixture]
 #[once]
 fn images() -> Images {
+    let [a, b, c, d, e, f, wrong_version, facade, framework] =
+        image_cache::images("References", || {
+            let Images {
+                configurations: [[a, b, c], [d, e, f]],
+                wrong_version,
+                facade,
+                framework,
+            } = build_images();
+            [a, b, c, d, e, f, wrong_version, facade, framework]
+        });
+    Images {
+        configurations: [[a, b, c], [d, e, f]],
+        wrong_version,
+        facade,
+        framework,
+    }
+}
+
+fn build_images() -> Images {
     let directory = tempfile::Builder::new()
         .prefix("koh references ")
         .tempdir()

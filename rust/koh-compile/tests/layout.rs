@@ -4,10 +4,20 @@ use koh_compile::{
 };
 use rstest::{fixture, rstest};
 use std::path::Path;
+#[path = "support/image_cache.rs"]
+mod image_cache;
 
 #[fixture]
 #[once]
 fn class_images() -> [[Vec<u8>; 2]; 2] {
+    let [a, b, c, d] = image_cache::images("ClassLayouts", || {
+        let [[a, b], [c, d]] = build_class_images();
+        [a, b, c, d]
+    });
+    [[a, b], [c, d]]
+}
+
+fn build_class_images() -> [[Vec<u8>; 2]; 2] {
     let directory = tempfile::tempdir().unwrap();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ClassLayouts");
     std::fs::create_dir(directory.path().join("Base")).unwrap();
@@ -401,6 +411,10 @@ fn flattened_class_layouts_have_a_shared_resource_budget() {
 #[fixture]
 #[once]
 fn images() -> [Vec<u8>; 2] {
+    image_cache::images("StructLayouts", build_images)
+}
+
+fn build_images() -> [Vec<u8>; 2] {
     let directory = tempfile::tempdir().unwrap();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/StructLayouts");
     for name in ["StructLayouts.csproj", "Types.cs"] {
