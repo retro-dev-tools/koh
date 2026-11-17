@@ -1,5 +1,29 @@
 # Native compiler migration handoff
 
+## Active scalar control-flow test migration
+
+Published7109d8e0baf03062937ee5710b39137aaa94d0ac; draft PR55/master,
+CI44140255184 confirmed running. Symbol-address unit published and PR ledger
+232/565,333pending reflects that head. Local scalar increment is ready to commit.
+
+Reviewed first34 methods of Sm83ControlFlowTests,37 assertion sites; ported all
+exact numeric expectations. New tests/support/control_flow_scalars.rs plus three
+sm83.rs rstest width cases normalize8-bit values explicitly, use Native16 for
+16-bit vectors and I32 for32. Parameter/constant inputs run before/after real
+optimization; full return bits, SP and guards checked by retained C# emulator.
+Adds9 actual32-bit carry/borrow/signed-boundary vectors because source operands
+did not prove the stronger test-name claims. Retains original subtraction
+producer chain and a dynamic3-input version to keep intermediates live.
+
+46 vectors*4forms +4chain runs =188 ROM executions, chunks<=32paths for command
+limits. Final3/3 passes3.448s,exit0,/tmp/koh-control-flow-scalars-boundaries.log.
+Fmt/discovery exit0. Discovery1826 includes1649compiler cases,0ignored,all3new
+cases present. No production change. Local ledger266/565 (265native+1prior
+parserDELETE),299outstanding. Source54-method file is34complete/20pending;
+calls/memory/boot/phi cases are not deferred or claimed complete. Documented
+per method in control-flow-scalars.md; source inventory/global totals reconciled.
+Commit increment; queue push until current CI terminal. No local builds live.
+
 ## Active symbol-address test migration
 
 Published headca8ae6d35a60641ef0311c32b6cd4583daba4876; draft PR55/master,

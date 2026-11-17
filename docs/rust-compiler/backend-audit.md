@@ -236,44 +236,47 @@ SM83 cases excluded. Workspace discovery lists1792 tests; all four new cases are
 
 Classification: Language, memory, call, and cartridge contracts. Arithmetic, pointer scaling, parallel phi assignments and calls have observable values independently of the C# emitter.
 
-Proposed future location: `rust/koh-compiler/tests/control_flow.rs` (not implemented).
+Implemented scalar coverage: `rust/koh-compile/tests/sm83.rs` and
+`tests/support/control_flow_scalars.rs`. First34 methods (37 assertion sites) are
+PORT complete; the remaining20 methods stay pending. See the
+[per-method scalar matrix and execution evidence](control-flow-scalars.md).
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `I16_Add_CarriesAcrossBytes` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `I16_Sub_BorrowsAcrossBytes` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `I16_Ult_True` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `I16_Ugt_True_ViaSwap` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `I16_Eq_False` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Mul_I8` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Mul_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Mul_Signed_I8_LowByteMatches` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `UDiv_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `URem_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `UDiv_I8` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `SDiv_I16_NegativeDividend` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `SRem_I16_SignOfDividend` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `SDiv_I16_BothNegative` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Shl_Const_I8` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `LShr_Const_I8` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `AShr_Const_I8_SignFills` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Shl_Const_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `LShr_Const_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `AShr_Const_I16_SignFills` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Shl_Variable` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Slt_Signed_NegativeLessThanPositive` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Sgt_Signed_NegativeOrdering` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `SignedVsUnsigned_DifferForNegatives` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Slt_Signed_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Slt_Signed_CloseValuesWithLowByteBorrow` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `I32_Add_CarriesAcrossFourBytes` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `I32_Sub_BorrowsAcrossFourBytes` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `I32_Bitwise_And` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `I32_SignedCompare_AcrossBoundary` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `I32_ZeroExtendFromByte` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `ZExt_I8_To_I16` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `SExt_I8_To_I16_SignExtendsHighByte` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Trunc_I16_To_I8_KeepsLowByte` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `I16_Add_CarriesAcrossBytes` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `I16_Sub_BorrowsAcrossBytes` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `I16_Ult_True` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `I16_Ugt_True_ViaSwap` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `I16_Eq_False` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `Mul_I8` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `Mul_I16` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `Mul_Signed_I8_LowByteMatches` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `UDiv_I16` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `URem_I16` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `UDiv_I8` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `SDiv_I16_NegativeDividend` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `SRem_I16_SignOfDividend` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `SDiv_I16_BothNegative` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `Shl_Const_I8` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `LShr_Const_I8` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `AShr_Const_I8_SignFills` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `Shl_Const_I16` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `LShr_Const_I16` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `AShr_Const_I16_SignFills` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `Shl_Variable` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `Slt_Signed_NegativeLessThanPositive` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `Sgt_Signed_NegativeOrdering` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `SignedVsUnsigned_DifferForNegatives` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `Slt_Signed_I16` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `Slt_Signed_CloseValuesWithLowByteBorrow` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `I32_Add_CarriesAcrossFourBytes` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `I32_Sub_BorrowsAcrossFourBytes` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `I32_Bitwise_And` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `I32_SignedCompare_AcrossBoundary` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `I32_ZeroExtendFromByte` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `ZExt_I8_To_I16` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `SExt_I8_To_I16_SignExtendsHighByte` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
+| `Trunc_I16_To_I8_KeepsLowByte` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
 | `Alloca_Store_Load_RoundTrips` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
 | `Gep_IndexesArrayElements` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
 | `Call_PassesArgs_ReturnsI8` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |

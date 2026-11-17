@@ -35,8 +35,10 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   vectors with saved registers, a reserved stack budget and bank-preserving ROM0
   bodies and shared scalar helper calls; allocation/nested IRQ enabling remain
   explicit diagnostics.
-  The current ledger has232/565 complete dispositions and333 partial/outstanding
-  (231 native replacements, one obsolete private-parser DELETE decision);
+  The current ledger has266/565 complete dispositions and299 partial/outstanding
+  (265 native replacements, one obsolete private-parser DELETE decision);
+  34 [scalar control-flow methods](docs/rust-compiler/control-flow-scalars.md) now
+  preserve37 assertions with188 before/after native executions and stronger boundaries;
   three [symbol-address methods](docs/rust-compiler/symbol-addresses.md) now verify
   banked code, relocated startup/header entry and actual WRAM bytes in16 ROMs.
   five [IR construction/verifier methods](docs/rust-compiler/ir-construction.md)

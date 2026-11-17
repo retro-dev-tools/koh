@@ -4,6 +4,8 @@ use rstest::fixture;
 use std::path::Path;
 #[path = "support/compare_branch.rs"]
 mod compare_branch;
+#[path = "support/control_flow_scalars.rs"]
+mod control_flow_scalars;
 #[path = "support/liveness.rs"]
 mod liveness;
 #[path = "support/optimizer_contracts.rs"]
@@ -14,6 +16,56 @@ mod recursion_fixture;
 mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case(8)]
+#[case(16)]
+#[case(32)]
+fn scalar_width_contracts_execute_before_and_after_optimization(host: &Host, #[case] bits: u16) {
+    let mut programs = Vec::new();
+    let cases = control_flow_scalars::cases(bits);
+    assert_eq!(
+        cases.len(),
+        match bits {
+            8 => 12,
+            16 => 20,
+            32 => 14,
+            _ => unreachable!(),
+        }
+    );
+    for (f, arguments, expected) in cases {
+        for (f, arguments) in [
+            (f.clone(), arguments.clone()),
+            (control_flow_scalars::constant_inputs(f, &arguments), vec![]),
+        ] {
+            let mut optimized = f.clone();
+            koh_compile::optimize::simplify(&mut optimized).unwrap();
+            for function in [f, optimized] {
+                verify(&function).unwrap();
+                programs.push((function, arguments.clone(), Ok(expected)));
+            }
+        }
+    }
+    if bits == 16 {
+        for (f, arguments) in [
+            (control_flow_scalars::subtraction_chain(), vec![]),
+            (
+                control_flow_scalars::dynamic_subtraction_chain(),
+                vec![200, 100, 50],
+            ),
+        ] {
+            let mut optimized = f.clone();
+            koh_compile::optimize::simplify(&mut optimized).unwrap();
+            for function in [f, optimized] {
+                verify(&function).unwrap();
+                programs.push((function, arguments.clone(), Ok(150)));
+            }
+        }
+    }
+    for chunk in programs.chunks(32) {
+        run(host, chunk);
+    }
+}
 
 #[rstest::rstest]
 #[case(8)]

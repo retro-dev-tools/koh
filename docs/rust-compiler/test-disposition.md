@@ -31,18 +31,24 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:232/565 methods (231 native behavioral replacements,
+**Complete dispositions:266/565 methods (265 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
 Six [interrupt/vector/dispatch methods](interrupts.md) now have complete native
 replacements (11 original assertion sites).
 Eleven [comparison/conversion optimizer methods](optimizer-scalar-contracts.md)
 now have complete native semantic replacements (43 source assertion sites).
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 333 methods still have
+The remaining 299 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+The first34 [scalar control-flow methods](control-flow-scalars.md) now preserve
+all37 numeric assertion sites through parameter/constant inputs before/after
+optimization, with stronger carry/borrow/sign boundaries and live producer
+chains. Three Rust width cases execute188 ROMs. The source file's remaining20
+memory/call/boot/phi methods are still pending, not deferred or marked complete.
 
 All three [symbol-address methods](symbol-addresses.md) now have complete native
 acceptance: actual instruction/relocation addresses, relocated startup/header

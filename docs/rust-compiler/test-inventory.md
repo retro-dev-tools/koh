@@ -15,8 +15,8 @@ attributes at line starts and permits whitespace/newlines in `Assert.That`.
 Counts do not represent independently justified scenarios or executed assertions:
 parameterization and loops expand execution, and embedded C# fixtures need review.
 
-Current source-method totals:232/565 complete, comprising231 native behavioral
-replacements and one obsolete-parser DELETE decision;333 remain outstanding.
+Current source-method totals:266/565 complete, comprising265 native behavioral
+replacements and one obsolete-parser DELETE decision;299 remain outstanding.
 These count source methods, not distinct Rust declarations or parameter-expanded
 executions. Scenario/assertion accounting belongs to each completed group's
 matrix; a workspace test count does not prove source coverage. For example, the
@@ -24,9 +24,12 @@ three [symbol-address methods](symbol-addresses.md) map to four rstest cases and
 16 ROM executions, preserving or replacing all seven source assertion sites.
 The native compiler and C# emulator process harness now exist. Existing C# tests
 remain until full replacement acceptance and final compiler-project removal.
-Current workspace/all-feature discovery lists1,823 cases, including1,646 compiler
+Current workspace/all-feature discovery lists1,826 cases, including1,649 compiler
 cases and zero ignored compiler cases. The symbol-address group's four cases
 are explicitly present. These are discovery counts, not complete-migration proof.
+The34 completed scalar control-flow methods account for37 original assertion
+sites and map to three width cases/188 ROM executions; the other20 methods in
+that source file remain pending.
 
 For each row, the completed disposition must identify individual requirements,
 independent justification, public versus implementation contracts, PORT / REPLACE /
