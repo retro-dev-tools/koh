@@ -443,6 +443,7 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
         crate::optimize::simplify(function)?;
         crate::alignment::apply(resolver, function)?;
     }
+    crate::optimize::constant_calls(&mut functions)?;
     verify_program(&functions)?;
     Ok(functions)
 }

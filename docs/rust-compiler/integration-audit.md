@@ -38,7 +38,7 @@ source requirements remain traceability, not outstanding work.
 These two speed-switch methods now map to discoverable native
 `driver::cpu_control_and_speed_switch_execute` Debug/Release × DMG/CGB cases.
 The replacement also checks pending requests, IE and IME before shutdown; see
-[the redesigned startup contract](cpu-control.md). Other methods remain open.
+[the redesigned startup contract](cpu-control.md). All seven HAL methods now have native replacements through this path and the bank/palette cases below.
 
 - **PORT, complete** `SelectVramBank_SelectsBank1_InCgbMode`, `SelectVramBank_IsInertOnDmg`: `driver::cgb_hal` checks bank-1/VBK readback, actual distinct bank contents and round trips on CGB; DMG stays in bank0 and makes no CGB-only MMIO writes.
 - **PORT, complete** `SetBackgroundColor_WritesPaletteRam_InCgbMode`, `SetBackgroundColor_WritesTheRequestedPaletteAndColorSlot`: `driver::cgb_hal` checks little-endian RGB555 at slots0/0 and2/3, all other BG/OBJ bytes, every valid slot and CPU write order. See [the quantified seven-method matrix](cgb-hal.md).
@@ -81,6 +81,12 @@ See [exact disposition](test-disposition.md#jrpg-replacements).
 - **PORT, complete** `Sample_RomHeader_IsCgbExclusive`: linked ROM byte 0x143 == 0xC0. Header flag is a linker contract exercised with compiler output; retain explicit SDK forwarding acceptance too.
 
 ### `Samples/Cube3dTests.cs` — 3 methods, 6 cases
+
+All three methods now have native replacements (2 REPLACE/1 PORT), covering
+eight assertion sites/16 expanded assertions. The original Release deadlines
+remain200 frames for double-buffered/CGB and250 for full-frame/DMG. See the
+[exact source matrix and corrected performance gap](cube-phase-sweep.md#legacy-cube-sample-requirements).
+The standalone verifier groups below remain outside the565-method denominator.
 
 - **REPLACE** `Demo_CompilesWithoutDiagnostics` (double-buffered, full-frame): real shared files plus local overrides and referenced HAL, replace managed frontend/backend calls.
 - **REPLACE** `Demo_LinksToBootableRom` (same variants): partial NOP/JP/logo check becomes valid header/entry plus boot acceptance.

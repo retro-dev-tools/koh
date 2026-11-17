@@ -64,6 +64,14 @@ removal preserves calls, memory writes, allocation and traps even when their
 results are unused. Diamond agreement/disagreement and real byref mutations are
 covered in `tests/ir.rs` and the ancestor-frame C# execution cases.
 
+After local simplification, a single program pass may replace direct calls to
+argument-free integer literal-return functions. The entire callee body must
+contain only constants and conversions proven to leave those constants unchanged;
+all effects, memory operations, branches and changed-bit conversions exclude it.
+Typed results and caller IL offsets survive replacement, then local simplification
+and program verification run again. This is not general inlining or an iterative
+interprocedural framework. Callee symbols remain available in emitted metadata.
+
 [Raw arena](raw-arena.md) operations are observable effects. `ArenaAllocate`
 requires an int32 size and returns native16; `ArenaReset` has no operands/result.
 Neither can be removed when its result is unused. Reset invalidates raw storage

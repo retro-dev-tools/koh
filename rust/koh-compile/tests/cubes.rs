@@ -237,6 +237,11 @@ fn cube_boots_and_animates(
         ("racing-beam", false) => (400, 700, (43, 40, 70, 64)),
         _ => unreachable!(),
     };
+    let first = if variant == "full-frame" && !color && configuration == "Release" {
+        250
+    } else {
+        first
+    };
     let rom = directory.path().join("cube.gb");
     std::fs::write(&rom, &linked.rom).unwrap();
     let output = dotnet()

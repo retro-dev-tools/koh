@@ -283,3 +283,14 @@ wide product. No new runtime ABI is introduced. See [proof and tests](checked-mu
 initializer identities per argument list. Their code uses the existing ordinary
 call ABI and their BSS/initializer bytes count against existing WRAM limits.
 The internal identities do not define a new ELF relocation or debug format.
+
+### Arithmetic emission
+
+Multi-byte shifts walk a stack slot with HL and use memory SLA/SRA/SRL followed
+by carry-linked RL/RR. INC/DEC HL preserve the inter-byte carry. Division's
+carry-in shift saves AF across stack-address formation, including the two-byte
+temporary push in its offset. Only carry is consumed from this private helper;
+its Z flag is not a calling-convention result. Instruction encodings and flags
+are independently checked against the [gbdev opcode table](https://github.com/gbdev/gb-opcodes/blob/master/Opcodes.json).
+The existing software arithmetic emitter and external call, return, frame and
+temporary stack budgets remain unchanged.

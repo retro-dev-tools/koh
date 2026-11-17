@@ -1076,6 +1076,23 @@ fn memory_fill_exact_extents_alignment_and_cost(
 ) {
     let (directory, images) = gameboy_images(host, configuration, "MemoryFill");
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let object = compile::object(&resolver, Some("Program::ClearMap")).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Compatible
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        execute_mode(host, directory.path(), &linked, "__koh_exit", "--native"),
+        "00 0000002A D000 OK"
+    );
     for shape in ["Address", "Return", "Pointer", "Value", "Count"] {
         let error = compile::object(&resolver, Some(&format!("Program::Bad{shape}"))).unwrap_err();
         assert!(

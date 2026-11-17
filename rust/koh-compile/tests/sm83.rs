@@ -1655,6 +1655,120 @@ fn memory_fill_truncates_formal_widths_and_preserves_stack(
 }
 
 #[rstest::rstest]
+#[case(Type::I32, Binary::ShiftLeft, 1, 31, 0x80000000)]
+#[case(Type::I64, Binary::ShiftLeft, 1, 63, 0x8000000000000000)]
+#[case(Type::I32, Binary::ShiftRightSigned, 0x80000000, 31, 0xffffffff)]
+#[case(Type::I64, Binary::ShiftRightSigned, 0x8000000000000000, 63, u64::MAX)]
+#[case(Type::I32, Binary::ShiftRightUnsigned, 0x80000000, 31, 1)]
+#[case(Type::I64, Binary::ShiftRightUnsigned, 0x8000000000000000, 63, 1)]
+fn wide_shift_cycle_cost(
+    host: &Host,
+    #[case] ty: Type,
+    #[case] op: Binary,
+    #[case] value: u64,
+    #[case] count: u64,
+    #[case] expected: u64,
+) {
+    let mut f = function(
+        ty,
+        Op::Binary {
+            op,
+            left: 0,
+            right: 1,
+        },
+    );
+    f.parameters[1] = Type::I32;
+    f.blocks[0].parameters[1].1 = Type::I32;
+    let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
+    let path = directory.path().join("shift.gb");
+    std::fs::write(&path, rom(&f, &[value, count], 0xd000)).unwrap();
+    let output = dotnet()
+        .arg(&host.dll)
+        .arg("--cost")
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let fields: Vec<_> = stdout.split_whitespace().collect();
+    assert_eq!(fields[0], "A5", "{stdout}");
+    let bytes: String = expected
+        .to_le_bytes()
+        .iter()
+        .map(|b| format!("{b:02X}"))
+        .collect();
+    assert_eq!(fields[2], bytes, "{stdout}");
+    assert_eq!(&fields[3..5], &["D000", "OK"], "{stdout}");
+    let cycles: u64 = fields[5].parse().unwrap();
+    println!("{ty:?} {op:?}: {cycles} T-cycles");
+    assert!(cycles < 24000, "wide shift exceeds24000 T-cycles: {stdout}");
+}
+
+#[rstest::rstest]
+#[case(0)]
+#[case(20)]
+#[case(160)]
+fn wide_division_stack_boundary_preserves_reserved_memory(host: &Host, #[case] locals: usize) {
+    let mut f = function(
+        Type::I64,
+        Op::Binary {
+            op: Binary::DivideUnsigned,
+            left: 0,
+            right: 1,
+        },
+    );
+    f.locals = vec![Type::I64; locals];
+    let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
+    let mut command = dotnet();
+    command.arg(&host.dll).current_dir(directory.path());
+    let stacks: Vec<u16> = (0xc140..0xc300).step_by(2).collect();
+    for &stack in &stacks {
+        let path = directory.path().join(format!("{stack:04x}.gb"));
+        std::fs::write(&path, rom(&f, &[u64::MAX, 0x100000011], stack)).unwrap();
+        command.arg(format!("{stack:04x}.gb"));
+    }
+    let result = command.output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let output = String::from_utf8(result.stdout).unwrap();
+    let lines: Vec<_> = output.lines().collect();
+    assert_eq!(lines.len(), stacks.len());
+    let expected: String = (u64::MAX / 0x100000011u64)
+        .to_le_bytes()
+        .iter()
+        .map(|b| format!("{b:02X}"))
+        .collect();
+    let (mut returned, mut trapped) = (0, 0);
+    for (line, stack) in lines.into_iter().zip(stacks) {
+        let fields: Vec<_> = line.split_whitespace().collect();
+        assert_eq!(fields[4], "OK", "SP={stack:04x}: {line}");
+        match fields[0] {
+            "A5" => {
+                assert_eq!(fields[2], expected, "{line}");
+                assert_eq!(fields[3], format!("{stack:04X}"), "{line}");
+                returned += 1;
+            }
+            "EE" => {
+                assert_eq!(fields[1], "01", "{line}");
+                trapped += 1;
+            }
+            _ => panic!("Unexpected termination: {line}"),
+        }
+    }
+    assert!(
+        returned > 0 && trapped > 0,
+        "sweep must cross the stack boundary"
+    );
+}
+
+#[rstest::rstest]
 #[case(Type::I32)]
 #[case(Type::I64)]
 fn repeated_products_fit_a_rom_bank_and_preserve_frames(host: &Host, #[case] ty: Type) {

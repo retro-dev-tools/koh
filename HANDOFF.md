@@ -2190,3 +2190,31 @@ DMG/CGB palette themes. Final4/4 pass47.303s,exit0,440 excluded; primary
 Docs/showcase-timeline.md records coherence limits. Next: remaining cube sample
 source dispositions, then broader compiler groups/product gaps. Published
 3dbd750 CI44077140986 remains active; pending local commits must not cancel it.
+
+## Final cube budget checkpoint
+
+Restored Release full-frame/DMG first capture250; old native450 was insufficient.
+The initial250 capture was blank. Final changes are in-place multi-byte memory
+shifts, conservative argument-free literal-return call folding with typed no-op
+conversion proofs, and Tilemap.Clear using existing Mem.Fill for exactly1024 bytes.
+The attempted arithmetic rewrite is absent: it exceeded the existing scratch
+budget and new SP sweeps reproduced reserved-memory corruption. Eight optimizer
+proof cases include signed widening; three SP sweeps cover672 ROM entries. Six
+shift probes measure complete values and cycles (64-bit1<<63:55624 old,15304 new).
+
+Final350/350 selection passes546.837s,exit0,594 excluded, primary
+/tmp/koh-cube-budget-width-final.log. Includes219 library,76 cube cases, relevant
+arithmetic/memory, both live source-debugger cases and four original2048 SDK
+configurations. Check/all-targets, formatting, separate rustdoc pass. Discovery
+1788,all17 new cases unignored. Read-only cube_budget_review found no blocking
+issue; no edits/builds by reviewer. No local builds live. Source matrix closes
+three legacy cube methods/eight sites/16 expanded assertions. All45 integration
+methods now have native replacements. Ledger222/565 complete (221 native+1
+obsolete parser DELETE),343 outstanding,zero physically removed. Full goal remains
+incomplete. Docs cube-phase-sweep.md,ir.md,sm83-abi.md hold rationale/evidence.
+
+Hosted3dbd750 CI44077140986 ended cancelled at the60-minute job limit; check-run
+annotation explicitly confirms maximum1h0m0s. .NET fast job succeeded. Rust logs
+were not uploaded (gh log reports log not found), so no Rust result is claimed.
+Native PR-check job limit changes to90 in a separate commit; two Linux jobs and
+all required tests remain. Safe to push queued batch after commits; never merge.

@@ -18,8 +18,6 @@ public static unsafe class Tilemap
     /// instead of whatever the map held before init (boot-logo remnants on real hardware).</summary>
     public static void Clear(byte tile)
     {
-        for (byte row = 0; row < 32; row++)
-        for (byte col = 0; col < 32; col++)
-            SetTile(col, row, tile);
+        Mem.Fill(Gb.TileMap, tile, 1024);
     }
 }

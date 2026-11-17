@@ -2,6 +2,175 @@ use crate::ir::*;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 mod recursion;
 
+pub(crate) fn constant_calls(functions: &mut [Function]) -> Result<(), String> {
+    let constants: BTreeMap<_, _> = functions
+        .iter()
+        .filter_map(|function| {
+            if !function.parameters.is_empty()
+                || function.blocks.len() != 1
+                || !matches!(function.returns, Some(Type::I32 | Type::Native | Type::I64))
+            {
+                return None;
+            }
+            let block = &function.blocks[0];
+            let Control::Return(Some(value)) = block.terminator.kind else {
+                return None;
+            };
+            let mut values = BTreeMap::<u32, (u64, Type)>::new();
+            for instruction in &block.instructions {
+                let (id, ty) = instruction.result?;
+                let bits = match instruction.op {
+                    Op::Constant(bits) => bits,
+                    Op::Convert {
+                        value,
+                        bits,
+                        signed,
+                    } => {
+                        let (value, source) = *values.get(&value)?;
+                        let retained =
+                            u16::from(bits).min(ty.bits()).min(source.bits()) - u16::from(signed);
+                        if retained < 64 && value >= 1u64 << retained {
+                            return None;
+                        }
+                        value
+                    }
+                    _ => return None,
+                };
+                values.insert(id, (bits, ty));
+            }
+            values
+                .get(&value)
+                .map(|&(bits, _)| ((function.identity.assembly, function.identity.token), bits))
+        })
+        .collect();
+    for function in functions {
+        let mut changed = false;
+        for instruction in function.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
+            if let Op::Call {
+                target, arguments, ..
+            } = &instruction.op
+            {
+                if arguments.is_empty() && instruction.result.is_some() {
+                    if let Some(&bits) = constants.get(&(target.assembly, target.token)) {
+                        instruction.op = Op::Constant(bits);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if changed {
+            simplify(function)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod constant_call_tests {
+    use super::*;
+    use crate::resolve::Definition;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(Type::I32, Type::I32, 128, 8, false, false, true)]
+    #[case(Type::I32, Type::I32, 256, 8, false, false, false)]
+    #[case(Type::I32, Type::I32, 128, 8, true, false, false)]
+    #[case(Type::I32, Type::I32, 127, 8, true, false, true)]
+    #[case(Type::I64, Type::I64, u64::MAX, 64, false, false, true)]
+    #[case(Type::I32, Type::I32, 42, 8, false, true, false)]
+    #[case(Type::I32, Type::I64, 0xffffffff, 64, true, false, false)]
+    #[case(Type::Native, Type::I32, 0xffff, 32, true, false, false)]
+    fn folds_only_effect_free_unchanged_integer_returns(
+        #[case] source: Type,
+        #[case] ty: Type,
+        #[case] value: u64,
+        #[case] bits: u8,
+        #[case] signed: bool,
+        #[case] effect: bool,
+        #[case] folded: bool,
+    ) {
+        let target = Definition {
+            assembly: 0,
+            token: 0x06000002,
+        };
+        let mut callee = Function {
+            identity: target,
+            parameters: vec![],
+            returns: Some(ty),
+            locals: vec![],
+            blocks: vec![Block {
+                parameters: vec![],
+                instructions: vec![
+                    Instruction {
+                        result: Some((0, source)),
+                        op: Op::Constant(value),
+                        il_offset: 0,
+                    },
+                    Instruction {
+                        result: Some((1, ty)),
+                        op: Op::Convert {
+                            value: 0,
+                            bits,
+                            signed,
+                        },
+                        il_offset: 1,
+                    },
+                ],
+                terminator: Terminator {
+                    kind: Control::Return(Some(1)),
+                    il_offset: 2,
+                },
+            }],
+        };
+        if effect {
+            callee.blocks[0].instructions.push(Instruction {
+                result: None,
+                op: Op::CpuControl(CpuControl::DisableInterrupts),
+                il_offset: 2,
+            });
+        }
+        let caller = Function {
+            identity: Definition {
+                assembly: 0,
+                token: 0x06000001,
+            },
+            parameters: vec![],
+            returns: Some(ty),
+            locals: vec![],
+            blocks: vec![Block {
+                parameters: vec![],
+                instructions: vec![Instruction {
+                    result: Some((0, ty)),
+                    op: Op::Call {
+                        target,
+                        signature: Signature {
+                            parameters: vec![],
+                            returns: Some(ty),
+                        },
+                        arguments: vec![],
+                    },
+                    il_offset: 17,
+                }],
+                terminator: Terminator {
+                    kind: Control::Return(Some(0)),
+                    il_offset: 18,
+                },
+            }],
+        };
+        let mut functions = [callee, caller];
+        verify_program(&functions).unwrap();
+        constant_calls(&mut functions).unwrap();
+        verify_program(&functions).unwrap();
+        let instruction = &functions[1].blocks[0].instructions[0];
+        assert_eq!(instruction.il_offset, 17);
+        assert_eq!(
+            matches!(instruction.op, Op::Constant(v) if v == value),
+            folded
+        );
+        assert_eq!(matches!(instruction.op, Op::Call { .. }), !folded);
+    }
+}
+
 fn forward_locals(function: &Function) -> BTreeMap<u32, u32> {
     let count = function.locals.len();
     let mut aliases = BTreeMap::new();

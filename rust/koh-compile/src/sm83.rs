@@ -740,24 +740,29 @@ impl Code<'_> {
     }
 
     fn shift_one(&mut self, slot: u16, width: u16, left: bool, signed: bool, carry_in: bool) {
+        if carry_in {
+            self.bytes(&[0xf5]);
+        }
+        self.address(slot + if left { 0 } else { width - 1 } + if carry_in { 2 } else { 0 });
+        if carry_in {
+            self.bytes(&[0xf1]);
+        }
         for index in 0..width {
-            let byte = if left { index } else { width - 1 - index };
-            self.load_a(slot + byte);
-            if index == 0 && !carry_in {
-                self.bytes(&[
-                    0xcb,
-                    if left {
-                        0x27
-                    } else if signed {
-                        0x2f
-                    } else {
-                        0x3f
-                    },
-                ]);
+            let opcode = if index == 0 && !carry_in {
+                if left {
+                    0x26
+                } else if signed {
+                    0x2e
+                } else {
+                    0x3e
+                }
             } else {
-                self.bytes(&[if left { 0x17 } else { 0x1f }]);
+                if left { 0x16 } else { 0x1e }
+            };
+            self.bytes(&[0xcb, opcode]);
+            if index + 1 < width {
+                self.bytes(&[if left { 0x23 } else { 0x2b }]);
             }
-            self.store_a(slot + byte);
         }
     }
 

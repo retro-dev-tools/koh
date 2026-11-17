@@ -2,6 +2,29 @@ using Koh.GameBoy;
 
 public static unsafe class Program
 {
+    public static int ClearMap()
+    {
+        Lcd.Off();
+        bool color = Cgb.IsColor();
+        for (byte bank = 0; bank < (color ? 2 : 1); bank++)
+        {
+            Cgb.SelectVramBank(bank);
+            for (int index = -1; index <= 1024; index++)
+                Gb.TileMap[index] = 0x5A;
+            Tilemap.Clear(bank == 0 ? (byte)0xA7 : (byte)0x3C);
+        }
+        for (byte bank = 0; bank < (color ? 2 : 1); bank++)
+        {
+            Cgb.SelectVramBank(bank);
+            if (Gb.TileMap[-1] != 0x5A || Gb.TileMap[1024] != 0x5A)
+                return 1;
+            for (int index = 0; index < 1024; index++)
+                if (Gb.TileMap[index] != (bank == 0 ? 0xA7 : 0x3C))
+                    return 2;
+        }
+        return 42;
+    }
+
     public static void Main()
     {
         foreach (int count in new[] { 0, 1, 2, 3, 4, 5, 7, 15, 16, 17, 255, 256, 257, 300 })

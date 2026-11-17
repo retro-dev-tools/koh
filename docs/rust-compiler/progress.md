@@ -23,7 +23,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-219/565 dispositions complete (218 native replacements, one DELETE),346 outstanding,
+222/565 dispositions complete (221 native replacements, one DELETE),343 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The remaining five [CGB HAL methods](cgb-hal.md) now check actual referenced
 code, both VRAM banks, all palette bytes and CGB-only CPU writes.
@@ -1723,3 +1723,19 @@ OAM and DMG/CGB palette packets. Final4/4 passes47.303s,exit0,440 driver cases
 excluded (/tmp/koh-showcase-timeline-final.log). No production game/emulator
 changes. All nine showcase methods are closed; ledger219/565 complete,346
 outstanding,zero physically removed.
+
+## Original cube deadline and integration closure
+
+The [three legacy cube methods](cube-phase-sweep.md#legacy-cube-sample-requirements)
+now retain all eight source assertion sites/16 expanded assertions, with stronger
+geometry/animation checks. Release full-frame/DMG again passes at250 frames;
+double-buffered/CGB retains200. Multi-byte memory shifts, proven constant-return
+call folding and bulk tilemap clearing reduce cost without an ABI/API change.
+Source-width and near-exhaustion stack regressions protect the selected design.
+All45 sample/art-integration source methods now have native replacements; the
+compiler's remaining source groups still require closure. Ledger222/565 complete,
+343 outstanding,zero physically removed. Final350/350 selected cases pass546.837s,exit0
+(/tmp/koh-cube-budget-width-final.log),594 excluded. Both source-debugger and
+four original2048 SDK configurations pass. Workspace check, formatting, separate
+rustdoc and discovery1788 pass; all17 new cases are unignored. This remains a
+selected execution result, not a current full-workspace pass.
