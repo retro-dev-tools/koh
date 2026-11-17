@@ -1,5 +1,29 @@
 # Native compiler migration handoff
 
+## Active symbol-address test migration
+
+Published headca8ae6d35a60641ef0311c32b6cd4583daba4876; draft PR55/master,
+CI44135436415 confirmed running. Previous CI44128918287 oncd41567 passed
+1812/1812 with0skips, separate rustdoc and .NET fast checks.
+
+Audited all3 Sm83SymbolAddressTests methods and7 assertion sites. New Rust
+driver/symbol_addresses.rs uses actual Roslyn DLL/PDB, with/without PDB input,
+two explicit ROM/WRAM placements and retained C# emulator. Four modes execute
+16 ROMs: code bytes/relocations match actual code symbols; header reaches shifted
+startup rather than banked Main; globals resolve to actual physical Counter1,
+Evidence2,Zero0 bytes, with poisoned initialization and stack/heap guards.
+No production compiler change. PORT1/REPLACE2, no DEFER/DELETE or source removal.
+Ledger232/565 complete (231native+1prior parserDELETE),333 outstanding.
+
+Fresh execution4/4 passes20.128s,exit0,/tmp/koh-symbol-address-execution.log.
+Rustfmt/CSharpier/discovery exit0. Discovery1823 including1646 compiler cases,
+zero compiler ignored, all4new cases present. Source mechanical cross-check565
+methods, thisgroup3methods/7assertions. Corrected stale zero-migrated inventory
+prose and backend entry-case disposition totals104PORT/185REPLACE/1DELETE=290.
+Documented in docs/rust-compiler/symbol-addresses.md. Commit increment, queue
+push until current CI terminal, then refresh PR55 ledger/checklist. No local
+builds live; full migration remains incomplete.
+
 ## Active generic-reference method unit
 
 Published headcd41567929926f28a0bf17af65853ef38c01fa8b, draft PR55/master;

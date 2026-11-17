@@ -5,8 +5,9 @@ Baseline: `9cd147265eb0c660d94c7bf4eee6a97d9e1f4e1f`.
 This is the inventory input to the mandatory semantic disposition matrix, **not
 that completed migration**. Source-level dispositions now live in the
 [frontend](frontend-audit.md), [backend](backend-audit.md) and
-[integration](integration-audit.md) audits. No compiler-owned
-coverage is deferred, removed, migrated or claimed discoverable by nextest.
+[integration](integration-audit.md) audits. Completed native coverage is recorded
+in [the current disposition status](test-disposition.md). No source methods have
+been physically retired, and no compiler-owned coverage is deferred.
 
 Mechanical source counts: 565 `[Test]` attributes, 390 `[Arguments(...)]`
 attributes and 1,524 `Assert.That(...)` call sites. The scan matches test/argument
@@ -14,11 +15,18 @@ attributes at line starts and permits whitespace/newlines in `Assert.That`.
 Counts do not represent independently justified scenarios or executed assertions:
 parameterization and loops expand execution, and embedded C# fixtures need review.
 
-Migration totals today: 0 mapped Rust tests, 0 replacements, 0 approved deletions;
-native semantic scenario count remains unmeasured; the source audits document
-candidate justifications and stronger oracles still required. The
-native emulator process harness and executable compiler are outstanding
-dependencies. Existing C# tests stay intact meanwhile.
+Current source-method totals:232/565 complete, comprising231 native behavioral
+replacements and one obsolete-parser DELETE decision;333 remain outstanding.
+These count source methods, not distinct Rust declarations or parameter-expanded
+executions. Scenario/assertion accounting belongs to each completed group's
+matrix; a workspace test count does not prove source coverage. For example, the
+three [symbol-address methods](symbol-addresses.md) map to four rstest cases and
+16 ROM executions, preserving or replacing all seven source assertion sites.
+The native compiler and C# emulator process harness now exist. Existing C# tests
+remain until full replacement acceptance and final compiler-project removal.
+Current workspace/all-feature discovery lists1,823 cases, including1,646 compiler
+cases and zero ignored compiler cases. The symbol-address group's four cases
+are explicitly present. These are discovery counts, not complete-migration proof.
 
 For each row, the completed disposition must identify individual requirements,
 independent justification, public versus implementation contracts, PORT / REPLACE /

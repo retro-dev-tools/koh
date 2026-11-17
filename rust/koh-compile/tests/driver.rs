@@ -52,6 +52,8 @@ mod softfloat_host;
 #[path = "driver/struct_returns.rs"]
 mod struct_returns;
 mod support;
+#[path = "driver/symbol_addresses.rs"]
+mod symbol_addresses;
 #[path = "driver/symbols.rs"]
 mod symbols;
 #[path = "driver/vblank.rs"]

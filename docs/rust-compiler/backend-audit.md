@@ -676,20 +676,21 @@ Proposed future location: `rust/koh-compiler/tests/loops.rs` (not implemented).
 
 Classification: Object/debug symbol and entry contracts with private placement. Symbols must resolve to emitted code/data and header entry; exact C000 placement is an implementation choice unless explicitly fixed.
 
-Proposed future location: `rust/koh-compiler/tests/symbols.rs` (not implemented).
+Implemented location: `rust/koh-compile/tests/driver/symbol_addresses.rs`.
+All three dispositions are complete; [source-by-source rationale and native evidence](symbol-addresses.md).
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `FunctionLabel_SymbolAtActualCodeAddress_NotDoubleCountingCodeBase` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `EntryFunctionLabel_SymbolMatchesHeaderEntryPoint` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `WramGlobalLabel_SymbolAtWramBase` | Mixed | REPLACE | Resolve a global symbol to its actual allocated WRAM byte; preserve fixed placement only when explicitly requested. |
+| `FunctionLabel_SymbolAtActualCodeAddress_NotDoubleCountingCodeBase` | Requirement | PORT complete | Actual code bytes and call relocation targets at explicitly placed banked symbols; observable Helper writes. |
+| `EntryFunctionLabel_SymbolMatchesHeaderEntryPoint` | Mixed | REPLACE complete | Header reaches relocated startup; banked managed entry executes after stack/static initialization. Main/header equality retires with the old ABI. |
+| `WramGlobalLabel_SymbolAtWramBase` | Mixed | REPLACE complete | Explicitly relocate WRAM storage; compare symbols, offsets and actual physical byte values without requiring default C000 placement. |
 
 ## Coverage accounting and acceptance boundary
 
-Disposition totals: **PORT 105, REPLACE 184, DELETE 1**;
+Disposition totals: **PORT 104, REPLACE 185, DELETE 1**;
 total **290**, matching the source [Test] attribute count. No DEFER entries.
-Only the migration-ledger inventory was checked here; the native files named above
-are destinations, not acceptance results. The old suite mixes direct IR construction,
+Rows explicitly marked complete cite executed native acceptance; remaining native
+paths are proposed destinations. The old suite mixes direct IR construction,
 Roslyn-compiled runtime helpers, byte/graph assertions, linking and emulator runs;
 passing one layer cannot substitute for another. Native completion requires actual
 Rust metadata-to-object output, canonical ELF inspection, linking and execution with
