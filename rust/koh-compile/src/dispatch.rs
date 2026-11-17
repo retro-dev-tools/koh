@@ -516,7 +516,19 @@ impl<'r, 'a> Binder<'r, 'a> {
         method: Definition,
         class: ClassType,
     ) -> Result<Option<Definition>, String> {
+        if class
+            .identity()
+            .map(|id| self.resolver.type_instance(id))
+            .transpose()?
+            .flatten()
+            .is_some()
+        {
+            return Err("Constructed generic dispatch is unfinished".into());
+        }
         if let Some(instance) = self.resolver.instance(method)? {
+            if instance.declaring.is_some() {
+                return Err("Constructed generic dispatch is unfinished".into());
+            }
             return self
                 .implementation(instance.method, class)?
                 .map(|target| self.resolver.specialize(target, instance.arguments))
@@ -662,6 +674,13 @@ impl<'r, 'a> Binder<'r, 'a> {
         method: Definition,
         classes: &[ClassType],
     ) -> Result<Function, String> {
+        if self
+            .resolver
+            .instance(method)?
+            .is_some_and(|instance| instance.declaring.is_some())
+        {
+            return Err("Constructed generic dispatch is unfinished".into());
+        }
         self.slot(
             self.resolver
                 .instance(method)?

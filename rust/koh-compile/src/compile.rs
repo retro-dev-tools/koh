@@ -275,6 +275,14 @@ fn type_name(
 
 pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Function>, String> {
     resolver.generic_instances.borrow_mut().clear();
+    resolver.type_instances.borrow_mut().clear();
+    resolver.field_instances.borrow_mut().clear();
+    resolver.delegate_types.borrow_mut().clear();
+    resolver.delegate_type_work.set(0);
+    resolver.value_layouts.borrow_mut().clear();
+    resolver.class_layouts.borrow_mut().clear();
+    resolver.class_layout_work.set(0);
+    resolver.reference_layout_work.set(0);
     resolver.callbacks.borrow_mut().clear();
     resolver.generic_work.set(0);
     resolver.generic_nodes.set(0);
@@ -299,7 +307,7 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
         while let Some(identity) = queue.pop_front() {
             let function = if identity.token >> 24 == 0xfc {
                 crate::delegates::function(resolver, identity)?
-            } else if identity.token >> 24 == 0xff {
+            } else if matches!(identity.token >> 24, 0xf7 | 0xff) {
                 crate::initialize::function(resolver, identity)?
             } else {
                 crate::lower::assembly_method(resolver, identity)?
@@ -316,7 +324,9 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
                 for instruction in &block.instructions {
                     if let Op::NewObject(class) = instruction.op {
                         if let Some(id) = class.identity() {
-                            classes.insert((id.assembly, id.token), class);
+                            classes
+                                .entry((id.assembly, id.token))
+                                .or_insert((class, (identity, instruction.il_offset)));
                         }
                     }
                     if let Op::InitializeArray { ref bytes, .. } = instruction.op {
@@ -374,7 +384,7 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
             functions.push(function);
         }
         for (method, site) in virtuals.values() {
-            for &class in classes.values() {
+            for &(class, _) in classes.values() {
                 if let Some(target) = binder
                     .implementation(*method, class)
                     .map_err(|error| format!("{site}: {error}"))?
@@ -392,12 +402,27 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
             break;
         }
     }
-    let classes: Vec<_> = classes.into_values().collect();
-    for &class in &classes {
-        binder
-            .validate_interfaces(class)
-            .map_err(|error| format!("Allocated class {:?}: {error}", class.identity()))?;
+    let mut allocated_classes = Vec::new();
+    for (class, (site, offset)) in classes.into_values() {
+        let origin = resolver
+            .instance(site)?
+            .map_or(site, |instance| instance.method);
+        let name = if origin.token >> 24 == 6 {
+            resolver
+                .assembly(origin.assembly)?
+                .method_name(origin.token)?
+        } else {
+            format!("Generated function {origin:?}")
+        };
+        binder.validate_interfaces(class).map_err(|error| {
+            format!(
+                "{name} IL_{offset:04x}: Allocated class {:?}: {error}",
+                class.identity()
+            )
+        })?;
+        allocated_classes.push(class);
     }
+    let classes = allocated_classes;
     for (method, site) in virtuals.into_values() {
         let function = binder
             .function(method, &classes)

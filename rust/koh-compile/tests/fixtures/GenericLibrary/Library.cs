@@ -52,3 +52,19 @@ public class RemoteGenericBase
         return value;
     }
 }
+
+public sealed class RemoteCell<T>
+{
+    public byte Head;
+    public T Value;
+    public ushort Tail;
+
+    public RemoteCell(T value)
+    {
+        Head = 34;
+        Value = value;
+        Tail = 30601;
+    }
+
+    public T Read() => Value;
+}

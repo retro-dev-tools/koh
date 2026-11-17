@@ -2113,3 +2113,51 @@ Ledger198/565 is unchanged,367 outstanding. Constructed generic declaring
 layouts/statics, boxing, banked data, final product/debug/release/performance/host
 acceptance and legacy deletion remain required. Commit this increment, then batch
 push after published CI is terminal. No delegates are active.
+
+## Constructed generic types in progress
+
+Main owns all uncommitted changes; base `509d6c7` is now pushed. Previous-head
+CI44056288366 completed1744/1744 Rust tests in2545.497s, zero skips; primary
+`/tmp/koh-ci-5f59aa3-completed.log`, GH_EXIT0. New CI44063160385 is running for
+509d6c7. Do not cancel/restart it. The full migration remains incomplete.
+
+New `types.rs` interns closed type identities(0xf9), fields(0xf8); existing
+method instances(0xfb) retain a declaring-type identity. Signature tag3 is an
+internal bound-type reference only; the untrusted signature parser rejects it.
+Generic layouts substitute field types with their original assembly scopes;
+static fields and initializer states are separate per closed owner. Generic
+initializer guards(0xf7) use the existing calling convention and WRAM limits.
+Method/local/IL binding carries method and declaring arguments separately.
+Caches containing closed identities reset between compilations for determinism.
+Type constraints now use the existing validation path, with bounded recursion;
+pointer/byref/void type arguments reject even if the callee never uses T.
+
+New fixture ClosedTypes and driver/generic_types.rs execute generic packed
+structs, objects, nested reference-bearing values and isolated static cctors
+across D/R × DMG/CGB. Initial positive12 ROMs pass4/4; expanded selection
+208/208 passes70.918s, EXIT0 (200 library +4 new +4 existing generic cases).
+The pointer-argument mutation first compiled an object incorrectly, then rejects;
+primary `/tmp/koh-closed-types-constraints-red.log` and regression log.
+Current session18161 runs added struct constructors and new-T construction in
+declaring generic contexts; expect evidence in
+`/tmp/koh-closed-types-construction-red.log`. Only main may build in shared
+`/tmp/koh-header-target`; reviewers are read-only and must not run builds/tests.
+
+Review scope: correctness of identity/scope binding, per-instantiation storage
+and initialization, cache lifetime, verifier trust boundary and malformed-input
+diagnostics. Report concrete reproducible issues; no edits. Constructed generic
+inheritance/virtual/interface dispatch and variance remain unfinished; do not
+mistake explicit unsupported diagnostics for implemented support. Generic new-T
+construction context is the next known fix pending the red fixture. No legacy
+test dispositions or source definitions are claimed removed by this increment.
+
+## Closed-type final checkpoint
+
+Supersedes the pending construction run above: final selected221/221 pass83.682s,
+430 excluded, /tmp/koh-closed-types-owned-final.log. Bound callback owner contexts,
+composed substitution bounds, zero-bound array canonical identity and generic
+explicit-layout rejection are included. Workspace check and separate rustdoc
+pass. Published predecessor509d6c7 CI44063160385 finished successfully1746/1746
+Rust, zero skipped; current uncommitted increment has not run hosted CI.
+Next: commit/push this unit, update PR55, then native SDK/game acceptance.
+No additional source dispositions;198/565 complete,367 outstanding.

@@ -7,7 +7,11 @@ pub(crate) fn guard(constructor: Definition) -> Op {
     Op::Call {
         target: Definition {
             assembly: constructor.assembly,
-            token: 0xff000000 | (constructor.token & 0xffffff),
+            token: if constructor.token >> 24 == 0xfb {
+                0xf7000000
+            } else {
+                0xff000000
+            } | (constructor.token & 0xffffff),
         },
         signature: Signature {
             parameters: vec![],
@@ -18,18 +22,18 @@ pub(crate) fn guard(constructor: Definition) -> Op {
 }
 
 pub(crate) fn function(resolver: &Resolver<'_>, identity: Definition) -> Result<Function, String> {
-    let constructor = Definition {
-        assembly: identity.assembly,
-        token: 0x06000000 | (identity.token & 0xffffff),
-    };
-    let image = resolver.assembly(constructor.assembly)?;
-    let signature = image.method_signature(constructor.token)?;
-    let row = image.method(constructor.token)?;
+    let constructor = constructor(identity);
+    let specialization = resolver.instance(constructor)?;
+    let origin = specialization
+        .as_ref()
+        .map_or(constructor, |instance| instance.method);
+    let image = resolver.assembly(origin.assembly)?;
+    let signature = image.method_signature(origin.token)?;
+    let row = image.method(origin.token)?;
     let owner = image
         .metadata()
         .type_defs
-        .partition_point(|ty| ty.method_list <= constructor.token & 0xffffff)
-        as u32;
+        .partition_point(|ty| ty.method_list <= origin.token & 0xffffff) as u32;
     if image
         .metadata()
         .strings
@@ -41,14 +45,15 @@ pub(crate) fn function(resolver: &Resolver<'_>, identity: Definition) -> Result<
         || signature.generic_param_count != 0
         || !signature.params.is_empty()
         || signature.return_type != clrmeta::TypeSig::Primitive(clrmeta::ElementType::Void)
-        || image
-            .metadata()
-            .generic_params
-            .iter()
-            .any(|p| p.owner.table == Some(clrmeta::TableId::TypeDef) && p.owner.row == owner)
+        || specialization.is_none()
+            && image
+                .metadata()
+                .generic_params
+                .iter()
+                .any(|p| p.owner.table == Some(clrmeta::TableId::TypeDef) && p.owner.row == owner)
     {
         return Err(format!(
-            "Invalid or generic type/module constructor {constructor:?}"
+            "Invalid or uninstantiated type/module constructor {constructor:?}"
         ));
     }
     let instruction = |result, op| Instruction {
@@ -138,4 +143,15 @@ pub(crate) fn function(resolver: &Resolver<'_>, identity: Definition) -> Result<
     };
     verify(&f)?;
     Ok(f)
+}
+
+pub(crate) fn constructor(identity: Definition) -> Definition {
+    Definition {
+        assembly: identity.assembly,
+        token: if identity.token >> 24 == 0xf7 {
+            0xfb000000
+        } else {
+            0x06000000
+        } | (identity.token & 0xffffff),
+    }
 }

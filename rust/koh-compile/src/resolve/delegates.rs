@@ -45,6 +45,10 @@ impl Resolver<'_> {
             } => (*type_ref, type_args.clone()),
             _ => return Ok(None),
         };
+        if encoded & 3 == 3 {
+            self.signature_type(assembly, encoded)?;
+            return Ok(None);
+        }
         let owner = self.resolve_type(assembly, super::type_token(encoded)?)?;
         self.delegate_definition(assembly, owner, arguments)
     }

@@ -1,6 +1,6 @@
 use crate::resolve::{Definition, ResolvedMethod, Resolver};
 use clrmeta::{MethodSig, TableId, TypeSig};
-mod constraints;
+pub(crate) mod constraints;
 mod construction;
 pub(crate) use constraints::assignable;
 pub(crate) use construction::Construction;
@@ -9,6 +9,7 @@ pub(crate) use construction::Construction;
 pub(crate) struct Instance {
     pub method: Definition,
     pub arguments: Vec<Argument>,
+    pub declaring: Option<Definition>,
 }
 
 pub(crate) fn charge(counter: &std::cell::Cell<usize>, amount: usize) -> Result<(), String> {
@@ -154,21 +155,22 @@ pub(crate) fn scoped(
     inner(assembly, ty, arguments, 0, &mut 0)
 }
 
-pub(crate) fn storage(
-    resolver: &Resolver<'_>,
-    assembly: usize,
-    ty: &TypeSig,
-    arguments: &[Argument],
-) -> Result<Argument, String> {
-    let mut result = scoped(assembly, ty, arguments)?;
-    result.ty = crate::lower::storage_type(resolver, result.assembly, &result.ty)?;
-    Ok(result)
-}
-
 pub(crate) struct MethodTypes {
     pub parameters: Vec<Argument>,
     pub returns: Argument,
     pub signature: crate::ir::Signature,
+}
+
+pub(crate) fn storage_in(
+    resolver: &Resolver<'_>,
+    assembly: usize,
+    ty: &TypeSig,
+    methods: &[Argument],
+    types: &[Argument],
+) -> Result<Argument, String> {
+    let mut result = resolver.bind_signature(assembly, ty, methods, types)?;
+    result.ty = crate::lower::storage_type(resolver, result.assembly, &result.ty)?;
+    Ok(result)
 }
 
 pub(crate) fn method_types(
@@ -177,19 +179,40 @@ pub(crate) fn method_types(
     signature: &MethodSig,
     arguments: &[Argument],
 ) -> Result<MethodTypes, String> {
+    let declaring = resolver
+        .instance(method)?
+        .and_then(|instance| instance.declaring);
+    let type_arguments = declaring
+        .map(|id| resolver.type_instance(id))
+        .transpose()?
+        .flatten()
+        .map_or_else(Vec::new, |instance| instance.arguments);
     if signature.generic_param_count as usize != arguments.len() {
         return Err("Generic method requires its closed argument list".into());
     }
-    let signature = crate::lower::storage_signature(resolver, method, signature)?;
     if signature.calling_convention.0 & 0x0f != 0 || signature.params.len() > 1024 {
         return Err("Unsupported calling convention or parameter count".into());
     }
-    let parameters = signature
+    let mut parameters = signature
         .params
         .iter()
-        .map(|ty| storage(resolver, method.assembly, ty, arguments))
+        .map(|ty| storage_in(resolver, method.assembly, ty, arguments, &type_arguments))
         .collect::<Result<Vec<_>, _>>()?;
-    let returns = storage(resolver, method.assembly, &signature.return_type, arguments)?;
+    if signature.calling_convention.has_this() {
+        let owner = crate::lower::owner_type(resolver, method)?;
+        let mut receiver = resolver.type_argument(owner)?;
+        if matches!(receiver.ty, TypeSig::ValueType(_)) {
+            receiver.ty = TypeSig::ByRef(Box::new(receiver.ty));
+        }
+        parameters.insert(0, receiver);
+    }
+    let returns = storage_in(
+        resolver,
+        method.assembly,
+        &signature.return_type,
+        arguments,
+        &type_arguments,
+    )?;
     let signature = crate::ir::Signature {
         parameters: parameters
             .iter()
@@ -223,8 +246,10 @@ fn canonical(
     let (assembly, ty) = match argument.ty {
         TypeSig::Primitive(_) => (0, argument.ty),
         TypeSig::Class(encoded) | TypeSig::ValueType(encoded) => {
-            let definition =
-                resolver.resolve_type(argument.assembly, crate::resolve::type_token(encoded)?)?;
+            let definition = resolver.signature_type(argument.assembly, encoded)?;
+            if resolver.type_instance(definition)?.is_some() {
+                return resolver.type_argument(definition);
+            }
             resolver.check_arity(definition, 0).map_err(|error| {
                 format!("Generic named arguments require instantiated layouts: {error}")
             })?;
@@ -454,16 +479,31 @@ impl Resolver<'_> {
         Ok(Some(instance))
     }
 
-    pub(crate) fn instantiate(
+    pub(crate) fn instantiate_in(
         &self,
         target: &ResolvedMethod,
         caller: &[Argument],
+        caller_types: &[Argument],
+        caller_owner: Option<Definition>,
     ) -> Result<Definition, String> {
+        let owner = crate::lower::owner_type(self, target.definition)?;
+        let declaring = if !target.type_arguments.is_empty() {
+            let arguments = target
+                .type_arguments
+                .iter()
+                .map(|ty| self.bind_signature(target.argument_assembly, ty, caller, caller_types))
+                .collect::<Result<Vec<_>, _>>()?;
+            let value = matches!(self.type_argument(owner)?.ty, TypeSig::ValueType(_));
+            Some(self.close_type(owner, arguments, value)?)
+        } else if let Some(current) = caller_owner {
+            (self.type_definition(current)? == owner).then_some(current)
+        } else {
+            None
+        };
         if target.method_arguments.is_empty() && target.type_arguments.is_empty() {
-            return Ok(target.definition);
-        }
-        if !target.type_arguments.is_empty() {
-            return Err("Generic declaring types require instantiated storage".into());
+            if declaring.is_none() {
+                return Ok(target.definition);
+            }
         }
         if self
             .assembly(target.definition.assembly)?
@@ -476,9 +516,15 @@ impl Resolver<'_> {
         let arguments = target
             .method_arguments
             .iter()
-            .map(|ty| canonical(self, scoped(target.argument_assembly, ty, caller)?, 0))
+            .map(|ty| {
+                canonical(
+                    self,
+                    self.bind_signature(target.argument_assembly, ty, caller, caller_types)?,
+                    0,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
-        self.specialize(target.definition, arguments)
+        self.specialize_on(target.definition, arguments, declaring)
     }
 
     pub(crate) fn specialize(
@@ -486,22 +532,26 @@ impl Resolver<'_> {
         method: Definition,
         arguments: Vec<Argument>,
     ) -> Result<Definition, String> {
+        self.specialize_on(method, arguments, None)
+    }
+
+    pub(crate) fn specialize_on(
+        &self,
+        method: Definition,
+        arguments: Vec<Argument>,
+        declaring: Option<Definition>,
+    ) -> Result<Definition, String> {
         let image = self.assembly(method.assembly)?;
-        let work = image
-            .metadata()
-            .generic_params
-            .len()
-            .checked_mul(image.metadata().generic_param_constraints.len() + 2)
-            .ok_or("Generic constraint validation work overflow")?;
-        charge(&self.generic_work, work)?;
         let signature = image.method_signature(method.token)?;
         if signature.generic_param_count as usize != arguments.len() {
             return Err("Generic method arity mismatch".into());
         }
         let owner = crate::lower::owner_type(self, method)?;
-        if image.metadata().generic_params.iter().any(|p| {
-            p.owner.table == Some(TableId::TypeDef) && p.owner.row == owner.token & 0xffffff
-        }) {
+        if declaring.is_none()
+            && image.metadata().generic_params.iter().any(|p| {
+                p.owner.table == Some(TableId::TypeDef) && p.owner.row == owner.token & 0xffffff
+            })
+        {
             return Err("Generic declaring types require instantiated storage".into());
         }
         let nodes = arguments
@@ -529,8 +579,22 @@ impl Resolver<'_> {
             let ty = crate::lower::storage_type(self, argument.assembly, &argument.ty)?;
             crate::lower::bound_type(self, argument.assembly, &ty)?;
         }
-        constraints::validate(self, method, &arguments)?;
-        let instance = Instance { method, arguments };
+        let declaring_arguments = declaring
+            .map(|id| self.type_instance(id))
+            .transpose()?
+            .flatten()
+            .map_or_else(Vec::new, |instance| instance.arguments);
+        constraints::validate(self, method, &arguments, &declaring_arguments)?;
+        if let Some(declaring) = declaring {
+            if self.type_definition(declaring)? != owner {
+                return Err("Closed method declaring type mismatch".into());
+            }
+        }
+        let instance = Instance {
+            method,
+            arguments,
+            declaring,
+        };
         let mut instances = self.generic_instances.borrow_mut();
         let index = if let Some(index) = instances.iter().position(|value| value == &instance) {
             index

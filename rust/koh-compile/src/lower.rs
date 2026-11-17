@@ -42,7 +42,7 @@ fn primitive_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
     }
 }
 
-fn rectangle_element(ty: &clrmeta::TypeSig) -> Result<&clrmeta::TypeSig, String> {
+pub(crate) fn rectangle_element(ty: &clrmeta::TypeSig) -> Result<&clrmeta::TypeSig, String> {
     let clrmeta::TypeSig::Array {
         element_type,
         rank,
@@ -100,10 +100,10 @@ pub(crate) fn storage_type(
     use clrmeta::TypeSig;
     Ok(match ty {
         TypeSig::ValueType(encoded) => {
-            let identity =
-                resolver.resolve_type(assembly, crate::resolve::type_token(*encoded)?)?;
-            let metadata = resolver.assembly(identity.assembly)?.metadata();
-            let definition = &metadata.type_defs[(identity.token & 0xffffff) as usize - 1];
+            let identity = resolver.signature_type(assembly, *encoded)?;
+            let raw = resolver.type_definition(identity)?;
+            let metadata = resolver.assembly(raw.assembly)?.metadata();
+            let definition = &metadata.type_defs[(raw.token & 0xffffff) as usize - 1];
             if definition.extends.table == Some(clrmeta::TableId::TypeRef)
                 && crate::resolve::framework_type(metadata, 0x01000000 | definition.extends.row)?
                     == Some(("System", "Enum"))
@@ -132,6 +132,13 @@ pub(crate) fn storage_type(
         TypeSig::Pinned(inner) => {
             TypeSig::Pinned(Box::new(storage_type(resolver, assembly, inner)?))
         }
+        TypeSig::GenericInst { .. } => {
+            if resolver.delegate_signature_type(assembly, ty)?.is_some() {
+                return Ok(ty.clone());
+            }
+            let argument = resolver.bind_signature(assembly, ty, &[], &[])?;
+            return storage_type(resolver, argument.assembly, &argument.ty);
+        }
         _ => ty.clone(),
     })
 }
@@ -150,19 +157,19 @@ pub(crate) fn storage_signature(
     result.return_type = storage_type(resolver, identity.assembly, &signature.return_type)?;
     if signature.calling_convention.has_this() {
         let owner = owner_type(resolver, identity)?;
-        let metadata = resolver.assembly(owner.assembly)?.metadata();
-        let ty = &metadata.type_defs[(owner.token & 0xffffff) as usize - 1];
+        let raw = resolver.type_definition(owner)?;
+        let metadata = resolver.assembly(raw.assembly)?.metadata();
+        let ty = &metadata.type_defs[(raw.token & 0xffffff) as usize - 1];
         let value = ty.extends.table == Some(clrmeta::TableId::TypeRef)
             && crate::resolve::framework_type(metadata, 0x01000000 | ty.extends.row)?
                 == Some(("System", "ValueType"));
+        let receiver = resolver.type_argument(owner)?.ty;
         let receiver = if value {
             crate::layout::value(resolver, owner)?;
-            clrmeta::TypeSig::ByRef(Box::new(clrmeta::TypeSig::ValueType(
-                (owner.token & 0xffffff) << 2,
-            )))
+            clrmeta::TypeSig::ByRef(Box::new(receiver))
         } else {
             crate::layout::class(resolver, owner)?;
-            clrmeta::TypeSig::Class((owner.token & 0xffffff) << 2)
+            receiver
         };
         result.params.insert(0, receiver);
         result.calling_convention.0 &= !0x20;
@@ -174,6 +181,14 @@ pub(crate) fn owner_type(
     resolver: &crate::resolve::Resolver<'_>,
     identity: Definition,
 ) -> Result<Definition, String> {
+    if let Some(instance) = resolver.instance(identity)? {
+        return instance
+            .declaring
+            .map_or_else(|| owner_type(resolver, instance.method), Ok);
+    }
+    if let Some(instance) = resolver.field_instance(identity)? {
+        return Ok(instance.owner);
+    }
     let metadata = resolver.assembly(identity.assembly)?.metadata();
     let rid = identity.token & 0xffffff;
     let owner = match identity.token >> 24 {
@@ -211,7 +226,7 @@ pub(crate) fn bound_type(
         return Ok(Type::Delegate(kind));
     }
     let shape = |encoded| -> Result<ValueType, String> {
-        let identity = resolver.resolve_type(assembly, crate::resolve::type_token(encoded)?)?;
+        let identity = resolver.signature_type(assembly, encoded)?;
         let layout = crate::layout::value(resolver, identity)?;
         value_type(&layout)
     };
@@ -221,7 +236,7 @@ pub(crate) fn bound_type(
         }
         clrmeta::TypeSig::Class(encoded) => Ok(Type::Object(class_type(
             resolver,
-            resolver.resolve_type(assembly, crate::resolve::type_token(*encoded)?)?,
+            resolver.signature_type(assembly, *encoded)?,
         )?)),
         clrmeta::TypeSig::ValueType(encoded) => Ok(Type::Struct(shape(*encoded)?)),
         clrmeta::TypeSig::ByRef(inner) => match **inner {
@@ -260,9 +275,11 @@ pub(crate) fn bound_type(
             bound_storage(resolver, assembly, rectangle_element(ty)?)?,
             ArrayKind::Rectangle,
         )),
-        clrmeta::TypeSig::GenericInst { .. }
-        | clrmeta::TypeSig::Var(_)
-        | clrmeta::TypeSig::MVar(_) => {
+        clrmeta::TypeSig::GenericInst { .. } => {
+            let argument = resolver.bind_signature(assembly, ty, &[], &[])?;
+            bound_type(resolver, argument.assembly, &argument.ty)
+        }
+        clrmeta::TypeSig::Var(_) | clrmeta::TypeSig::MVar(_) => {
             Err("Unsupported generic type requires instantiated lowering".into())
         }
         _ => primitive_type(ty),
@@ -385,6 +402,12 @@ pub fn assembly_method(
     let arguments = instance
         .as_ref()
         .map_or(&[][..], |instance| instance.arguments.as_slice());
+    let declaring = instance.as_ref().and_then(|instance| instance.declaring);
+    let type_arguments = declaring
+        .map(|owner| resolver.type_instance(owner))
+        .transpose()?
+        .flatten()
+        .map_or_else(Vec::new, |instance| instance.arguments);
     let assembly = resolver.assembly(identity.assembly)?;
     let result = || -> Result<Function, String> {
         crate::contracts::method(resolver, identity)?;
@@ -394,14 +417,22 @@ pub fn assembly_method(
             signature: typed,
         } = crate::generics::method_types(
             resolver,
-            identity,
+            emitted_identity,
             &assembly.method_signature(identity.token)?,
             arguments,
         )?;
         let local_types = assembly
             .local_types(identity.token)?
             .iter()
-            .map(|ty| crate::generics::storage(resolver, identity.assembly, ty, arguments))
+            .map(|ty| {
+                crate::generics::storage_in(
+                    resolver,
+                    identity.assembly,
+                    ty,
+                    arguments,
+                    &type_arguments,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let locals = local_types
             .iter()
@@ -432,16 +463,17 @@ pub fn assembly_method(
             Some(resolver),
             &pinned,
             arguments,
+            declaring,
         )?;
         let mut prefix = Vec::new();
         for constructor in [
             resolver.module_initializer(identity.assembly)?,
-            resolver.method_initializer(identity)?,
+            resolver.method_initializer(emitted_identity)?,
         ]
         .into_iter()
         .flatten()
         {
-            if constructor != identity {
+            if constructor != emitted_identity {
                 prefix.push(Instruction {
                     result: None,
                     op: crate::initialize::guard(constructor),
@@ -577,6 +609,8 @@ pub struct Method<'a> {
 struct Builder<'r, 'a> {
     resolver: Option<&'r crate::resolve::Resolver<'a>>,
     method_arguments: Vec<crate::generics::Argument>,
+    type_arguments: Vec<crate::generics::Argument>,
+    declaring: Option<Definition>,
     next: u32,
     data_bytes: usize,
     edge_arguments: usize,
@@ -949,7 +983,7 @@ impl Builder<'_, '_> {
 }
 
 pub fn lower(method: Method<'_>) -> Result<Function, String> {
-    lower_with(method, None, &[], &[])
+    lower_with(method, None, &[], &[], None)
 }
 
 fn lower_with(
@@ -957,8 +991,9 @@ fn lower_with(
     resolver: Option<&crate::resolve::Resolver<'_>>,
     pinned: &[usize],
     method_arguments: &[crate::generics::Argument],
+    declaring: Option<Definition>,
 ) -> Result<Function, String> {
-    lower_inner(&method, resolver, pinned, method_arguments).map_err(|error| {
+    lower_inner(&method, resolver, pinned, method_arguments, declaring).map_err(|error| {
         format!(
             "Assembly {} method 0x{:08x}: {error}",
             method.identity.assembly, method.identity.token
@@ -971,6 +1006,7 @@ fn lower_inner(
     resolver: Option<&crate::resolve::Resolver<'_>>,
     pinned: &[usize],
     method_arguments: &[crate::generics::Argument],
+    declaring: Option<Definition>,
 ) -> Result<Function, String> {
     let cil = decode(method.il)?;
     if cil.len() >= 16_384
@@ -1000,6 +1036,15 @@ fn lower_inner(
     let mut builder = Builder {
         resolver,
         method_arguments: method_arguments.to_vec(),
+        type_arguments: if let (Some(resolver), Some(owner)) = (resolver, declaring) {
+            resolver
+                .type_instance(owner)?
+                .ok_or("Missing declaring type binding")?
+                .arguments
+        } else {
+            Vec::new()
+        },
+        declaring,
         next: method.parameters.len() as u32,
         data_bytes: 0,
         edge_arguments: 0,
@@ -1390,7 +1435,12 @@ fn translate(
             };
             let resolver = resolver.ok_or("Method pointer requires metadata resolution")?;
             let resolved = resolver.resolve_method(method.identity.assembly, token)?;
-            let instantiated = resolver.instantiate(&resolved, &b.method_arguments)?;
+            let instantiated = resolver.instantiate_in(
+                &resolved,
+                &b.method_arguments,
+                &b.type_arguments,
+                b.declaring,
+            )?;
             let image = resolver.assembly(resolved.definition.assembly)?;
             let flags = image.method(resolved.definition.token)?.flags;
             let virtual_pointer = i.opcode == 0xfe07;
@@ -1402,7 +1452,7 @@ fn translate(
             }
             if virtual_pointer {
                 let receiver = b.pop()?;
-                let owner = owner_type(resolver, resolved.definition)?;
+                let owner = owner_type(resolver, instantiated)?;
                 let receiver = b.coerce(receiver, Type::Object(class_type(resolver, owner)?))?;
                 b.instructions.push(Instruction {
                     result: None,
@@ -1476,11 +1526,12 @@ fn translate(
             };
             let resolver = resolver.ok_or("Typed scalar operations require metadata resolution")?;
             let storage = {
-                let operand = crate::generics::storage(
+                let operand = crate::generics::storage_in(
                     resolver,
                     method.identity.assembly,
                     &resolver.type_signature(method.identity.assembly, token)?,
                     &b.method_arguments,
+                    &b.type_arguments,
                 )?;
                 field_storage(resolver, operand.assembly, &operand.ty)?
             };
@@ -1587,11 +1638,12 @@ fn translate(
                 return Err("Missing castclass type".into());
             };
             let resolver = resolver.ok_or("castclass requires metadata resolution")?;
-            let operand = crate::generics::storage(
+            let operand = crate::generics::storage_in(
                 resolver,
                 method.identity.assembly,
                 &resolver.type_signature(method.identity.assembly, token)?,
                 &b.method_arguments,
+                &b.type_arguments,
             )?;
             let Type::Object(class) = bound_type(resolver, operand.assembly, &operand.ty)? else {
                 return Err("castclass requires a supported reference class".into());
@@ -1619,11 +1671,12 @@ fn translate(
             };
             let resolver = resolver.ok_or("Array element requires metadata resolution")?;
             let element = {
-                let operand = crate::generics::storage(
+                let operand = crate::generics::storage_in(
                     resolver,
                     method.identity.assembly,
                     &resolver.type_signature(method.identity.assembly, token)?,
                     &b.method_arguments,
+                    &b.type_arguments,
                 )?;
                 bound_storage(resolver, operand.assembly, &operand.ty)?
             };
@@ -1664,11 +1717,12 @@ fn translate(
                 };
                 let resolver = resolver.ok_or("Array element requires metadata resolution")?;
                 Some({
-                    let operand = crate::generics::storage(
+                    let operand = crate::generics::storage_in(
                         resolver,
                         method.identity.assembly,
                         &resolver.type_signature(method.identity.assembly, token)?,
                         &b.method_arguments,
+                        &b.type_arguments,
                     )?;
                     bound_storage(resolver, operand.assembly, &operand.ty)?
                 })
@@ -1777,11 +1831,12 @@ fn translate(
                 .constrained_calls
                 .get(&i.offset)
                 .map(|&token| -> Result<Type, String> {
-                    let operand = crate::generics::storage(
+                    let operand = crate::generics::storage_in(
                         resolver,
                         method.identity.assembly,
                         &resolver.type_signature(method.identity.assembly, token)?,
                         &b.method_arguments,
+                        &b.type_arguments,
                     )?;
                     let ty = bound_type(resolver, operand.assembly, &operand.ty)?;
                     if !matches!(ty, Type::Struct(_) | Type::Object(_)) {
@@ -2053,6 +2108,7 @@ fn translate(
                     } else {
                         target
                     };
+                    let bound = declared;
                     let declared = resolver
                         .instance(declared)?
                         .map_or(declared, |instance| instance.method);
@@ -2071,7 +2127,7 @@ fn translate(
                     }
                     let target = crate::delegates::callback(resolver, kind, target)?;
                     let receiver = if instance {
-                        let owner = owner_type(resolver, declared)?;
+                        let owner = owner_type(resolver, bound)?;
                         let receiver =
                             b.coerce(receiver, Type::Object(class_type(resolver, owner)?))?;
                         b.instructions.push(Instruction {
@@ -2123,19 +2179,27 @@ fn translate(
                 return Ok(Control::Jump(b.edge(next()?)));
             }
             if constrained.is_none()
-                && let Some(crate::generics::Construction { ty, constructor }) =
-                    resolver.construction(method.identity.assembly, token, &b.method_arguments)?
+                && let Some(crate::generics::Construction { ty, constructor }) = resolver
+                    .construction(
+                        method.identity.assembly,
+                        token,
+                        &b.method_arguments,
+                        &b.type_arguments,
+                    )?
             {
                 if i.opcode != 0x28 {
                     return Err("Activator.CreateInstance requires static call".into());
                 }
                 if let Some(target) = constructor {
+                    let origin = resolver
+                        .instance(target)?
+                        .map_or(target, |instance| instance.method);
                     let signature = crate::generics::method_types(
                         resolver,
                         target,
                         &resolver
-                            .assembly(target.assembly)?
-                            .method_signature(target.token)?,
+                            .assembly(origin.assembly)?
+                            .method_signature(origin.token)?,
                         &[],
                     )?
                     .signature;
@@ -2162,7 +2226,12 @@ fn translate(
             } else {
                 false
             };
-            let instantiated = resolver.instantiate(&target, &b.method_arguments)?;
+            let instantiated = resolver.instantiate_in(
+                &target,
+                &b.method_arguments,
+                &b.type_arguments,
+                b.declaring,
+            )?;
             let metadata = resolver.assembly(target.definition.assembly)?;
             if i.opcode == 0x6f {
                 let signature = metadata.method_signature(target.definition.token)?;
@@ -2203,7 +2272,7 @@ fn translate(
             let instance = resolver.instance(instantiated)?;
             let method_types = crate::generics::method_types(
                 resolver,
-                target.definition,
+                instantiated,
                 &metadata.method_signature(target.definition.token)?,
                 instance
                     .as_ref()
@@ -2373,7 +2442,7 @@ fn translate(
                 return Ok(Control::Jump(b.edge(next()?)));
             }
             if let Some(ty) = constructed {
-                construct(b, ty, target.definition, signature, arguments, locals.len())?;
+                construct(b, ty, instantiated, signature, arguments, locals.len())?;
                 return Ok(Control::Jump(b.edge(next()?)));
             }
             let returns = signature.returns;
@@ -2447,7 +2516,15 @@ fn translate(
                 let types = if argument {
                     crate::generics::method_types(
                         resolver,
-                        method.identity,
+                        if b.declaring.is_some() {
+                            resolver.specialize_on(
+                                method.identity,
+                                b.method_arguments.clone(),
+                                b.declaring,
+                            )?
+                        } else {
+                            method.identity
+                        },
                         &image.method_signature(method.identity.token)?,
                         &b.method_arguments,
                     )?
@@ -2457,11 +2534,12 @@ fn translate(
                         .local_types(method.identity.token)?
                         .iter()
                         .map(|ty| {
-                            crate::generics::storage(
+                            crate::generics::storage_in(
                                 resolver,
                                 method.identity.assembly,
                                 ty,
                                 &b.method_arguments,
+                                &b.type_arguments,
                             )
                         })
                         .collect::<Result<Vec<_>, _>>()?
@@ -2643,10 +2721,12 @@ fn translate(
                 return Err("Invalid instance field token".into());
             };
             let target = resolver.resolve_field(method.identity.assembly, token)?;
-            if !target.type_arguments.is_empty() {
-                return Err("Generic instance fields require instantiated lowering".into());
-            }
-            let owner = owner_type(resolver, target.definition)?;
+            let (field_identity, owner, _) = resolver.bind_field(
+                &target,
+                &b.method_arguments,
+                &b.type_arguments,
+                b.declaring,
+            )?;
             let image = resolver.assembly(target.definition.assembly)?;
             let row = (target.definition.token & 0xffffff)
                 .checked_sub(1)
@@ -2663,7 +2743,11 @@ fn translate(
                     .get(method_image.method(method.identity.token)?.name)
                     .map_err(|e| e.to_string())?
                     == ".ctor";
-                if !constructor || owner_type(resolver, method.identity)? != owner {
+                if !constructor
+                    || b.declaring
+                        .map_or_else(|| owner_type(resolver, method.identity), Ok)?
+                        != owner
+                {
                     return Err(
                         "Readonly instance field writes require declaring constructor".into(),
                     );
@@ -2675,7 +2759,8 @@ fn translate(
                 None
             };
             let receiver = b.pop()?;
-            let owner_row = &image.metadata().type_defs[(owner.token & 0xffffff) as usize - 1];
+            let raw_owner = resolver.type_definition(owner)?;
+            let owner_row = &image.metadata().type_defs[(raw_owner.token & 0xffffff) as usize - 1];
             let value_owner = owner_row.extends.table == Some(clrmeta::TableId::TypeRef)
                 && crate::resolve::framework_type(
                     image.metadata(),
@@ -2687,10 +2772,9 @@ fn translate(
                 let field = layout
                     .fields
                     .iter()
-                    .find(|f| f.identity == target.definition)
+                    .find(|f| f.identity == field_identity)
                     .ok_or("Field is absent from class layout")?;
-                let storage =
-                    field_storage(resolver, target.definition.assembly, &field.signature)?;
+                let storage = field_storage(resolver, field.signature_assembly, &field.signature)?;
                 let receiver = b.coerce(receiver, Type::Object(class))?;
                 let address = b.value(
                     storage.reference_type(),
@@ -2727,9 +2811,9 @@ fn translate(
             let field = layout
                 .fields
                 .iter()
-                .find(|f| f.identity == target.definition)
+                .find(|f| f.identity == field_identity)
                 .ok_or("Field is not in aggregate layout")?;
-            let storage = field_storage(resolver, target.definition.assembly, &field.signature)?;
+            let storage = field_storage(resolver, field.signature_assembly, &field.signature)?;
             if receiver.1 == Type::Struct(shape) && i.opcode == 0x7b {
                 let value = b.value(
                     storage.stack_type(),
@@ -2789,29 +2873,24 @@ fn translate(
                 return Err("Missing static field token".into());
             };
             let target = resolver.resolve_field(method.identity.assembly, token)?;
-            if !target.type_arguments.is_empty() {
-                return Err("Generic static fields require instantiated storage".into());
-            }
+            let (field_identity, _, field_signature) = resolver.bind_field(
+                &target,
+                &b.method_arguments,
+                &b.type_arguments,
+                b.declaring,
+            )?;
             let image = resolver.assembly(target.definition.assembly)?;
             let field = &image.metadata().fields[(target.definition.token & 0xffffff) as usize - 1];
-            let owner = image
-                .metadata()
-                .type_defs
-                .partition_point(|ty| ty.field_list <= target.definition.token & 0xffffff)
-                as u32;
-            if image
-                .metadata()
-                .generic_params
-                .iter()
-                .any(|p| p.owner.table == Some(clrmeta::TableId::TypeDef) && p.owner.row == owner)
-            {
-                return Err("Generic static fields require instantiated storage".into());
-            }
             if field.flags & 0x10 == 0 || field.flags & (0x40 | 0x100) != 0 {
                 return Err("Static field flags require literal/RVA/instance lowering".into());
             }
-            let initializer = resolver.field_initializer(target.definition)?;
-            if i.opcode == 0x80 && field.flags & 0x20 != 0 && initializer != Some(method.identity) {
+            let initializer = resolver.field_initializer(field_identity)?;
+            let current = if b.declaring.is_some() {
+                resolver.specialize_on(method.identity, b.method_arguments.clone(), b.declaring)?
+            } else {
+                method.identity
+            };
+            if i.opcode == 0x80 && field.flags & 0x20 != 0 && initializer != Some(current) {
                 return Err(
                     "Readonly static field writes require their declaring constructor".into(),
                 );
@@ -2823,7 +2902,7 @@ fn translate(
             .into_iter()
             .flatten()
             {
-                if constructor != method.identity {
+                if constructor != current {
                     b.instructions.push(Instruction {
                         result: None,
                         op: crate::initialize::guard(constructor),
@@ -2831,15 +2910,11 @@ fn translate(
                     });
                 }
             }
-            let signature = storage_type(
-                resolver,
-                target.definition.assembly,
-                &image.field_signature(target.definition.token)?,
-            )?;
+            let signature = storage_type(resolver, field_signature.assembly, &field_signature.ty)?;
             if matches!(signature, clrmeta::TypeSig::ByRef(_)) {
                 return Err("Static managed-reference storage is unsupported".into());
             }
-            let ty = bound_type(resolver, target.definition.assembly, &signature)?;
+            let ty = bound_type(resolver, field_signature.assembly, &signature)?;
             let alignment = crate::contracts::field_alignment(resolver, target.definition)?;
             let (bits, signed) = narrow_type(&signature)
                 .map(|(bits, signed)| (u16::from(bits), signed))
@@ -2862,7 +2937,7 @@ fn translate(
             let address = b.value(
                 address_type,
                 Op::StaticAddress {
-                    field: target.definition,
+                    field: field_identity,
                     bytes: bits / 8,
                     alignment: if matches!(ty, Type::Array(_, _)) {
                         1

@@ -14,7 +14,7 @@ pub struct ValueType {
 
 impl ValueType {
     pub fn new(identity: Definition, bytes: u16) -> Result<Self, String> {
-        if identity.token >> 24 != 2 || identity.token & 0xffffff == 0 {
+        if !matches!(identity.token >> 24, 2 | 0xf9) || identity.token & 0xffffff == 0 {
             return Err("Value type requires a TypeDef identity".into());
         }
         if !(1..=4096).contains(&bytes) {
@@ -65,7 +65,7 @@ impl ClassType {
     pub fn new(identity: Definition, base: Option<Definition>, bytes: u16) -> Result<Self, String> {
         if std::iter::once(identity)
             .chain(base)
-            .any(|id| id.token >> 24 != 2 || id.token & 0xffffff == 0)
+            .any(|id| !matches!(id.token >> 24, 2 | 0xf9) || id.token & 0xffffff == 0)
             || base == Some(identity)
             || !(2..=4096).contains(&bytes)
         {
@@ -1505,7 +1505,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(storage.reference_type())
                     }
                     Op::InitializerAddress(constructor) => {
-                        if constructor.token >> 24 != 6 || constructor.token & 0xffffff == 0 {
+                        if !matches!(constructor.token >> 24, 6 | 0xfb)
+                            || constructor.token & 0xffffff == 0
+                        {
                             return Err("Invalid initializer state identity".into());
                         }
                         Some(Type::Native)
@@ -1518,7 +1520,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         if alignment == 0 || alignment > 4096 || !alignment.is_power_of_two() {
                             return Err("Invalid static storage alignment".into());
                         }
-                        if field.token >> 24 != 4
+                        if !matches!(field.token >> 24, 4 | 0xf8)
                             || field.token & 0xffffff == 0
                             || (!matches!(bytes, 1 | 2 | 4 | 8)
                                 && !matches!(result, Some(Type::StructRef(value)) if value.bytes == bytes))

@@ -1,5 +1,5 @@
 use crate::{
-    resolve::{Definition, Resolver, framework_type, type_token},
+    resolve::{Definition, Resolver, framework_type},
     signature,
 };
 use clrmeta::{ElementType, TableId, TypeSig};
@@ -13,6 +13,7 @@ pub struct Field {
     pub identity: Definition,
     pub offset: u16,
     pub signature: TypeSig,
+    pub signature_assembly: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -96,11 +97,10 @@ impl Build<'_, '_> {
                 2
             }
             TypeSig::ValueType(encoded) => {
-                let identity = self
-                    .resolver
-                    .resolve_type(assembly, type_token(*encoded)?)?;
-                let metadata = self.resolver.assembly(identity.assembly)?.metadata();
-                let ty = &metadata.type_defs[(identity.token & 0xffffff) as usize - 1];
+                let identity = self.resolver.signature_type(assembly, *encoded)?;
+                let raw = self.resolver.type_definition(identity)?;
+                let metadata = self.resolver.assembly(raw.assembly)?.metadata();
+                let ty = &metadata.type_defs[(raw.token & 0xffffff) as usize - 1];
                 if ty.extends.table == Some(TableId::TypeRef)
                     && framework_type(metadata, 0x01000000 | ty.extends.row)?
                         == Some(("System", "Enum"))
@@ -178,16 +178,16 @@ impl Build<'_, '_> {
             ) => {}
             TypeSig::Ptr(inner) => self.resolver.validate_type(assembly, inner, 0)?,
             TypeSig::Class(encoded) | TypeSig::ValueType(encoded) => {
-                let id = self
-                    .resolver
-                    .resolve_type(assembly, type_token(*encoded)?)?;
-                let metadata = self.resolver.assembly(id.assembly)?.metadata();
-                let row = id.token & 0xffffff;
+                let id = self.resolver.signature_type(assembly, *encoded)?;
+                let raw = self.resolver.type_definition(id)?;
+                let metadata = self.resolver.assembly(raw.assembly)?.metadata();
+                let row = raw.token & 0xffffff;
                 self.reference_work(metadata.generic_params.len())?;
-                if metadata
-                    .generic_params
-                    .iter()
-                    .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == row)
+                if id == raw
+                    && metadata
+                        .generic_params
+                        .iter()
+                        .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == row)
                 {
                     return Err("Struct reference fields require instantiated generic types".into());
                 }
@@ -214,8 +214,9 @@ impl Build<'_, '_> {
     }
 
     fn build(&mut self, identity: Definition) -> Result<Layout, String> {
-        let metadata = self.resolver.assembly(identity.assembly)?.metadata();
-        let rid = identity.token & 0xffffff;
+        let raw = self.resolver.type_definition(identity)?;
+        let metadata = self.resolver.assembly(raw.assembly)?.metadata();
+        let rid = raw.token & 0xffffff;
         let ty = &metadata.type_defs[rid as usize - 1];
         if ty.extends.table != Some(TableId::TypeRef)
             || framework_type(metadata, 0x01000000 | ty.extends.row)?
@@ -225,10 +226,11 @@ impl Build<'_, '_> {
         {
             return Err("Aggregate must be a sealed framework System.ValueType".into());
         }
-        if metadata
-            .generic_params
-            .iter()
-            .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == rid)
+        if identity == raw
+            && metadata
+                .generic_params
+                .iter()
+                .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == rid)
         {
             return Err("Unmanaged struct generic shapes are unsupported".into());
         }
@@ -315,8 +317,15 @@ impl Build<'_, '_> {
                     .get(field.signature)
                     .map_err(|e| e.to_string())?,
             )?;
+            let arguments = self
+                .resolver
+                .type_instance(identity)?
+                .map_or_else(Vec::new, |instance| instance.arguments);
+            let signature =
+                self.resolver
+                    .bind_signature(raw.assembly, &signature, &[], &arguments)?;
             let (size, natural, references, child_depth) =
-                self.shape(identity.assembly, &signature)?;
+                self.shape(signature.assembly, &signature.ty)?;
             depth = depth.max(
                 child_depth
                     .checked_add(1)
@@ -348,12 +357,16 @@ impl Build<'_, '_> {
                 return Err("Struct size exceeds 4096-byte target capacity".into());
             }
             fields.push(Field {
-                identity: Definition {
-                    assembly: identity.assembly,
-                    token: 0x04000000 | index,
-                },
+                identity: self.resolver.close_field(
+                    Definition {
+                        assembly: identity.assembly,
+                        token: 0x04000000 | index,
+                    },
+                    identity,
+                )?,
                 offset: offset as u16,
-                signature,
+                signature: signature.ty,
+                signature_assembly: signature.assembly,
             });
         }
         let bytes = if declared_size == 0 {

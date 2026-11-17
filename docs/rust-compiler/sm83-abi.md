@@ -276,3 +276,10 @@ operations check the final16-bit result after a wide operation. See
 Checked64-bit multiplication computes high/low product words with ordinary I64
 operations and the same range guard; smaller products narrow only after an exact
 wide product. No new runtime ABI is introduced. See [proof and tests](checked-multiplication.md).
+
+### Closed generic storage
+
+[Closed declaring types](closed-types.md) use distinct compiler field and
+initializer identities per argument list. Their code uses the existing ordinary
+call ABI and their BSS/initializer bytes count against existing WRAM limits.
+The internal identities do not define a new ELF relocation or debug format.

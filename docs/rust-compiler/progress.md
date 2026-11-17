@@ -1684,3 +1684,16 @@ unfinished. No additional legacy dispositions are claimed; ledger198/565 unchang
 The final compiler-library/lowering/SM83/generic/rectangle selection passes544/544
 in741.555s, exit0 (`/tmp/koh-generic-rectangle-regression.log`);400 other driver
 cases are excluded. Full-workspace execution remains separate.
+
+## Closed generic declaring storage
+
+[Closed types](closed-types.md) now retain separate declaring/method argument
+scopes through packed value/reference layouts, direct methods, bound callbacks
+and per-instantiation static initialization. Foreign PDB provenance survives ELF
+and linked KDBG. No ABI or object format change is introduced. Constructed
+inheritance/virtual/interface/constrained dispatch and variance remain unfinished.
+The final selected library/closed-type/existing-generic run passes221/221 in83.682s
+(`/tmp/koh-closed-types-owned-final.log`),430 excluded; this is not a full-workspace
+execution claim. New coverage includes41 ROM scenarios,29 rejected compilations
+and11 parameterized library cases. Workspace all-feature/all-target check and
+separate rustdoc pass. Ledger remains198/565,367 outstanding; no legacy removal.

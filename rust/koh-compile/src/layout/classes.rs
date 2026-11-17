@@ -1,6 +1,6 @@
 use super::{Build, Field};
 use crate::{
-    resolve::{Definition, Resolver, framework_type, type_token},
+    resolve::{Definition, Resolver, framework_type},
     signature,
 };
 use clrmeta::{ElementType, TableId, TypeSig};
@@ -98,12 +98,11 @@ impl Classes<'_, '_> {
             TypeSig::Primitive(ElementType::R4) => Ok(4),
             TypeSig::Primitive(ElementType::R8) => Ok(8),
             TypeSig::Class(encoded) => {
-                let identity = self
-                    .resolver
-                    .resolve_type(assembly, type_token(*encoded)?)?;
-                let metadata = self.resolver.assembly(identity.assembly)?.metadata();
+                let identity = self.resolver.signature_type(assembly, *encoded)?;
+                let raw = self.resolver.type_definition(identity)?;
+                let metadata = self.resolver.assembly(raw.assembly)?.metadata();
                 self.work(metadata.generic_params.len())?;
-                let row = identity.token & 0xffffff;
+                let row = raw.token & 0xffffff;
                 let definition = &metadata.type_defs[row as usize - 1];
                 if definition.extends.table == Some(TableId::TypeRef)
                     && matches!(
@@ -113,10 +112,11 @@ impl Classes<'_, '_> {
                 {
                     return Err("Class field reference cannot name a value type".into());
                 }
-                if metadata
-                    .generic_params
-                    .iter()
-                    .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == row)
+                if identity == raw
+                    && metadata
+                        .generic_params
+                        .iter()
+                        .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == row)
                 {
                     return Err("Class field requires instantiated generic type".into());
                 }
@@ -154,8 +154,9 @@ impl Classes<'_, '_> {
     }
 
     fn build(&mut self, identity: Definition) -> Result<ClassLayout, String> {
-        let metadata = self.resolver.assembly(identity.assembly)?.metadata();
-        let rid = identity.token & 0xffffff;
+        let raw = self.resolver.type_definition(identity)?;
+        let metadata = self.resolver.assembly(raw.assembly)?.metadata();
+        let rid = raw.token & 0xffffff;
         let ty = &metadata.type_defs[rid as usize - 1];
         self.work(
             1 + metadata.generic_params.len()
@@ -174,10 +175,11 @@ impl Classes<'_, '_> {
         if ty.flags & 0x18 != 0 {
             return Err("Reference class layout currently requires AutoLayout".into());
         }
-        if metadata
-            .generic_params
-            .iter()
-            .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == rid)
+        if identity == raw
+            && metadata
+                .generic_params
+                .iter()
+                .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == rid)
         {
             return Err("Class generic shapes require instantiated lowering".into());
         }
@@ -329,7 +331,14 @@ impl Classes<'_, '_> {
                 .map_err(|e| e.to_string())?;
             self.work(blob.len())?;
             let signature = signature::field(blob)?;
-            let size = self.field_size(identity.assembly, &signature, 0)?;
+            let arguments = self
+                .resolver
+                .type_instance(identity)?
+                .map_or_else(Vec::new, |instance| instance.arguments);
+            let signature =
+                self.resolver
+                    .bind_signature(raw.assembly, &signature, &[], &arguments)?;
+            let size = self.field_size(signature.assembly, &signature.ty, 0)?;
             let offset = bytes;
             bytes = bytes
                 .checked_add(u32::from(size))
@@ -338,12 +347,16 @@ impl Classes<'_, '_> {
                 return Err("Class size exceeds4096-byte target capacity".into());
             }
             fields.push(Arc::new(Field {
-                identity: Definition {
-                    assembly: identity.assembly,
-                    token: 0x04000000 | index,
-                },
+                identity: self.resolver.close_field(
+                    Definition {
+                        assembly: identity.assembly,
+                        token: 0x04000000 | index,
+                    },
+                    identity,
+                )?,
                 offset: offset as u16,
-                signature,
+                signature: signature.ty,
+                signature_assembly: signature.assembly,
             }));
         }
         Ok(ClassLayout {

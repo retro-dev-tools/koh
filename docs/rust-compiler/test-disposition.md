@@ -751,3 +751,12 @@ claiming those larger groups complete. No compiler coverage is deferred.
 At the aggregate-array checkpoint, compiler discovery was515 cases; execution531 ROM scenarios
 (436 returns,95 traps), four full-frame comparisons. Eleven of565 complete legacy
 replacements,554 still need completion auditing; none physically retired.
+
+## Closed declaring-type storage checkpoint
+
+The native closed-type contract adds six Rust driver cases and eleven library
+cases (see [evidence](closed-types.md)). They cover actual Roslyn Debug/Release
+assemblies, per-instance storage, callback receivers, foreign PDB/KDBG ranges,
+nominal identity and bounded substitution/constraint work. This adds native
+coverage without closing broader legacy groups prematurely:198/565 dispositions
+complete,367 outstanding; no compiler coverage is deferred or physically removed.

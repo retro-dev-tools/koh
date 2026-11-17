@@ -1,4 +1,4 @@
-use super::{Argument, canonical, charge, constraints, scoped};
+use super::{Argument, canonical, charge, constraints};
 use crate::{
     ir::Type,
     resolve::{Definition, Resolver, coded, framework_type},
@@ -16,6 +16,7 @@ impl Resolver<'_> {
         assembly: usize,
         token: u32,
         arguments: &[Argument],
+        type_arguments: &[Argument],
     ) -> Result<Option<Construction>, String> {
         if token >> 24 != 0x2b {
             return Ok(None);
@@ -78,7 +79,11 @@ impl Resolver<'_> {
                     .into(),
             );
         }
-        let argument = canonical(self, scoped(assembly, &types[0], arguments)?, 0)?;
+        let argument = canonical(
+            self,
+            self.bind_signature(assembly, &types[0], arguments, type_arguments)?,
+            0,
+        )?;
         if !constraints::constructor(self, &argument)? {
             return Err("Generic construction requires a concrete type with a public parameterless constructor".into());
         }

@@ -18,3 +18,4 @@ pub mod pdb;
 pub mod resolve;
 pub mod signature;
 pub mod sm83;
+mod types;

@@ -2146,20 +2146,18 @@ pub(crate) fn emit_with_stack_reserve(
                         }
                         code.restore_bank(temp + 24);
                     }
-                    let initialized = if !indirect && banked && target.token >> 24 == 0xff {
-                        let constructor = Definition {
-                            assembly: target.assembly,
-                            token: 0x06000000 | (target.token & 0xffffff),
+                    let initialized =
+                        if !indirect && banked && matches!(target.token >> 24, 0xf7 | 0xff) {
+                            let constructor = crate::initialize::constructor(target);
+                            let state = code.import(static_symbol(constructor));
+                            code.jump(0xfa, state);
+                            code.bytes(&[0xb7]);
+                            let done = code.label();
+                            code.jump(0xc2, done);
+                            Some(done)
+                        } else {
+                            None
                         };
-                        let state = code.import(static_symbol(constructor));
-                        code.jump(0xfa, state);
-                        code.bytes(&[0xb7]);
-                        let done = code.label();
-                        code.jump(0xc2, done);
-                        Some(done)
-                    } else {
-                        None
-                    };
                     let abi_return = signature.returns.map(|ty| ty.bits() / 8).unwrap_or(0);
                     let size: usize = signature
                         .parameters

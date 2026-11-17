@@ -25,7 +25,9 @@ call after its prefix. Dangling prefixes and wrong type tokens diagnose with IL
 offsets. Modern constrained static-interface call/ldftn extensions diagnose as
 unfinished support, rather than malformed metadata. Boxing-dependent base methods,
 default-interface value fallback, primitive receiver runtimes and constructed
-generic declaring layouts remain unfinished. None is approved for retirement.
+generic declaring dispatch remain unfinished. Closed declaring layouts and static
+storage are implemented separately; see [closed types](closed-types.md).
+None of the unfinished dispatch behavior is approved for retirement.
 
 ## Native evidence
 

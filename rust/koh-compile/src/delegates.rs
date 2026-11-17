@@ -97,6 +97,7 @@ pub(crate) fn callback(
     } else {
         target
     };
+    let bound = declared;
     let specialization = resolver.instance(declared)?;
     let declared = specialization
         .as_ref()
@@ -104,9 +105,16 @@ pub(crate) fn callback(
     let arguments = specialization
         .as_ref()
         .map_or(&[][..], |instance| instance.arguments.as_slice());
+    let owner_arguments = specialization
+        .as_ref()
+        .and_then(|instance| instance.declaring)
+        .map(|owner| resolver.type_instance(owner))
+        .transpose()?
+        .flatten()
+        .map_or_else(Vec::new, |instance| instance.arguments);
     let image = resolver.assembly(declared.assembly)?;
     let raw = image.method_signature(declared.token)?;
-    let actual = crate::generics::method_types(resolver, declared, &raw, arguments)?.signature;
+    let actual = crate::generics::method_types(resolver, bound, &raw, arguments)?.signature;
     let invoke = signature(resolver, kind)?;
     let instance = raw.calling_convention.has_this();
     if actual.parameters.get(usize::from(instance)..) != Some(invoke.parameters.as_slice())
@@ -122,7 +130,8 @@ pub(crate) fn callback(
     let argument_assembly = binding.metadata.argument_assembly;
     drop(bindings);
     for (expected, actual) in expected_raw.params.iter().zip(&raw.params) {
-        let actual = crate::generics::scoped(declared.assembly, actual, arguments)?;
+        let actual =
+            resolver.bind_signature(declared.assembly, actual, arguments, &owner_arguments)?;
         if !type_matches(
             resolver,
             expected_assembly,
@@ -131,12 +140,16 @@ pub(crate) fn callback(
             &type_arguments,
             actual.assembly,
             &actual.ty,
-            0,
         )? {
             return Err("Delegate target parameter type differs from Invoke".into());
         }
     }
-    let returns = crate::generics::scoped(declared.assembly, &raw.return_type, arguments)?;
+    let returns = resolver.bind_signature(
+        declared.assembly,
+        &raw.return_type,
+        arguments,
+        &owner_arguments,
+    )?;
     if invoke.returns.is_some()
         && !type_matches(
             resolver,
@@ -146,7 +159,6 @@ pub(crate) fn callback(
             &type_arguments,
             returns.assembly,
             &returns.ty,
-            0,
         )?
     {
         return Err("Delegate target return type differs from Invoke".into());
@@ -191,82 +203,21 @@ fn type_matches(
     arguments: &[clrmeta::TypeSig],
     actual_assembly: usize,
     actual: &clrmeta::TypeSig,
-    depth: usize,
 ) -> Result<bool, String> {
-    use clrmeta::TypeSig;
-    if depth >= 64 {
-        return Err("Delegate signature nesting exceeds64".into());
-    }
-    resolver.charge_delegate_work(1)?;
-    let inner = |expected: &TypeSig, actual: &TypeSig| {
-        type_matches(
-            resolver,
-            expected_assembly,
-            expected,
-            argument_assembly,
-            arguments,
-            actual_assembly,
-            actual,
-            depth + 1,
-        )
-    };
-    Ok(match (expected, actual) {
-        (TypeSig::Var(index), _) => resolver.types_equal(
-            argument_assembly,
-            arguments
-                .get(*index as usize)
-                .ok_or("Unbound delegate type parameter")?,
-            actual_assembly,
-            actual,
-            depth + 1,
-        )?,
-        (TypeSig::ByRef(a), TypeSig::ByRef(b))
-        | (TypeSig::Ptr(a), TypeSig::Ptr(b))
-        | (TypeSig::SzArray(a), TypeSig::SzArray(b)) => inner(a, b)?,
-        (
-            TypeSig::Array {
-                element_type: a,
-                rank: ar,
-                ..
-            },
-            TypeSig::Array {
-                element_type: b,
-                rank: br,
-                ..
-            },
-        ) => ar == br && inner(a, b)?,
-        (
-            TypeSig::GenericInst {
-                is_value_type: av,
-                type_ref: at,
-                type_args: aa,
-            },
-            TypeSig::GenericInst {
-                is_value_type: bv,
-                type_ref: bt,
-                type_args: ba,
-            },
-        ) => {
-            av == bv
-                && aa.len() == ba.len()
-                && resolver.resolve_type(expected_assembly, crate::resolve::type_token(*at)?)?
-                    == resolver.resolve_type(actual_assembly, crate::resolve::type_token(*bt)?)?
-                && aa
-                    .iter()
-                    .zip(ba)
-                    .map(|(a, b)| inner(a, b))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .all(|equal| equal)
-        }
-        _ => resolver.types_equal(
-            expected_assembly,
-            expected,
-            actual_assembly,
-            actual,
-            depth + 1,
-        )?,
-    })
+    resolver.charge_delegate_work(arguments.len() + 1)?;
+    let arguments = arguments
+        .iter()
+        .map(|ty| resolver.bind_signature(argument_assembly, ty, &[], &[]))
+        .collect::<Result<Vec<_>, _>>()?;
+    let expected = resolver.bind_signature(expected_assembly, expected, &[], &arguments)?;
+    let actual = resolver.bind_signature(actual_assembly, actual, &[], &[])?;
+    resolver.types_equal(
+        expected.assembly,
+        &expected.ty,
+        actual.assembly,
+        &actual.ty,
+        0,
+    )
 }
 
 pub(crate) fn function(
@@ -290,6 +241,7 @@ pub(crate) fn function(
     } else {
         target
     };
+    let bound = declared;
     let specialization = resolver.instance(declared)?;
     let declared = specialization
         .as_ref()
@@ -300,7 +252,7 @@ pub(crate) fn function(
     let raw = resolver
         .assembly(declared.assembly)?
         .method_signature(declared.token)?;
-    let actual = crate::generics::method_types(resolver, declared, &raw, arguments)?.signature;
+    let actual = crate::generics::method_types(resolver, bound, &raw, arguments)?.signature;
     let mut next = signature.parameters.len() as u32;
     let mut instructions = Vec::new();
     let mut arguments = Vec::new();

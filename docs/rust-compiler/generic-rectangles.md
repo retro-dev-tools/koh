@@ -2,7 +2,9 @@
 
 Closed generic methods accept the existing zero-based rank-two rectangular
 array types. Binding resolves the element in its original assembly, then retains
-rank, size and lower-bound metadata. It does not reinterpret a referenced type's
+rank and validates size/lower-bound metadata. Accepted zero-bound encodings now
+normalize for nominal identity through [closed-type binding](closed-types.md).
+It does not reinterpret a referenced type's
 metadata row in the caller's assembly. The ordinary array shape validator still
 rejects rank-three, explicitly sized and nonzero-based signatures.
 
@@ -10,8 +12,8 @@ This closes an inconsistency: a rectangular array could be allocated, accessed
 and passed to an ordinary method, but could not pass through `Identity<T>`.
 No new array layout, allocation scheme or calling convention is introduced.
 Generic instance work accounting includes rectangular wrappers alongside vector
-wrappers. Constructed generic declaring types and their static storage remain
-unfinished; this change does not claim those features.
+wrappers. Supported constructed generic declaring layouts and static storage
+are covered by the later [closed-type increment](closed-types.md).
 
 Typed `initobj`, `ldobj`, `stobj` and `cpobj` lowering now uses the existing
 `FieldStorage` model, which includes array reference cells. Previously this

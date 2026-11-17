@@ -1,7 +1,8 @@
 # Closed generic methods
 
 The native compiler now specializes reachable static and instance generic methods
-on nongeneric declaring types. Concrete arguments may be supported primitive
+on nongeneric and supported [closed generic declaring types](closed-types.md).
+Concrete arguments may be supported primitive
 types, strings, nongeneric classes/interfaces/delegates, enums, nongeneric values
 or supported vectors and rank-two rectangular arrays of those types. A method
 and its full argument list identify an instance; byte and ushort remain distinct
@@ -189,13 +190,11 @@ reported as green. Intermediate success is not whole-goal proof.
 
 Closed Roslyn `new T()` now uses the shared ordinary constructor path; see the
 [construction contract and acceptance](generic-construction.md). This does not
-complete constructed generic layouts or general reflection support.
+complete general reflection support.
 
-Constructed generic signatures containing foreign named arguments still require
-scoped layout binding; those shapes diagnose rather than reinterpreting tokens.
-Generic declaring types
-need per-instantiation layouts/static storage. Broader constraint shapes and
-constructed generic type arguments require binding.
+Supported constructed generic signatures now retain foreign scopes through
+[layout and static-storage binding](closed-types.md). Constructed declaring
+inheritance/dispatch, broader constraint shapes and variance still require work.
 These are unfinished compiler features, not malformed CLI shapes or approved
 feature retirements. They currently produce explicit diagnostics. Expanding
 vector instantiation reaches the existing jagged-array storage diagnostic; no

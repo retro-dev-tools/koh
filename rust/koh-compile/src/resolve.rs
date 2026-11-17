@@ -44,6 +44,9 @@ pub struct Resolver<'a> {
     pub(crate) delegate_type_work: std::cell::Cell<usize>,
     pub(crate) callbacks: RefCell<Vec<crate::delegates::Callback>>,
     pub(crate) generic_instances: RefCell<Vec<crate::generics::Instance>>,
+    pub(crate) type_instances: RefCell<Vec<crate::types::Instance>>,
+    pub(crate) field_instances: RefCell<Vec<crate::types::Field>>,
+    pub(crate) type_binding_depth: std::cell::Cell<usize>,
     pub(crate) generic_work: std::cell::Cell<usize>,
     pub(crate) generic_nodes: std::cell::Cell<usize>,
     pub(crate) runtime_methods: RefCell<Option<std::collections::BTreeMap<String, Definition>>>,
@@ -231,6 +234,7 @@ impl<'a> Resolver<'a> {
         &self,
         definition: Definition,
     ) -> Result<Option<(&str, &str)>, String> {
+        let definition = self.type_definition(definition)?;
         let image = self.assembly(definition.assembly)?;
         let Some(expected) = framework_key(image.name()?) else {
             return Ok(None);
@@ -517,6 +521,9 @@ impl<'a> Resolver<'a> {
             delegate_type_work: std::cell::Cell::new(0),
             callbacks: RefCell::new(Vec::new()),
             generic_instances: RefCell::new(Vec::new()),
+            type_instances: RefCell::new(Vec::new()),
+            field_instances: RefCell::new(Vec::new()),
+            type_binding_depth: std::cell::Cell::new(0),
             generic_work: std::cell::Cell::new(0),
             generic_nodes: std::cell::Cell::new(0),
             runtime_methods: RefCell::new(None),
@@ -534,6 +541,19 @@ impl<'a> Resolver<'a> {
     }
 
     pub fn method_initializer(&self, method: Definition) -> Result<Option<Definition>, String> {
+        if let Some(instance) = self.instance(method)? {
+            if let Some(owner) = instance.declaring {
+                let raw = self.type_definition(owner)?;
+                let image = self.assembly(raw.assembly)?;
+                if image.metadata().type_defs[(raw.token & 0xffffff) as usize - 1].flags & 0x100000
+                    != 0
+                {
+                    return Ok(None);
+                }
+                return self.closed_initializer(owner);
+            }
+            return self.method_initializer(instance.method);
+        }
         let assembly = self.assembly(method.assembly)?;
         assembly.method(method.token)?;
         let rid = method.token & 0x00ff_ffff;
@@ -555,6 +575,9 @@ impl<'a> Resolver<'a> {
     }
 
     pub fn field_initializer(&self, field: Definition) -> Result<Option<Definition>, String> {
+        if let Some(instance) = self.field_instance(field)? {
+            return self.closed_initializer(instance.owner);
+        }
         let metadata = self.assembly(field.assembly)?.metadata();
         row(&metadata.fields, field.token, 4)?;
         let owner = metadata
@@ -580,6 +603,13 @@ impl<'a> Resolver<'a> {
             })),
             _ => Err("Type has multiple initializers".into()),
         }
+    }
+
+    fn closed_initializer(&self, owner: Definition) -> Result<Option<Definition>, String> {
+        let raw = self.type_definition(owner)?;
+        self.initializer(raw.assembly, raw.token & 0xffffff)?
+            .map(|method| self.specialize_on(method, Vec::new(), Some(owner)))
+            .transpose()
     }
 
     fn index(&self, assembly: usize) -> Result<&Index, String> {
@@ -683,6 +713,12 @@ impl<'a> Resolver<'a> {
     }
 
     pub fn resolve_type(&self, assembly: usize, token: u32) -> Result<Definition, String> {
+        if token >> 24 == 0xf9 {
+            let id = Definition { assembly, token };
+            self.type_instance(id)?
+                .ok_or("Missing closed type identity")?;
+            return Ok(id);
+        }
         self.resolve_type_inner(assembly, token, 0)
     }
 
@@ -1156,8 +1192,8 @@ impl<'a> Resolver<'a> {
             (TypeSig::Var(a), TypeSig::Var(b)) | (TypeSig::MVar(a), TypeSig::MVar(b)) => a == b,
             (TypeSig::Class(a), TypeSig::Class(b))
             | (TypeSig::ValueType(a), TypeSig::ValueType(b)) => {
-                self.resolve_type(left_assembly, type_token(*a)?)?
-                    == self.resolve_type(right_assembly, type_token(*b)?)?
+                self.signature_type(left_assembly, *a)?
+                    == self.signature_type(right_assembly, *b)?
             }
             (TypeSig::Ptr(a), TypeSig::Ptr(b))
             | (TypeSig::ByRef(a), TypeSig::ByRef(b))

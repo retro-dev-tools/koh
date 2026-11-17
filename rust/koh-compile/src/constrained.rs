@@ -58,6 +58,9 @@ pub(crate) fn value_target(
     method: Definition,
 ) -> Result<Definition, String> {
     use clrmeta::{TableId, TypeSig};
+    if resolver.type_instance(value)?.is_some() {
+        return Err("Constructed generic constrained dispatch is unfinished".into());
+    }
     let owner = crate::lower::owner_type(resolver, method)?;
     let declared_image = resolver.assembly(method.assembly)?;
     let declared = declared_image.method(method.token)?;

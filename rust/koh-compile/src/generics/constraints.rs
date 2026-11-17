@@ -1,5 +1,5 @@
-use super::{Argument, canonical, charge, scoped};
-use crate::resolve::{Definition, Resolver, coded, framework_type, type_token};
+use super::{Argument, canonical, charge};
+use crate::resolve::{Definition, Resolver, coded, framework_type};
 use clrmeta::{ElementType, TableId, TypeSig};
 
 fn value(argument: &Argument) -> bool {
@@ -11,7 +11,8 @@ fn enumeration(resolver: &Resolver<'_>, argument: &Argument) -> Result<bool, Str
     let TypeSig::ValueType(encoded) = argument.ty else {
         return Ok(false);
     };
-    let definition = resolver.resolve_type(argument.assembly, type_token(encoded)?)?;
+    let definition = resolver.signature_type(argument.assembly, encoded)?;
+    let definition = resolver.type_definition(definition)?;
     let metadata = resolver.assembly(definition.assembly)?.metadata();
     let ty = &metadata.type_defs[(definition.token & 0xffffff) as usize - 1];
     Ok(framework_type(metadata, coded(ty.extends)?)? == Some(("System", "Enum")))
@@ -25,7 +26,7 @@ fn framework_ancestor(
     let TypeSig::Class(encoded) = argument.ty else {
         return Ok(false);
     };
-    let mut current = Some(resolver.resolve_type(argument.assembly, type_token(encoded)?)?);
+    let mut current = Some(resolver.signature_type(argument.assembly, encoded)?);
     for _ in 0..64 {
         let Some(definition) = current else {
             return Ok(false);
@@ -53,7 +54,8 @@ pub(super) fn parameterless(
     let (TypeSig::Class(encoded) | TypeSig::ValueType(encoded)) = argument.ty else {
         return Ok(None);
     };
-    let definition = resolver.resolve_type(argument.assembly, type_token(encoded)?)?;
+    let owner = resolver.signature_type(argument.assembly, encoded)?;
+    let definition = resolver.type_definition(owner)?;
     let image = resolver.assembly(definition.assembly)?;
     let metadata = image.metadata();
     let row = (definition.token & 0xffffff) as usize - 1;
@@ -98,9 +100,14 @@ pub(super) fn parameterless(
                     "Constructor calling convention requires explicit constraint validation".into(),
                 );
             }
-            return Ok(Some(Definition {
+            let method = Definition {
                 assembly: definition.assembly,
                 token: 0x06000000 | method,
+            };
+            return Ok(Some(if owner == definition {
+                method
+            } else {
+                resolver.specialize_on(method, Vec::new(), Some(owner))?
             }));
         }
     }
@@ -123,11 +130,11 @@ pub(crate) fn assignable(
         }
         return Ok(false);
     };
-    let required = resolver.resolve_type(constraint.assembly, type_token(encoded)?)?;
+    let required = resolver.signature_type(constraint.assembly, encoded)?;
     let required_layout = crate::layout::class(resolver, required)?;
     match argument.ty {
         TypeSig::Class(encoded) => {
-            let mut current = Some(resolver.resolve_type(argument.assembly, type_token(encoded)?)?);
+            let mut current = Some(resolver.signature_type(argument.assembly, encoded)?);
             for _ in 0..64 {
                 let Some(definition) = current else {
                     return Ok(false);
@@ -145,7 +152,8 @@ pub(crate) fn assignable(
             Err("Constraint ancestry exceeds64".into())
         }
         TypeSig::ValueType(encoded) if required_layout.interface => {
-            let definition = resolver.resolve_type(argument.assembly, type_token(encoded)?)?;
+            let definition = resolver.signature_type(argument.assembly, encoded)?;
+            let definition = resolver.type_definition(definition)?;
             let metadata = resolver.assembly(definition.assembly)?.metadata();
             charge(&resolver.generic_work, metadata.interface_impls.len())?;
             for interface in &metadata.interface_impls {
@@ -169,19 +177,51 @@ pub(crate) fn assignable(
     }
 }
 
-pub(super) fn validate(
+pub(crate) fn validate(
     resolver: &Resolver<'_>,
     method: Definition,
     arguments: &[Argument],
+    declaring_arguments: &[Argument],
 ) -> Result<(), String> {
     let metadata = resolver.assembly(method.assembly)?.metadata();
+    let work = metadata
+        .generic_params
+        .len()
+        .checked_mul(
+            metadata
+                .generic_param_constraints
+                .len()
+                .checked_add(2)
+                .ok_or("Generic constraint validation work overflow")?,
+        )
+        .ok_or("Generic constraint validation work overflow")?;
+    charge(&resolver.generic_work, work)?;
+    let owner_table = if method.token >> 24 == 2 {
+        TableId::TypeDef
+    } else {
+        TableId::MethodDef
+    };
+    let (methods, types) = if owner_table == TableId::TypeDef {
+        (&[][..], arguments)
+    } else {
+        (arguments, declaring_arguments)
+    };
     for (index, parameter) in metadata.generic_params.iter().enumerate() {
-        if parameter.owner.table != Some(TableId::MethodDef)
+        if parameter.owner.table != Some(owner_table)
             || parameter.owner.row != method.token & 0xffffff
         {
             continue;
         }
         if parameter.flags & !0x3c != 0 || parameter.flags & 0x0c == 0x0c {
+            if owner_table == TableId::TypeDef {
+                if metadata.type_defs[(method.token & 0xffffff) as usize - 1].flags & 0x20 != 0
+                    && matches!(parameter.flags & 3, 1 | 2)
+                    && parameter.flags & !0x3f == 0
+                {
+                    return Err("Generic type variance requires variance-aware binding".into());
+                }
+                return Err("Invalid generic type parameter flags".into());
+            }
             return Err("Invalid generic method parameter flags".into());
         }
         if parameter.flags & 0x20 != 0 {
@@ -195,7 +235,12 @@ pub(super) fn validate(
             || parameter.flags & 16 != 0 && !constructor(resolver, argument)?;
         if failed {
             return Err(format!(
-                "Generic argument !!{} does not satisfy special constraints",
+                "Generic argument {}{} does not satisfy special constraints",
+                if owner_table == TableId::TypeDef {
+                    "!"
+                } else {
+                    "!!"
+                },
                 parameter.number
             ));
         }
@@ -235,12 +280,15 @@ pub(super) fn validate(
                 _ => {
                     let ty = resolver.type_signature(method.assembly, token)?;
                     let parameter = matches!(ty, TypeSig::MVar(_) | TypeSig::Var(_));
-                    let constraint =
-                        canonical(resolver, scoped(method.assembly, &ty, arguments)?, 0)?;
+                    let constraint = canonical(
+                        resolver,
+                        resolver.bind_signature(method.assembly, &ty, methods, types)?,
+                        0,
+                    )?;
                     if !parameter {
                         let base = if let TypeSig::Class(encoded) = constraint.ty {
                             let definition =
-                                resolver.resolve_type(constraint.assembly, type_token(encoded)?)?;
+                                resolver.signature_type(constraint.assembly, encoded)?;
                             !crate::layout::class(resolver, definition)?.interface
                         } else {
                             true
