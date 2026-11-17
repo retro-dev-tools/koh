@@ -14,9 +14,11 @@ use support::{Host, dotnet};
 #[rstest::rstest]
 #[case(0xd6u8)]
 #[case(0xd7)]
+#[case(0xd8)]
+#[case(0xd9)]
 #[case(0xda)]
 #[case(0xdb)]
-fn checked_cil_add_sub_match_wide_integer_oracles(
+fn checked_cil_arithmetic_matches_wide_integer_oracles(
     host: &Host,
     #[case] opcode: u8,
     #[values((Type::Native,Type::Native),(Type::I32,Type::I32),(Type::I64,Type::I64),(Type::Native,Type::I32),(Type::I32,Type::Native))]
@@ -44,7 +46,7 @@ fn checked_cil_add_sub_match_wide_integer_oracles(
     koh_compile::optimize::simplify(&mut optimized).unwrap();
     let mask = |ty: Type| u64::MAX >> (64 - ty.bits());
     let sign = |ty: Type| 1u64 << (ty.bits() - 1);
-    let unsigned = matches!(opcode, 0xd7 | 0xdb);
+    let unsigned = matches!(opcode, 0xd7 | 0xd9 | 0xdb);
     let number = |raw: u64, ty: Type| {
         let raw = raw & mask(ty);
         if !unsigned && raw & sign(ty) != 0 {
@@ -60,7 +62,7 @@ fn checked_cil_add_sub_match_wide_integer_oracles(
     };
     let max = (1i128 << (returns.bits() - u16::from(!unsigned))) - 1;
     let mut cases = Vec::new();
-    for (left, right) in [
+    let mut pairs = vec![
         (0, 0),
         (1, 2),
         (mask(inputs.0), 1),
@@ -74,16 +76,49 @@ fn checked_cil_add_sub_match_wide_integer_oracles(
         (0, sign(inputs.1) - 1),
         (65536 & mask(inputs.0), 0),
         (65535 & mask(inputs.0), 1),
-    ] {
-        let value = if matches!(opcode, 0xda | 0xdb) {
-            number(left, inputs.0) - number(right, inputs.1)
+    ];
+    if matches!(opcode, 0xd8 | 0xd9) {
+        let root = (max as u128).isqrt() as u64;
+        pairs.extend([
+            (root, root),
+            (root + 1, root + 1),
+            (root.wrapping_neg() & mask(inputs.0), root),
+            (
+                root.wrapping_add(1).wrapping_neg() & mask(inputs.0),
+                root + 1,
+            ),
+        ]);
+        if returns == Type::I64 {
+            if unsigned {
+                pairs.extend([(1 << 32, (1 << 32) - 1), (u64::MAX - 1, 0x1ffffffff)]);
+            } else {
+                pairs.extend([
+                    (1 << 32, (1 << 31) - 1),
+                    ((1u64 << 32).wrapping_neg(), 1 << 31),
+                    ((1u64 << 32).wrapping_neg(), (1 << 31) + 1),
+                ]);
+            }
+        }
+    }
+    for (left, right) in pairs {
+        let expected = if opcode == 0xd9 {
+            let product = (number(left, inputs.0) as u128) * (number(right, inputs.1) as u128);
+            if product <= max as u128 {
+                Ok(product as u64 & mask(returns))
+            } else {
+                Err(2)
+            }
         } else {
-            number(left, inputs.0) + number(right, inputs.1)
-        };
-        let expected = if (min..=max).contains(&value) {
-            Ok(value as u64 & mask(returns))
-        } else {
-            Err(2)
+            let value = match opcode {
+                0xd8 => number(left, inputs.0) * number(right, inputs.1),
+                0xda | 0xdb => number(left, inputs.0) - number(right, inputs.1),
+                _ => number(left, inputs.0) + number(right, inputs.1),
+            };
+            if (min..=max).contains(&value) {
+                Ok(value as u64 & mask(returns))
+            } else {
+                Err(2)
+            }
         };
         for f in [&function, &optimized] {
             cases.push((f.clone(), vec![left, right], expected));

@@ -52,8 +52,8 @@ frame to a bit operation without improving semantics. The game library helper
 remains available for raw-bit callers; its historical use is not an ABI rule.
 
 [Checked casts](checked-casts.md) now validate range before conversion. Checked
-integer addition/subtraction is implemented separately; checked multiplication
-and bare internal-F shapes remain unsupported. Floating remainder
+integer addition/subtraction/multiplication is implemented separately;
+catchable exceptions and bare internal-F shapes remain unsupported. Floating remainder
 now executes through the [exact shared core](floating-remainder.md); missing
 `f32.rem` or `f64.rem` metadata still diagnoses explicitly.
 The [integer conversion contract](float-conversions.md) documents signedness,

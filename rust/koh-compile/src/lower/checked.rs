@@ -3,7 +3,7 @@ use super::*;
 pub(super) fn arithmetic(b: &mut Builder<'_, '_>, opcode: u16) -> Result<(), String> {
     let mut right = b.pop()?;
     let mut left = b.pop()?;
-    let unsigned = matches!(opcode, 0xd7 | 0xdb);
+    let unsigned = matches!(opcode, 0xd7 | 0xd9 | 0xdb);
     let subtract = matches!(opcode, 0xda | 0xdb);
     if left.1.is_byref() || right.1.is_byref() {
         return Err("Checked managed-reference arithmetic is unsupported".into());
@@ -17,6 +17,15 @@ pub(super) fn arithmetic(b: &mut Builder<'_, '_>, opcode: u16) -> Result<(), Str
         (left.1, right.1),
         (Type::Native, Type::I32) | (Type::I32, Type::Native)
     );
+    if !mixed && left.1 != right.1 {
+        return Err("Checked arithmetic operand type mismatch".into());
+    }
+    if matches!(opcode, 0xd8 | 0xd9) {
+        let destination = if mixed { Type::Native } else { left.1 };
+        let result = multiply(b, left, right, destination, unsigned)?;
+        b.stack.push(result);
+        return Ok(());
+    }
     if mixed {
         for value in [&mut left, &mut right] {
             if value.1 == Type::Native {
@@ -30,9 +39,6 @@ pub(super) fn arithmetic(b: &mut Builder<'_, '_>, opcode: u16) -> Result<(), Str
                 )?;
             }
         }
-    }
-    if left.1 != right.1 {
-        return Err("Checked arithmetic operand type mismatch".into());
     }
     let result = b.value(
         left.1,
@@ -111,6 +117,97 @@ pub(super) fn arithmetic(b: &mut Builder<'_, '_>, opcode: u16) -> Result<(), Str
     };
     b.stack.push(result);
     Ok(())
+}
+
+fn wide_binary(b: &mut Builder<'_, '_>, op: Binary, left: u32, right: u32) -> Result<u32, String> {
+    Ok(b.value(Type::I64, Op::Binary { op, left, right })?.0)
+}
+
+fn multiply(
+    b: &mut Builder<'_, '_>,
+    mut left: (u32, Type),
+    mut right: (u32, Type),
+    destination: Type,
+    unsigned: bool,
+) -> Result<(u32, Type), String> {
+    if destination != Type::I64 {
+        for value in [&mut left, &mut right] {
+            *value = b.value(
+                Type::I64,
+                Op::Convert {
+                    value: value.0,
+                    bits: value.1.bits() as u8,
+                    signed: !unsigned,
+                },
+            )?;
+        }
+        let product = b.value(
+            Type::I64,
+            Op::Binary {
+                op: Binary::Multiply,
+                left: left.0,
+                right: right.0,
+            },
+        )?;
+        return convert(
+            b,
+            product,
+            match (destination, unsigned) {
+                (Type::Native, false) => 0xd4,
+                (Type::Native, true) => 0x8b,
+                (Type::I32, false) => 0xb7,
+                (Type::I32, true) => 0x88,
+                _ => return Err("Invalid checked multiplication result type".into()),
+            },
+        );
+    }
+    let mask = b.value(Type::I64, Op::Constant(0xffff_ffff))?.0;
+    let count = b.value(Type::I32, Op::Constant(32))?.0;
+    let a0 = wide_binary(b, Binary::And, left.0, mask)?;
+    let a1 = wide_binary(b, Binary::ShiftRightUnsigned, left.0, count)?;
+    let b0 = wide_binary(b, Binary::And, right.0, mask)?;
+    let b1 = wide_binary(b, Binary::ShiftRightUnsigned, right.0, count)?;
+    let first = wide_binary(b, Binary::Multiply, a0, b0)?;
+    let carry = wide_binary(b, Binary::ShiftRightUnsigned, first, count)?;
+    let cross = wide_binary(b, Binary::Multiply, a1, b0)?;
+    let middle = wide_binary(b, Binary::Add, cross, carry)?;
+    let w1 = wide_binary(b, Binary::And, middle, mask)?;
+    let w2 = wide_binary(b, Binary::ShiftRightUnsigned, middle, count)?;
+    let cross = wide_binary(b, Binary::Multiply, a0, b1)?;
+    let upper = wide_binary(b, Binary::Add, cross, w1)?;
+    let high = wide_binary(b, Binary::Multiply, a1, b1)?;
+    let high = wide_binary(b, Binary::Add, high, w2)?;
+    let carry = wide_binary(b, Binary::ShiftRightUnsigned, upper, count)?;
+    let mut high = wide_binary(b, Binary::Add, high, carry)?;
+    let upper = wide_binary(b, Binary::ShiftLeft, upper, count)?;
+    let lower = wide_binary(b, Binary::And, first, mask)?;
+    let low = wide_binary(b, Binary::Or, upper, lower)?;
+    let expected = if unsigned {
+        b.value(Type::I64, Op::Constant(0))?.0
+    } else {
+        let count = b.value(Type::I32, Op::Constant(63))?.0;
+        let sign = wide_binary(b, Binary::ShiftRightSigned, left.0, count)?;
+        let adjust = wide_binary(b, Binary::And, right.0, sign)?;
+        high = wide_binary(b, Binary::Subtract, high, adjust)?;
+        let sign = wide_binary(b, Binary::ShiftRightSigned, right.0, count)?;
+        let adjust = wide_binary(b, Binary::And, left.0, sign)?;
+        high = wide_binary(b, Binary::Subtract, high, adjust)?;
+        wide_binary(b, Binary::ShiftRightSigned, low, count)?
+    };
+    let valid = b.value(
+        Type::I32,
+        Op::Compare {
+            op: Comparison::Equal,
+            left: high,
+            right: expected,
+        },
+    )?;
+    b.instructions.push(Instruction {
+        result: None,
+        op: Op::RequireRange(valid.0),
+        il_offset: b.offset,
+    });
+    Ok((low, Type::I64))
 }
 
 pub(super) fn convert(

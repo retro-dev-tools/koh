@@ -395,4 +395,288 @@ public static class Program
             sum = checked(sum + 1);
         return Store((ulong)sum);
     }
+
+    static int I32Mul(int left, int right) => checked(left * right);
+
+    public static int I32Mul0() => Store(unchecked((ulong)(long)I32Mul(0, 0)));
+
+    public static int I32Mul1() => Store(unchecked((ulong)(long)I32Mul(1, 2)));
+
+    public static int I32Mul2() => Store(unchecked((ulong)(long)I32Mul(2147483647, 0)));
+
+    public static int I32Mul3() => Store(unchecked((ulong)(long)I32Mul(-2147483648, 0)));
+
+    public static int I32Mul4() => Store(unchecked((ulong)(long)I32Mul(2147483647, 1)));
+
+    public static int I32Mul5() => Store(unchecked((ulong)(long)I32Mul(-2147483648, -1)));
+
+    public static int I32Mul6() => Store(unchecked((ulong)(long)I32Mul(2147483647, -1)));
+
+    public static int I32Mul7() => Store(unchecked((ulong)(long)I32Mul(-2147483648, 1)));
+
+    public static int I32Mul8() => Store(unchecked((ulong)(long)I32Mul(-1, -1)));
+
+    public static int I32Mul9() => Store(unchecked((ulong)(long)I32Mul(0, -2147483648)));
+
+    public static int I32Mul10() => Store(unchecked((ulong)(long)I32Mul(0, 2147483647)));
+
+    public static int I32Mul11() => Store(unchecked((ulong)(long)I32Mul(2147483647, 2147483647)));
+
+    public static int I32Mul12() => Store(unchecked((ulong)(long)I32Mul(-2147483648, -2147483648)));
+
+    public static int I32Mul13() => Store(unchecked((ulong)(long)I32Mul(-2147483648, 2147483647)));
+
+    public static int I32Mul14() => Store(unchecked((ulong)(long)I32Mul(2147483647, -2147483648)));
+
+    public static int I32Mul15() => Store(unchecked((ulong)(long)I32Mul(46340, 46340)));
+
+    public static int I32Mul16() => Store(unchecked((ulong)(long)I32Mul(46341, 46341)));
+
+    public static int I32Mul17() => Store(unchecked((ulong)(long)I32Mul(-46340, 46340)));
+
+    public static int I32Mul18() => Store(unchecked((ulong)(long)I32Mul(-46341, 46341)));
+
+    static uint U32Mul(uint left, uint right) => checked(left * right);
+
+    public static int U32Mul0() => Store(unchecked((ulong)U32Mul(0U, 0U)));
+
+    public static int U32Mul1() => Store(unchecked((ulong)U32Mul(1U, 2U)));
+
+    public static int U32Mul2() => Store(unchecked((ulong)U32Mul(4294967295U, 0U)));
+
+    public static int U32Mul3() => Store(unchecked((ulong)U32Mul(0U, 4294967295U)));
+
+    public static int U32Mul4() => Store(unchecked((ulong)U32Mul(4294967295U, 1U)));
+
+    public static int U32Mul5() => Store(unchecked((ulong)U32Mul(4294967295U, 4294967295U)));
+
+    public static int U32Mul6() => Store(unchecked((ulong)U32Mul(4294967294U, 1U)));
+
+    public static int U32Mul7() => Store(unchecked((ulong)U32Mul(4294967294U, 2U)));
+
+    public static int U32Mul8() => Store(unchecked((ulong)U32Mul(0U, 1U)));
+
+    public static int U32Mul9() => Store(unchecked((ulong)U32Mul(1U, 0U)));
+
+    public static int U32Mul10() => Store(unchecked((ulong)U32Mul(65535U, 65535U)));
+
+    public static int U32Mul11() => Store(unchecked((ulong)U32Mul(65536U, 65536U)));
+
+    public static int U32Mul12() => Store(unchecked((ulong)U32Mul(4294967295U, 2U)));
+
+    public static int U32Mul13() => Store(unchecked((ulong)U32Mul(2147483647U, 2U)));
+
+    static long I64Mul(long left, long right) => checked(left * right);
+
+    public static int I64Mul0() => Store(unchecked((ulong)(long)I64Mul(0L, 0L)));
+
+    public static int I64Mul1() => Store(unchecked((ulong)(long)I64Mul(1L, 2L)));
+
+    public static int I64Mul2() => Store(unchecked((ulong)(long)I64Mul(9223372036854775807L, 0L)));
+
+    public static int I64Mul3() => Store(unchecked((ulong)(long)I64Mul(-9223372036854775808L, 0L)));
+
+    public static int I64Mul4() => Store(unchecked((ulong)(long)I64Mul(9223372036854775807L, 1L)));
+
+    public static int I64Mul5() =>
+        Store(unchecked((ulong)(long)I64Mul(-9223372036854775808L, -1L)));
+
+    public static int I64Mul6() => Store(unchecked((ulong)(long)I64Mul(9223372036854775807L, -1L)));
+
+    public static int I64Mul7() => Store(unchecked((ulong)(long)I64Mul(-9223372036854775808L, 1L)));
+
+    public static int I64Mul8() => Store(unchecked((ulong)(long)I64Mul(-1L, -1L)));
+
+    public static int I64Mul9() => Store(unchecked((ulong)(long)I64Mul(0L, -9223372036854775808L)));
+
+    public static int I64Mul10() => Store(unchecked((ulong)(long)I64Mul(0L, 9223372036854775807L)));
+
+    public static int I64Mul11() =>
+        Store(unchecked((ulong)(long)I64Mul(9223372036854775807L, 9223372036854775807L)));
+
+    public static int I64Mul12() =>
+        Store(unchecked((ulong)(long)I64Mul(-9223372036854775808L, -9223372036854775808L)));
+
+    public static int I64Mul13() =>
+        Store(unchecked((ulong)(long)I64Mul(-9223372036854775808L, 9223372036854775807L)));
+
+    public static int I64Mul14() =>
+        Store(unchecked((ulong)(long)I64Mul(9223372036854775807L, -9223372036854775808L)));
+
+    public static int I64Mul15() => Store(unchecked((ulong)(long)I64Mul(3037000499L, 3037000499L)));
+
+    public static int I64Mul16() => Store(unchecked((ulong)(long)I64Mul(3037000500L, 3037000500L)));
+
+    public static int I64Mul17() =>
+        Store(unchecked((ulong)(long)I64Mul(-3037000499L, 3037000499L)));
+
+    public static int I64Mul18() =>
+        Store(unchecked((ulong)(long)I64Mul(-3037000500L, 3037000500L)));
+
+    public static int I64Mul19() => Store(unchecked((ulong)(long)I64Mul(4294967296L, 2147483647L)));
+
+    public static int I64Mul20() =>
+        Store(unchecked((ulong)(long)I64Mul(-4294967296L, 2147483648L)));
+
+    public static int I64Mul21() =>
+        Store(unchecked((ulong)(long)I64Mul(-4294967296L, 2147483649L)));
+
+    static ulong U64Mul(ulong left, ulong right) => checked(left * right);
+
+    public static int U64Mul0() => Store(unchecked((ulong)U64Mul(0UL, 0UL)));
+
+    public static int U64Mul1() => Store(unchecked((ulong)U64Mul(1UL, 2UL)));
+
+    public static int U64Mul2() => Store(unchecked((ulong)U64Mul(18446744073709551615UL, 0UL)));
+
+    public static int U64Mul3() => Store(unchecked((ulong)U64Mul(0UL, 18446744073709551615UL)));
+
+    public static int U64Mul4() => Store(unchecked((ulong)U64Mul(18446744073709551615UL, 1UL)));
+
+    public static int U64Mul5() =>
+        Store(unchecked((ulong)U64Mul(18446744073709551615UL, 18446744073709551615UL)));
+
+    public static int U64Mul6() => Store(unchecked((ulong)U64Mul(18446744073709551614UL, 1UL)));
+
+    public static int U64Mul7() => Store(unchecked((ulong)U64Mul(18446744073709551614UL, 2UL)));
+
+    public static int U64Mul8() => Store(unchecked((ulong)U64Mul(0UL, 1UL)));
+
+    public static int U64Mul9() => Store(unchecked((ulong)U64Mul(1UL, 0UL)));
+
+    public static int U64Mul10() => Store(unchecked((ulong)U64Mul(4294967295UL, 4294967295UL)));
+
+    public static int U64Mul11() => Store(unchecked((ulong)U64Mul(4294967296UL, 4294967296UL)));
+
+    public static int U64Mul12() => Store(unchecked((ulong)U64Mul(18446744073709551615UL, 2UL)));
+
+    public static int U64Mul13() => Store(unchecked((ulong)U64Mul(9223372036854775807UL, 2UL)));
+
+    public static int U64Mul14() => Store(unchecked((ulong)U64Mul(4294967296UL, 4294967295UL)));
+
+    public static int U64Mul15() =>
+        Store(unchecked((ulong)U64Mul(18446744073709551614UL, 8589934591UL)));
+
+    static nint INMul(nint left, nint right) => checked(left * right);
+
+    public static int INMul0() => Store(unchecked((ulong)(long)INMul((nint)(0), (nint)(0))));
+
+    public static int INMul1() => Store(unchecked((ulong)(long)INMul((nint)(1), (nint)(2))));
+
+    public static int INMul2() => Store(unchecked((ulong)(long)INMul((nint)(32767), (nint)(0))));
+
+    public static int INMul3() => Store(unchecked((ulong)(long)INMul((nint)(-32768), (nint)(0))));
+
+    public static int INMul4() => Store(unchecked((ulong)(long)INMul((nint)(32767), (nint)(1))));
+
+    public static int INMul5() => Store(unchecked((ulong)(long)INMul((nint)(-32768), (nint)(-1))));
+
+    public static int INMul6() => Store(unchecked((ulong)(long)INMul((nint)(32767), (nint)(-1))));
+
+    public static int INMul7() => Store(unchecked((ulong)(long)INMul((nint)(-32768), (nint)(1))));
+
+    public static int INMul8() => Store(unchecked((ulong)(long)INMul((nint)(-1), (nint)(-1))));
+
+    public static int INMul9() => Store(unchecked((ulong)(long)INMul((nint)(0), (nint)(-32768))));
+
+    public static int INMul10() => Store(unchecked((ulong)(long)INMul((nint)(0), (nint)(32767))));
+
+    public static int INMul11() =>
+        Store(unchecked((ulong)(long)INMul((nint)(32767), (nint)(32767))));
+
+    public static int INMul12() =>
+        Store(unchecked((ulong)(long)INMul((nint)(-32768), (nint)(-32768))));
+
+    public static int INMul13() =>
+        Store(unchecked((ulong)(long)INMul((nint)(-32768), (nint)(32767))));
+
+    public static int INMul14() =>
+        Store(unchecked((ulong)(long)INMul((nint)(32767), (nint)(-32768))));
+
+    public static int INMul15() => Store(unchecked((ulong)(long)INMul((nint)(181), (nint)(181))));
+
+    public static int INMul16() => Store(unchecked((ulong)(long)INMul((nint)(182), (nint)(182))));
+
+    public static int INMul17() => Store(unchecked((ulong)(long)INMul((nint)(-181), (nint)(181))));
+
+    public static int INMul18() => Store(unchecked((ulong)(long)INMul((nint)(-182), (nint)(182))));
+
+    static nuint UNMul(nuint left, nuint right) => checked(left * right);
+
+    public static int UNMul0() => Store(unchecked((ulong)UNMul((nuint)0U, (nuint)0U)));
+
+    public static int UNMul1() => Store(unchecked((ulong)UNMul((nuint)1U, (nuint)2U)));
+
+    public static int UNMul2() => Store(unchecked((ulong)UNMul((nuint)65535U, (nuint)0U)));
+
+    public static int UNMul3() => Store(unchecked((ulong)UNMul((nuint)0U, (nuint)65535U)));
+
+    public static int UNMul4() => Store(unchecked((ulong)UNMul((nuint)65535U, (nuint)1U)));
+
+    public static int UNMul5() => Store(unchecked((ulong)UNMul((nuint)65535U, (nuint)65535U)));
+
+    public static int UNMul6() => Store(unchecked((ulong)UNMul((nuint)65534U, (nuint)1U)));
+
+    public static int UNMul7() => Store(unchecked((ulong)UNMul((nuint)65534U, (nuint)2U)));
+
+    public static int UNMul8() => Store(unchecked((ulong)UNMul((nuint)0U, (nuint)1U)));
+
+    public static int UNMul9() => Store(unchecked((ulong)UNMul((nuint)1U, (nuint)0U)));
+
+    public static int UNMul10() => Store(unchecked((ulong)UNMul((nuint)255U, (nuint)255U)));
+
+    public static int UNMul11() => Store(unchecked((ulong)UNMul((nuint)256U, (nuint)256U)));
+
+    public static int UNMul12() => Store(unchecked((ulong)UNMul((nuint)65535U, (nuint)2U)));
+
+    public static int UNMul13() => Store(unchecked((ulong)UNMul((nuint)32767U, (nuint)2U)));
+
+    static byte MultiplyByte(byte a, byte b) => checked((byte)(a * b));
+
+    static sbyte MultiplySignedByte(sbyte a, sbyte b) => checked((sbyte)(a * b));
+
+    static ushort MultiplyShort(ushort a, ushort b) => checked((ushort)(a * b));
+
+    static short MultiplySignedShort(short a, short b) => checked((short)(a * b));
+
+    public static int MulByte() => Store(MultiplyByte(15, 17));
+
+    public static int MulByteOverflow() => Store(MultiplyByte(16, 16));
+
+    public static int MulSignedByte() => Store(unchecked((ulong)(long)MultiplySignedByte(-128, 1)));
+
+    public static int MulSignedByteOverflow() =>
+        Store(unchecked((ulong)(long)MultiplySignedByte(-128, -1)));
+
+    public static int MulShort() => Store(MultiplyShort(255, 257));
+
+    public static int MulShortOverflow() => Store(MultiplyShort(256, 256));
+
+    public static int MulSignedShort() =>
+        Store(unchecked((ulong)(long)MultiplySignedShort(-16384, 2)));
+
+    public static int MulSignedShortOverflow() =>
+        Store(unchecked((ulong)(long)MultiplySignedShort(-16385, 2)));
+
+    public static int MulDiscard()
+    {
+        U64Mul(ulong.MaxValue, 2);
+        return Store(0);
+    }
+
+    public static int MulLoop()
+    {
+        uint n = 1;
+        for (int i = 0; i < 8; i++)
+            n = checked(n * 2);
+        return Store(n);
+    }
+
+    public static int MulLoopOverflow()
+    {
+        uint n = 0x80000000;
+        for (int i = 0; i < 2; i++)
+            n = checked(n * 2);
+        return Store(n);
+    }
 }

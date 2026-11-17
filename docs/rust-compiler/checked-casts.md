@@ -9,7 +9,8 @@ These rules follow [ECMA-335, III.3.28–3.29 and Table III.8](https://ecma-inte
 
 Failure reaches the existing unhandled arithmetic-fault ABI: fault code2,
 `__koh_trap_arithmetic` and `__koh_abort`. [Checked addition/subtraction](checked-arithmetic.md)
-now uses the same guard; catchable exceptions and checked multiplication remain unsupported. This does not promise
+now uses the same guard, as does [checked multiplication](checked-multiplication.md).
+Catchable exceptions and managed-reference arithmetic remain unsupported. This does not promise
 general support for every expression inside a C# `checked` block.
 
 Integer checks use explicit signed/unsigned comparisons before conversion.

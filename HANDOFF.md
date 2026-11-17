@@ -1900,3 +1900,57 @@ Nextusefulruntimeunitcheckedmul:smallwidthproductviaI64+checkednarrow,64-bit
 fullproducthigh/lowlimbs+signedextensioncheckcouldreuseexistingIRopswithout
 newruntimeABI;independentlyprovehighproductcarrybounds/measurebankcapacity.
 Do nottreatthiscandidateasimplemented. No localbuildsremain.Parentownsstate.
+
+CheckedmultiplicationREADONLYREVIEWscope:dirtytreeagainstLOCALHEAD4b229d3
+(published401622a). Parentownsalledits/builds. NewD8/D9::checked::multiply
+usesexactI64product+checkednarrowfornative16/I32(andmixedNative/I32),full
+128-bitproductasI64high/lowlimbsforI64using4unsigned32×32partialproducts.
+B=2^32:p=a0*b0;t=a1*b0+(p>>32);w1=t&mask,w2=t>>32;u=a0*b1+w1;
+lo=(u<<32)|(p&mask);hi=a1*b1+w2+(u>>32). p,t,u fitu64;hifinal≤2^64−2.
+Signedhighadjusthi−(b&signMaskA)−(a&signMaskB)mod64;validhigh==ASR(lo,63).
+Unsignedvalidhigh==0. ExistingIROps/RequireRange/fault2;no newABI/runtime.
+Fileslower/checked.rs+lower.rs, testschecked_arithmeticdriver/fixture,sm83/
+lowering.rs. Initial90720EXIT100D8unsupported;50543first4/4pass126.641s
+276roots/config=1104ROMs. 91956directCIL/diagnostics50/50pass66.748s:all6
+ops×5operandshapes,870ROMsbefore/afteropt,rootnear-sqrt/32bitlimb/min−1/high
+wordnonzero-lowwordzero cases;u128unsigned/i128signedindependentoracles.
+FinalbroadnowLIVE/tmp/koh-checked-mul-final.log includesfunctionsizeobservation
+addedafterfirst4pass;needterminal. Do notbuild/test/edit/commit/spawn. Reviewer
+checkpartialcarrybounds,signextensionvalidity,narrow/mixedtypes,oracles,code
+capacity,untrustedinputdiagnostics. Parentownsallstate. CI401622a44020313613
+nowterminalsuccess;downloadprimarylogthenbatch4b229d3+thisunitaftervalidation.
+Fullgoalactiveledger180unchanged. No usefulfeaturesretired.Codecommentsnone.
+
+28442TERMINALEXIT0:799/799pass548.424s416excluded. All4arithmeticconfigcases
+pass1104ROMs;observedlargestmanagedfunction3616bytesinall4,within16KiB.
+No productioneditsafterbroadbuild. Addedtest-onlywideproductproperties to
+existingloweringtestinterpreter (Multiply/And/unsignedshift, explicitErr2for
+RequireRange;unexpectedops/panicsremainfailures). 10rstestcases×512vectors
+×beforeafter=10240evaluations signedi128/unsignedu128 independent oracle.
+25256TERMINALEXIT0:full lowering111/111pass6.722szeroskips. Random/full,zero/
+one,halfwidthbounded,sign-bit×small and−1/max factorscovervalid/fault paths.
+Existingvalidinterpretercallersuse.expect; onlyexplicitguardfalseyieldsErr2.
+Latechangeslimitedtests/lowering.rs;parentrequestreviewofthatdelta only,no
+newmathcode. Reviewerread-only no build/test/edit/commit/spawn. Needworkspace
+check/rustdoc/discovery/formatthencommitandbatchpushwith4b229d3. CI401622a
+44020313613confirmedterminalSUCCESS1592/1592Rust1848.444szeroskips,4rustdoc
+zerocases,.NETfast562pass2UIskips0fail;primarylog/tmp/koh-ci-401622a-completed.log
+GH_EXIT0(pushgatecleared). Ledger180unchanged, fullgoalactive.No localbuilds.
+
+CheckedMulfinalverification:64158workspacealltarget/allfeaturecheckEXIT0
+6.16s(existingunusedcubeshelperwarn).51513rustdocEXIT0fourzerocasesand
+nextestworkspaceallfeaturesdiscoveryEXIT0(8.26s),1659cases,all67arith/diag
+casesunignored(4driver30native18invalid2positive10properties3byref).
+Rustfmt/CSharpier1file/diffPASS. ReviewerlateharnessFINALnoconcreteissues;
+onlyfalseRequireRangebecomesErr2,unknownops/typefaults/nonterminationfail,
+oraclewidth/sign/productsound. No productioneditsafter799broadbuild.
+799/799548.424s416excluded+111/111lowering6.722szeroskips,10240pureIR
+evaluations,1104realC#ROMs+870directCILROMs=1974arithmeticexecutions;
+newMulspecific460Roslyn+350direct=810. SourceRows276=184success92fault/config.
+Largestmanagedfunctionobserved3616bytesall4within16KiB;notcomparativeperf.
+No runtimehelpers/newABI/IRtypeadded. Docschecked-multiplication.mdproof/
+limits/evidence;checked-arithmeticandABI/progress/ROADMAPupdated. Ledger180
+unchanged,385outstanding,zero physicallyretired. Committhenbatch4b229d3+Mul
+aftergreenpublished401622aCI44020313613:1592Rust+doc+.NET562/2UIskips.
+Primary/tmp/koh-ci-401622a-completed.logGH_EXIT0. Verifyremotehead/newCI/PR
+draft/master,refreshconcisechecklistandvault.No localbuilds/reviewsremain.

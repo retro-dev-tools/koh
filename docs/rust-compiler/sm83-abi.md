@@ -269,3 +269,6 @@ Checked integer addition/subtraction uses the same effectful guard and fault2;
 all normal results retain the existing16/32/64-bit integer ABI. Mixed Native/I32
 operations check the final16-bit result after a wide operation. See
 [checked arithmetic](checked-arithmetic.md).
+Checked64-bit multiplication computes high/low product words with ordinary I64
+operations and the same range guard; smaller products narrow only after an exact
+wide product. No new runtime ABI is introduced. See [proof and tests](checked-multiplication.md).

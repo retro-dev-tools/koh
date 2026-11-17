@@ -7,7 +7,7 @@ use rstest::rstest;
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
-fn checked_add_sub_preserve_results_or_fault_before_writes(
+fn checked_integer_arithmetic_preserves_results_or_fault_before_writes(
     host: &Host,
     #[case] configuration: &str,
     #[case] color: bool,
@@ -63,17 +63,45 @@ fn checked_add_sub_preserve_results_or_fault_before_writes(
                 (1, 0),
             ]
         };
-        for (op, subtract) in [("Add", false), ("Sub", true)] {
+        for op in ["Add", "Sub", "Mul"] {
+            let mut pairs = pairs.clone();
+            if op == "Mul" {
+                let root = (max as u128).isqrt() as i128;
+                pairs.extend(if signed {
+                    vec![
+                        (root, root),
+                        (root + 1, root + 1),
+                        (-root, root),
+                        (-(root + 1), root + 1),
+                    ]
+                } else {
+                    vec![(root, root), (root + 1, root + 1), (max, 2), (max >> 1, 2)]
+                });
+                if prefix == "I64" {
+                    pairs.extend([
+                        (1i128 << 32, (1i128 << 31) - 1),
+                        (-(1i128 << 32), 1i128 << 31),
+                        (-(1i128 << 32), (1i128 << 31) + 1),
+                    ]);
+                }
+                if prefix == "U64" {
+                    pairs.extend([(1i128 << 32, (1i128 << 32) - 1), (max - 1, 0x1ffffffff)]);
+                }
+            }
             for (i, &(left, right)) in pairs.iter().enumerate() {
-                let value = if subtract { left - right } else { left + right };
-                entries.push((
-                    format!("{prefix}{op}{i}"),
-                    if (min..=max).contains(&value) {
-                        Some(value as u64)
-                    } else {
-                        None
-                    },
-                ));
+                let expected = if op == "Mul" && !signed {
+                    let product = (left as u128) * (right as u128);
+                    (product <= max as u128).then_some(product as u64)
+                } else {
+                    let value = match op {
+                        "Add" => left + right,
+                        "Sub" => left - right,
+                        "Mul" => left * right,
+                        _ => unreachable!(),
+                    };
+                    (min..=max).contains(&value).then_some(value as u64)
+                };
+                entries.push((format!("{prefix}{op}{i}"), expected));
             }
         }
     }
@@ -92,7 +120,21 @@ fn checked_add_sub_preserve_results_or_fault_before_writes(
         ("SignedShort".into(), Some((-32768i64) as u64)),
         ("SignedShortOverflow".into(), None),
     ]);
-    assert_eq!(entries.len(), 161);
+    entries.extend([
+        ("MulByte".into(), Some(255)),
+        ("MulByteOverflow".into(), None),
+        ("MulSignedByte".into(), Some((-128i64) as u64)),
+        ("MulSignedByteOverflow".into(), None),
+        ("MulShort".into(), Some(65535)),
+        ("MulShortOverflow".into(), None),
+        ("MulSignedShort".into(), Some((-32768i64) as u64)),
+        ("MulSignedShortOverflow".into(), None),
+        ("MulDiscard".into(), None),
+        ("MulLoop".into(), Some(256)),
+        ("MulLoopOverflow".into(), None),
+    ]);
+    assert_eq!(entries.len(), 276);
+    let mut largest_function = 0;
     for (entry, expected) in entries {
         let mut object = compile::object_with_debug(
             &resolver,
@@ -100,6 +142,15 @@ fn checked_add_sub_preserve_results_or_fault_before_writes(
             &[Some(&pdb), None],
         )
         .unwrap_or_else(|e| panic!("{entry}: {e}"));
+        largest_function = largest_function.max(
+            object
+                .sections
+                .iter()
+                .filter(|s| s.name.starts_with(".text.__koh_a"))
+                .map(|s| s.data.len())
+                .max()
+                .unwrap(),
+        );
         assert!(
             object
                 .sections
@@ -156,4 +207,6 @@ fn checked_add_sub_preserve_results_or_fault_before_writes(
             super::assert_heap_snapshot(fields[5], &[0x6b; 4096], &entry);
         }
     }
+    assert!(largest_function <= 0x4000);
+    println!("{configuration} color={color}: largest managed function {largest_function} bytes");
 }

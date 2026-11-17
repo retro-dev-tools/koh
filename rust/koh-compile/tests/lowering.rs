@@ -23,6 +23,8 @@ fn method(il: &[u8]) -> Method<'_> {
 #[rstest]
 #[case(0xd6u8)]
 #[case(0xd7)]
+#[case(0xd8)]
+#[case(0xd9)]
 #[case(0xda)]
 #[case(0xdb)]
 fn checked_arithmetic_rejects_invalid_operand_shapes(
@@ -45,15 +47,96 @@ fn checked_arithmetic_rejects_invalid_operand_shapes(
 #[rstest]
 #[case(0xd8u8)]
 #[case(0xd9)]
-fn checked_multiplication_remains_an_explicit_diagnostic(#[case] opcode: u8) {
+fn checked_multiplication_lowers_to_verified_integer_operations(#[case] opcode: u8) {
+    let il = [0x1d, 0x1c, opcode, 0x2a];
+    let mut input = method(&il);
+    input.max_stack = 2;
+    let mut function = lower(input).unwrap();
+    verify(&function).unwrap();
+    koh_compile::optimize::simplify(&mut function).unwrap();
+    verify(&function).unwrap();
+    koh_compile::sm83::emit(&function).unwrap();
+}
+
+#[rstest]
+#[case(0xd8u8)]
+#[case(0xd9)]
+fn checked_multiplication_ir_matches_deterministic_wide_products(
+    #[case] opcode: u8,
+    #[values((Type::Native,Type::Native),(Type::I32,Type::I32),(Type::I64,Type::I64),(Type::Native,Type::I32),(Type::I32,Type::Native))]
+    inputs: (Type, Type),
+) {
     let il = [0x02, 0x03, opcode, 0x2a];
     let mut input = method(&il);
-    input.parameters = vec![Type::I32, Type::I32];
-    let error = lower(input).unwrap_err();
-    assert!(
-        error.contains("no lowering") && error.contains("IL_0002"),
-        "{error}"
-    );
+    input.parameters = vec![inputs.0, inputs.1];
+    let returns = if inputs.0 == Type::Native || inputs.1 == Type::Native {
+        Type::Native
+    } else {
+        inputs.0
+    };
+    input.returns = Some(returns);
+    let function = lower(input).unwrap();
+    let mut optimized = function.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    verify(&function).unwrap();
+    verify(&optimized).unwrap();
+    let mask = |ty: Type| u64::MAX >> (64 - ty.bits());
+    let number = |raw: u64, ty: Type| {
+        if raw & (1u64 << (ty.bits() - 1)) != 0 {
+            raw as i128 - (1i128 << ty.bits())
+        } else {
+            raw as i128
+        }
+    };
+    let mut seed = 0x6a09_e667_f3bc_c909u64;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    for index in 0..512 {
+        let mut a = next() & mask(inputs.0);
+        let mut b = next() & mask(inputs.1);
+        match index % 6 {
+            0 => {}
+            1 => b = 0,
+            2 => b = 1,
+            3 => {
+                a &= (1u64 << (inputs.0.bits() / 2)) - 1;
+                b &= (1u64 << (inputs.1.bits() / 2)) - 1;
+            }
+            4 => {
+                a |= 1u64 << (inputs.0.bits() - 1);
+                b &= 7;
+            }
+            _ => b = mask(inputs.1),
+        }
+        let expected = if opcode == 0xd9 {
+            let product = (a as u128) * (b as u128);
+            if product <= mask(returns) as u128 {
+                Ok(product as u64)
+            } else {
+                Err(2)
+            }
+        } else {
+            let product = number(a, inputs.0) * number(b, inputs.1);
+            let min = -(1i128 << (returns.bits() - 1));
+            let max = (1i128 << (returns.bits() - 1)) - 1;
+            if (min..=max).contains(&product) {
+                Ok(product as u64 & mask(returns))
+            } else {
+                Err(2)
+            }
+        };
+        for f in [&function, &optimized] {
+            assert_eq!(
+                execute_checked_with(f, &[a, b]),
+                expected,
+                "{opcode:02x} {inputs:?} {a:016x} * {b:016x}"
+            );
+        }
+    }
 }
 
 #[rstest]
@@ -432,6 +515,10 @@ fn execute(f: &Function) -> u64 {
 }
 
 fn execute_with(f: &Function, arguments: &[u64]) -> u64 {
+    execute_checked_with(f, arguments).expect("Unexpected arithmetic fault")
+}
+
+fn execute_checked_with(f: &Function, arguments: &[u64]) -> Result<u64, u8> {
     let mut values = std::collections::HashMap::new();
     for (&(id, _), &value) in f.blocks[0].parameters.iter().zip(arguments) {
         values.insert(id, value);
@@ -473,6 +560,21 @@ fn execute_with(f: &Function, arguments: &[u64]) -> u64 {
                     left,
                     right,
                 } => v(left).wrapping_sub(v(right)),
+                Op::Binary {
+                    op: Binary::Multiply,
+                    left,
+                    right,
+                } => v(left).wrapping_mul(v(right)),
+                Op::Binary {
+                    op: Binary::And,
+                    left,
+                    right,
+                } => v(left) & v(right),
+                Op::Binary {
+                    op: Binary::ShiftRightUnsigned,
+                    left,
+                    right,
+                } => v(left) >> count(left, right),
                 Op::Binary {
                     op: Binary::Xor,
                     left,
@@ -533,7 +635,9 @@ fn execute_with(f: &Function, arguments: &[u64]) -> u64 {
                     }
                 }
                 Op::RequireRange(condition) => {
-                    assert_ne!(v(condition), 0, "Unexpected checked conversion fault");
+                    if v(condition) == 0 {
+                        return Err(2);
+                    }
                     0
                 }
                 _ => panic!("test interpreter missing {:?}", i.op),
@@ -551,7 +655,7 @@ fn execute_with(f: &Function, arguments: &[u64]) -> u64 {
         }
         let edge = match &f.blocks[block].terminator.kind {
             Control::TypeFault => panic!("Unexpected runtime type fault in integer interpreter"),
-            Control::Return(value) => return value.map(|id| values[&id]).unwrap_or(0),
+            Control::Return(value) => return Ok(value.map(|id| values[&id]).unwrap_or(0)),
             Control::Jump(edge) => edge,
             Control::Switch {
                 selector,

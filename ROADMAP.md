@@ -39,7 +39,8 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   through an exact shared core with signed-zero/subnormal/special-value coverage.
   [Checked numeric casts](docs/rust-compiler/checked-casts.md) now validate all20
   conversion opcodes; [checked addition/subtraction](docs/rust-compiler/checked-arithmetic.md)
-  now uses explicit overflow guards. Checked multiplication and catchable exceptions remain unsupported.
+  now uses explicit overflow guards, including [multiplication](docs/rust-compiler/checked-multiplication.md).
+  Managed-reference arithmetic and catchable exceptions remain unsupported.
   all five [struct-return methods](docs/rust-compiler/struct-returns.md) now have
   native behavioral replacements. No legacy compiler definitions are removed yet.
   All 12 [basic CIL cases](docs/rust-compiler/cil-basics.md) also have native

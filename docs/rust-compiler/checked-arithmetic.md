@@ -1,10 +1,11 @@
-# Checked integer addition and subtraction
+# Checked integer arithmetic
 
-The Rust frontend lowers `add.ovf`, `add.ovf.un`, `sub.ovf` and `sub.ovf.un`
+The Rust frontend lowers `add.ovf`, `add.ovf.un`, `sub.ovf`, `sub.ovf.un`,
+[`mul.ovf` and `mul.ovf.un`](checked-multiplication.md)
 for I32, I64 and Koh's16-bit native integers. Signed and unsigned variants
 check representability in the result width before subsequent observable
 operations. Overflow reaches the existing unhandled arithmetic fault2.
-Catchable exceptions and checked multiplication remain unsupported.
+Catchable exceptions and managed-reference arithmetic remain unsupported.
 Normative input/result categories come from [ECMA-335 III.3.2, III.3.65 and
 Table III.7](https://ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf).
 Floating operands and I32/I64 mixtures are rejected with member/IL diagnostics.
@@ -41,8 +42,8 @@ pointer conversions remain the supported paths. This omission is not described
 as malformed metadata or inferred from a desktop runtime rejection.
 
 `tests/driver/checked_arithmetic.rs` drives real Roslyn Debug/Release input in
-DMG/CGB configurations. Each runs161 roots:110 successes and51 faults, totaling
-644 ROMs. Signed/unsigned16/32/64-bit boundary pairs cover max/min, carries,
+DMG/CGB configurations. With multiplication, each runs276 roots:184 successes
+and92 faults, totaling1104 ROMs. Signed/unsigned16/32/64-bit boundary pairs cover max/min, carries,
 borrows, opposite signs, zero, discarded results and loop overflow. Independent
 Rust i128 arithmetic checks representability. Success checks all eight stored
 result bytes, SP and the complete surrounding heap/bank guards; failure must
@@ -52,13 +53,13 @@ Eight explicit byte/sbyte/short/ushort roots additionally exercise promoted
 I32 arithmetic followed by checked narrowing, rather than equating small C#
 storage types with native16 arithmetic.
 
-`tests/sm83.rs::checked_cil_add_sub_match_wide_integer_oracles` independently
-constructs CIL for all four opcodes × five operand-type combinations, including
-both Native/I32 orders. Thirteen operand pairs run before/after optimization:
-520 ROMs with direct i128 expectations, full returned bytes, stack balance and
+`tests/sm83.rs::checked_cil_arithmetic_matches_wide_integer_oracles` independently
+constructs CIL for all six opcodes × five operand-type combinations, including
+both Native/I32 orders. Boundary pairs run before/after optimization:
+870 ROMs with direct i128/u128 expectations, full returned bytes, stack balance and
 reserved-memory guards. These cases exercise actual runtime inputs rather than
 requiring constant-folded IR. Lowering tests reject invalid float and I32/I64
-operands and explicitly diagnose the still-unsupported multiplication opcodes.
+operands and verify positive checked-multiplication lowering.
 
 The initial Roslyn regression failed on unsupported opcodeD6. After lowering,
 the initial153-root C# configuration cases passed in64.772s; the32-case direct-CIL and
