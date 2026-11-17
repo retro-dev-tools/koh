@@ -60,6 +60,67 @@ public static unsafe class Program
 
     public static int Down() => Run(Direction.Down);
 
+    public static int LegacyRules()
+    {
+        Board.Reset();
+        Board.SetCell(0, 1);
+        Board.SetCell(1, 1);
+        Board.Slide(Direction.Left);
+        if (Board.GetCell(0) != 2)
+            return 1;
+        Board.Reset();
+        Board.SetCell(0, 1);
+        Board.SetCell(2, 1);
+        Board.Slide(Direction.Left);
+        if (Board.GetCell(0) != 2)
+            return 2;
+        Board.Reset();
+        Board.SetCell(0, 1);
+        Board.SetCell(1, 1);
+        Board.Slide(Direction.Right);
+        if (Board.GetCell(3) != 2)
+            return 3;
+        Board.Reset();
+        Board.SetCell(0, 1);
+        Board.SetCell(4, 1);
+        Board.Slide(Direction.Down);
+        if (Board.GetCell(12) != 2)
+            return 4;
+        Board.Reset();
+        Board.SpawnTile();
+        int count = 0;
+        for (byte i = 0; i < 16; i++)
+            if (Board.GetCell(i) != 0)
+                count++;
+        if (count != 1)
+            return 5;
+        for (byte i = 0; i < 16; i++)
+            Board.SetCell(i, 5);
+        if (Board.SpawnTile())
+            return 6;
+        for (byte i = 0; i < 16; i++)
+            Board.SetCell(i, (byte)(i + 1));
+        if (Board.CanMove())
+            return 7;
+        Board.SetCell(5, 0);
+        if (!Board.CanMove())
+            return 8;
+        Board.Reset();
+        Board.SetCell(7, 11);
+        if (!Board.HasWon())
+            return 9;
+        Board.SetCell(7, 10);
+        if (Board.HasWon())
+            return 10;
+        Hardware.LCDC = 0;
+        Board.Reset();
+        Board.SetCell(15, 9);
+        Tiles.RenderBoard();
+        if (*(Gb.TileMap + 12 * 32 + 15) != 9)
+            return 11;
+        return 42;
+    }
+
     public static int BankedLeft() => Banked(Direction.Left);
 
     public static int BankedRight() => Banked(Direction.Right);

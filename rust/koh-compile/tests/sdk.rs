@@ -4,6 +4,8 @@ mod float32;
 mod game;
 #[path = "sdk/jrpg.rs"]
 mod jrpg;
+#[path = "sdk/original_2048.rs"]
+mod original_2048;
 mod support;
 
 use rstest::rstest;

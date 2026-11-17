@@ -23,7 +23,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-198/565 dispositions complete (197 native replacements, one DELETE),367 outstanding,
+214/565 dispositions complete (213 native replacements, one DELETE),351 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The remaining five [CGB HAL methods](cgb-hal.md) now check actual referenced
 code, both VRAM banks, all palette bytes and CGB-only CPU writes.
@@ -1703,3 +1703,13 @@ Post-commit product regression: all four real2048 SDK game cases passed in
 Debug/Release × DMG/CGB builds execute real boot, title/Start, eight moves, exact
 board/score/spawn transitions, glyph/tile/pixel checks and mode3 safety. This is
 scene-based2048 acceptance, not every sample or arbitrary-PC debugger acceptance.
+
+## Original 2048 source-test closure
+
+The [original2048 matrix](original-2048.md) closes all16 source methods/32
+assertion sites, including real SDK whole-game execution and retained board edge
+conditions. Final12/12 selected cases pass125.675s, exit0;464 other driver/SDK
+cases excluded. This includes the four existing board/stack-buffer regressions.
+Whole-game checks cover full cartridge logo/checksums, boot, four input moves,
+score/spawn transitions, HUD/map bytes, exact OAM and every board/cursor pixel.
+The ledger advances to214/565 complete,351 outstanding; no physical retirement.

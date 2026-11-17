@@ -17,6 +17,11 @@ All method names below are exact names in the named class. A coherent group enum
 
 ### `Samples/CilGame2048Tests.cs` — 16 methods, 16 cases
 
+All16 methods are now **complete** (12 PORT/4 REPLACE), covering32 original
+assertion sites. The native SDK and rule targets each discover four rstest cases.
+See the [exact matrix and execution evidence](original-2048.md). The following
+source requirements remain traceability, not outstanding work.
+
 - **REPLACE** `Sample_CompilesWithoutDiagnostics`: real Board/Tiles/Game sources plus referenced Koh.GameBoy compile without errors; its managed `IrVerifier` result is an implementation assertion. Require successful native compilation and ELF validation instead.
 - **REPLACE** `Sample_LinksToBootableRom`: currently checks NOP/JP at 0x100/0x101 and only two logo bytes. Preserve valid cartridge entry/header, but validate the complete header and execute entry rather than canonizing two opcodes or partial logo checks.
 - **PORT** `Sample_RomBootsIntoMainAndInitializes`, `Optimized_SampleRomBootsIntoMainAndInitializes`: emulator reads VRAM 0x8010 == 0xFF after bounded real-ROM execution. Keep boot/initialization observation; avoid forcing an optimizer toggle if Rust has no equivalent switch.

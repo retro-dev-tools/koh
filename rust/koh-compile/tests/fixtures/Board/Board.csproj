@@ -3,6 +3,7 @@
   <ItemGroup>
     <Using Include="Koh.GameBoy" />
     <Compile Include="$(KohRoot)/samples/csharp/gb-2048-cs/Board.cs" Link="Board.cs" />
+    <Compile Include="$(KohRoot)/samples/csharp/gb-2048-cs/Tiles.cs" Link="Tiles.cs" />
     <ProjectReference Include="$(KohRoot)/src/Compiler/Koh.GameBoy/Koh.GameBoy.csproj" />
   </ItemGroup>
 </Project>

@@ -31,14 +31,14 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:198/565 methods (197 native behavioral replacements,
+**Complete dispositions:214/565 methods (213 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
 Six [interrupt/vector/dispatch methods](interrupts.md) now have complete native
 replacements (11 original assertion sites).
 Eleven [comparison/conversion optimizer methods](optimizer-scalar-contracts.md)
 now have complete native semantic replacements (43 source assertion sites).
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 367 methods still have
+The remaining 351 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -760,3 +760,14 @@ assemblies, per-instance storage, callback receivers, foreign PDB/KDBG ranges,
 nominal identity and bounded substitution/constraint work. This adds native
 coverage without closing broader legacy groups prematurely:198/565 dispositions
 complete,367 outstanding; no compiler coverage is deferred or physically removed.
+
+## Original 2048 replacements
+
+All16 `Samples/CilGame2048Tests.cs` methods now have complete native replacements
+(12 PORT,4 REPLACE), covering all32 original assertion sites. Eight new rstest
+cases exercise real SDK game boot/input/pixels and explicit rule edge conditions
+in Debug/Release × DMG/CGB. The final combined12/12 run also preserves all four
+existing board/stack-buffer cases. See the [per-method matrix](original-2048.md).
+Current ledger214/565 complete (213 native,1 obsolete parser DELETE),351
+outstanding; zero legacy definitions physically removed. No compiler-owned
+behavior is deferred.

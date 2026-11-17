@@ -33,6 +33,8 @@ mod generics;
 mod interfaces;
 #[path = "driver/mono.rs"]
 mod mono;
+#[path = "driver/original_2048.rs"]
+mod original_2048;
 #[path = "driver/pdb.rs"]
 mod pdb;
 #[path = "driver/rectangular.rs"]

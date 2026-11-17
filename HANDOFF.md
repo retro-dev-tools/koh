@@ -2167,3 +2167,14 @@ Post-commit product regression: all four real2048 SDK game cases passed in
 Debug/Release × DMG/CGB builds execute real boot, title/Start, eight moves, exact
 board/score/spawn transitions, glyph/tile/pixel checks and mode3 safety. This is
 scene-based2048 acceptance, not every sample or arbitrary-PC debugger acceptance.
+
+## Original 2048 closure
+
+All16 legacy sample methods/32 assertion sites now map to eight new native
+rstest cases; final12/12 including four old board/stack regressions pass125.675s
+exit0, /tmp/koh-original-2048-final.log. Actual SDK boot/input/score/spawn/HUD/OAM/
+pixels, full header/logo/checksums and explicit board edge cases are asserted.
+Ledger214/565 complete (213 native+1 DELETE),351 outstanding; no definitions
+physically removed. See docs/rust-compiler/original-2048.md. No production
+compiler/emulator changes. Pending discovery/commit; hosted predecessor CI
+44077140986 is still running, do not cancel by pushing pending docs early.

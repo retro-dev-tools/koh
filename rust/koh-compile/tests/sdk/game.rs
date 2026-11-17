@@ -7,7 +7,7 @@ use koh_compile::{
 use rstest::rstest;
 use std::path::Path;
 
-fn definition(resolver: &Resolver<'_>, assembly: usize, name: &str) -> Definition {
+pub(super) fn definition(resolver: &Resolver<'_>, assembly: usize, name: &str) -> Definition {
     let metadata = resolver.assembly(assembly).unwrap().metadata();
     let index = metadata
         .type_defs
@@ -20,7 +20,7 @@ fn definition(resolver: &Resolver<'_>, assembly: usize, name: &str) -> Definitio
     }
 }
 
-fn field(resolver: &Resolver<'_>, owner: Definition, name: &str) -> Definition {
+pub(super) fn field(resolver: &Resolver<'_>, owner: Definition, name: &str) -> Definition {
     let metadata = resolver.assembly(owner.assembly).unwrap().metadata();
     let index = (owner.token & 0xffffff) as usize - 1;
     let start = metadata.type_defs[index].field_list as usize - 1;
@@ -50,7 +50,7 @@ fn offset(resolver: &Resolver<'_>, owner: Definition, name: &str) -> usize {
     )
 }
 
-fn word(memory: &[u8], address: usize) -> usize {
+pub(super) fn word(memory: &[u8], address: usize) -> usize {
     assert!(
         (0xc000..0xdfff).contains(&address),
         "WRAM address {address:04x}"
@@ -62,7 +62,7 @@ fn word(memory: &[u8], address: usize) -> usize {
     ))
 }
 
-fn slide(cells: [u8; 16], direction: &str) -> ([u8; 16], usize) {
+pub(super) fn slide(cells: [u8; 16], direction: &str) -> ([u8; 16], usize) {
     let mut result = [0; 16];
     let mut score = 0;
     for line in 0usize..4 {

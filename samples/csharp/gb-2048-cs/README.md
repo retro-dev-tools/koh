@@ -93,7 +93,8 @@ for current supported storage and language features.
 
 Native [board execution tests](../../../rust/koh-compile/tests/driver.rs) compile the real
 `Board` and `Tiles` sources and run ROMs in the existing emulator, checking independent 2048
-outcomes in Debug/Release and DMG/CGB modes. The legacy
-[`CilGame2048Tests`](../../../tests/Compiler/Koh.Compiler.Tests/Samples/CilGame2048Tests.cs)
-remain pending complete migration; their presence does not establish native whole-game acceptance.
+outcomes in Debug/Release and DMG/CGB modes. [Native SDK whole-game tests](../../../rust/koh-compile/tests/sdk/original_2048.rs)
+also execute boot, input, HUD, cursor and exact graphics checks. The
+[legacy test disposition matrix](../../../docs/rust-compiler/original-2048.md)
+records all16 replaced source methods; legacy files await whole-project removal.
 The separate scene-based sample has [SDK game tests](../../../rust/koh-compile/tests/sdk/game.rs).
