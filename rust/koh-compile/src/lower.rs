@@ -766,16 +766,12 @@ impl Builder<'_, '_> {
                 (Type::F32, Binary::Subtract) => "f32.sub",
                 (Type::F32, Binary::Multiply) => "f32.mul",
                 (Type::F32, Binary::DivideSigned) => "f32.div",
-                (Type::F32, Binary::RemainderSigned) => {
-                    return Err("Unsupported float32 operation f32.rem".into());
-                }
+                (Type::F32, Binary::RemainderSigned) => "f32.rem",
                 (Type::F64, Binary::Add) => "f64.add",
                 (Type::F64, Binary::Subtract) => "f64.sub",
                 (Type::F64, Binary::Multiply) => "f64.mul",
                 (Type::F64, Binary::DivideSigned) => "f64.div",
-                (Type::F64, Binary::RemainderSigned) => {
-                    return Err("Unsupported binary64 operation f64.rem".into());
-                }
+                (Type::F64, Binary::RemainderSigned) => "f64.rem",
                 _ => {
                     return Err(format!(
                         "Unsupported floating binary operation {op:?} on {:?}",

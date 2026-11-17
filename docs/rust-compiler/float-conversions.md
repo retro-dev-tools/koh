@@ -39,7 +39,8 @@ Unsigned `conv.r.un` requires explicit following `conv.r4` or `conv.r8`
 avoiding an implicit binary64 intermediate on the binary32 path. Other bare
 internal-F shapes diagnose as unsupported. Binary64 arithmetic, precision casts
 and unchecked integer casts are implemented; see [binary64 contracts](binary64.md#integer-casts).
-Checked conversions and remainder execution remain unsupported. This is not
+Checked conversions remain unsupported. Floating remainder is implemented by
+the [exact shared core](floating-remainder.md). This is not
 general .NET floating-language support.
 
 ## Wide rounding and bounds

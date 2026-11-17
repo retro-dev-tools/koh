@@ -254,3 +254,8 @@ Integer/binary64 casts retain the existing64-bit raw ABI. `i64.toF64` and
 integer width/signature. Narrower/native outputs truncate after32-bit clamping.
 Precision is selected explicitly by the supported `conv.r.un;conv.r4/r8` pair;
 no implicit binary64 rounding is inserted on direct unsigned→binary32 casts.
+
+Floating `rem` uses the same binary raw-bit signatures as add/subtract:
+`f32.rem` returns unsigned32, `f64.rem` unsigned64. The binary32 helper reaches
+precision-conversion helpers and the exact binary64 integer core through normal
+calls. No new frame, register, linker or object-format convention is introduced.

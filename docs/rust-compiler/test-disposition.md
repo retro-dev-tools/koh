@@ -64,8 +64,8 @@ after binary64 arithmetic, precision and integer casts and the previously
 covered binary32 byref case are fully traced; see the
 [precision-cast/byref matrix](binary64.md#precision-casts).
 Integer64/binary32 width coverage is also implemented without inventing legacy
-closures. Checked casts, floating remainder execution and bare internal-F shapes remain
-unsupported; completing this source group does not imply general .NET support.
+closures. The [remainder implementation](floating-remainder.md) retains the
+missing-key contract through explicit provider removal and adds numerical cases. Checked casts and bare internal-F shapes remain unsupported; completing this source group does not imply general .NET support.
 
 ## Software runtime replacements
 

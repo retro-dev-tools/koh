@@ -1089,4 +1089,72 @@ public static class SoftFloat
             return sign | 0x7f800000;
         return sign | ((uint)exp << 23) | ((uint)sig & 0x7fffff);
     }
+
+    [KohRuntime("f32.rem")]
+    public static uint RemF32(uint a, uint b) => ToF32(RemF64(ToF64(a), ToF64(b)));
+
+    [KohRuntime("f64.rem")]
+    public static ulong RemF64(ulong a, ulong b)
+    {
+        ulong sign = a & 0x8000000000000000;
+        ulong ax = a & 0x7fffffffffffffff;
+        ulong bx = b & 0x7fffffffffffffff;
+        if (ax > 0x7ff0000000000000)
+            return a | 0x0008000000000000;
+        if (bx > 0x7ff0000000000000)
+            return b | 0x0008000000000000;
+        if (ax == 0x7ff0000000000000 || bx == 0)
+            return 0x7ff8000000000000;
+        if (ax < bx)
+            return a;
+        if (ax == bx)
+            return sign;
+        int ea = (int)(ax >> 52);
+        int eb = (int)(bx >> 52);
+        ulong ma = ax & 0xfffffffffffff;
+        ulong mb = bx & 0xfffffffffffff;
+        if (ea == 0)
+        {
+            ea = 1;
+            while (ma < 0x10000000000000)
+            {
+                ma <<= 1;
+                ea--;
+            }
+        }
+        else
+            ma |= 0x10000000000000;
+        if (eb == 0)
+        {
+            eb = 1;
+            while (mb < 0x10000000000000)
+            {
+                mb <<= 1;
+                eb--;
+            }
+        }
+        else
+            mb |= 0x10000000000000;
+        while (ea > eb)
+        {
+            if (ma >= mb)
+                ma -= mb;
+            if (ma == 0)
+                return sign;
+            ma <<= 1;
+            ea--;
+        }
+        if (ma >= mb)
+            ma -= mb;
+        if (ma == 0)
+            return sign;
+        while (ma < 0x10000000000000)
+        {
+            ma <<= 1;
+            ea--;
+        }
+        if (ea <= 0)
+            return sign | (ma >> (1 - ea));
+        return sign | ((ulong)ea << 52) | (ma & 0xfffffffffffff);
+    }
 }

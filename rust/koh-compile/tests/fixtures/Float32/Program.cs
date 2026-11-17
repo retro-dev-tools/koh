@@ -128,7 +128,7 @@ public static class Program
         return Bits(value);
     }
 
-    public static int Unsupported() => Bits(Remainder(5.5f, 2.0f));
+    public static int RemainderResult() => Bits(Remainder(5.5f, 2.0f));
 
     public static int Field()
     {
@@ -144,4 +144,84 @@ public static class Program
         values[1] = 2.5f;
         return Bits(Add(values[0], values[1]));
     }
+
+    public static int RemNegative() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0xc0b00000u)), FromBits(unchecked((int)0x40000000u)))
+        );
+
+    public static int RemNegativeDivisor() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x40b00000u)), FromBits(unchecked((int)0xc0000000u)))
+        );
+
+    public static int RemTrunc() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x40e00000u)), FromBits(unchecked((int)0x40000000u)))
+        );
+
+    public static int RemZero() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x80000000u)), FromBits(unchecked((int)0x40000000u)))
+        );
+
+    public static int RemMultiple() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0xc0800000u)), FromBits(unchecked((int)0x40000000u)))
+        );
+
+    public static int RemSmall() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x3f800000u)), FromBits(unchecked((int)0x40000000u)))
+        );
+
+    public static int RemTiny() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x00000003u)), FromBits(unchecked((int)0x00000002u)))
+        );
+
+    public static int RemTinyNegative() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x80000003u)), FromBits(unchecked((int)0x00000002u)))
+        );
+
+    public static int RemTransition() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x00800000u)), FromBits(unchecked((int)0x00000003u)))
+        );
+
+    public static int RemExtreme() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x7f7ffffeu)), FromBits(unchecked((int)0x00000003u)))
+        );
+
+    public static int RemZeroDivisor() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x3f800000u)), FromBits(unchecked((int)0x00000000u)))
+        ) & 0x7fc00000;
+
+    public static int RemInfinity() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x7f800000u)), FromBits(unchecked((int)0x40000000u)))
+        ) & 0x7fc00000;
+
+    public static int RemInfInf() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x7f800000u)), FromBits(unchecked((int)0x7f800000u)))
+        ) & 0x7fc00000;
+
+    public static int RemByInfinity() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0xbf800000u)), FromBits(unchecked((int)0x7f800000u)))
+        );
+
+    public static int RemNan() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x3f800000u)), FromBits(unchecked((int)0x7fa12345u)))
+        ) & 0x7fc00000;
+
+    public static int RemZeroZero() =>
+        Bits(
+            Remainder(FromBits(unchecked((int)0x00000000u)), FromBits(unchecked((int)0x00000000u)))
+        ) & 0x7fc00000;
 }

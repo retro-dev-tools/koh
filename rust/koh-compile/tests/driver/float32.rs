@@ -1,4 +1,4 @@
-use super::{Host, execute, gameboy_images, host};
+use super::{Host, execute_mode, gameboy_images, host};
 use koh_compile::{compile, resolve::Resolver};
 use rstest::rstest;
 
@@ -64,54 +64,137 @@ fn roslyn_float_arithmetic_calls_joins_and_references_execute(
     .unwrap();
     koh_compile::ir::verify(&direct).unwrap();
     for (entry, expected) in [
-        ("RawQuotient", "00000001"),
-        ("RawProduct", "00000001"),
-        ("Main", "40800000"),
-        ("Negative", "BFE00000"),
-        ("Join", "40800000"),
-        ("Reference", "40800000"),
-        ("Field", "40800000"),
-        ("Array", "40800000"),
-        ("Difference", "BF800000"),
-        ("TinyDifference", "80000001"),
-        ("InvalidDifference", "7FC00000"),
-        ("Negated", "BFC00000"),
-        ("NegatedNegative", "40200000"),
-        ("NegatedZero", "80000000"),
-        ("NegatedTiny", "80000001"),
-        ("NegatedInfinity", "FF800000"),
-        ("NegatedNan", "FFC12345"),
-        ("Product", "40C00000"),
-        ("TransitionProduct", "00800000"),
-        ("HalfProduct", "00000000"),
-        ("DeepUnderflowProduct", "00000000"),
-        ("ZeroProduct", "80000000"),
-        ("OverflowProduct", "7F800000"),
-        ("InfinityProduct", "FF800000"),
-        ("NanProduct", "7FC00000"),
-        ("NegativeProduct", "C0C00000"),
-        ("TinyProduct", "00000002"),
-        ("UnderflowProduct", "00400000"),
-        ("InvalidProduct", "7FC00000"),
-        ("TieProduct", "3F802002"),
-        ("Quotient", "40600000"),
-        ("RepeatingQuotient", "3EAAAAAB"),
-        ("NegativeQuotient", "C0100000"),
-        ("TinyQuotient", "00000002"),
-        ("SubnormalQuotient", "00400000"),
-        ("TransitionQuotient", "00800000"),
-        ("DeepQuotient", "00000000"),
-        ("OverflowQuotient", "7F800000"),
-        ("ZeroQuotient", "80000000"),
-        ("ZeroDivisor", "7F800000"),
-        ("InvalidQuotient", "7FC00000"),
-        ("InfiniteQuotient", "7FC00000"),
-        ("FiniteOverInfinity", "80000000"),
-        ("InfinityOverFinite", "FF800000"),
-        ("NanQuotient", "7FC00000"),
-        ("RoundedSum", "3E99999A"),
-        ("PositiveDifference", "40100000"),
-        ("OriginalDifference", "C0400000"),
+        (
+            "RemNegative",
+            format!(
+                "{:08X}",
+                (f32::from_bits(0xc0b00000) % f32::from_bits(0x40000000)).to_bits()
+            ),
+        ),
+        (
+            "RemNegativeDivisor",
+            format!(
+                "{:08X}",
+                (f32::from_bits(0x40b00000) % f32::from_bits(0xc0000000)).to_bits()
+            ),
+        ),
+        (
+            "RemTrunc",
+            format!(
+                "{:08X}",
+                (f32::from_bits(0x40e00000) % f32::from_bits(0x40000000)).to_bits()
+            ),
+        ),
+        (
+            "RemZero",
+            format!(
+                "{:08X}",
+                (f32::from_bits(0x80000000) % f32::from_bits(0x40000000)).to_bits()
+            ),
+        ),
+        (
+            "RemMultiple",
+            format!(
+                "{:08X}",
+                (f32::from_bits(0xc0800000) % f32::from_bits(0x40000000)).to_bits()
+            ),
+        ),
+        (
+            "RemSmall",
+            format!(
+                "{:08X}",
+                (f32::from_bits(0x3f800000) % f32::from_bits(0x40000000)).to_bits()
+            ),
+        ),
+        (
+            "RemTiny",
+            format!(
+                "{:08X}",
+                (f32::from_bits(0x00000003) % f32::from_bits(0x00000002)).to_bits()
+            ),
+        ),
+        (
+            "RemTinyNegative",
+            format!(
+                "{:08X}",
+                (f32::from_bits(0x80000003) % f32::from_bits(0x00000002)).to_bits()
+            ),
+        ),
+        (
+            "RemTransition",
+            format!(
+                "{:08X}",
+                (f32::from_bits(0x00800000) % f32::from_bits(0x00000003)).to_bits()
+            ),
+        ),
+        (
+            "RemExtreme",
+            format!(
+                "{:08X}",
+                (f32::from_bits(0x7f7ffffe) % f32::from_bits(0x00000003)).to_bits()
+            ),
+        ),
+        ("RemZeroDivisor", format!("{:08X}", 0x7fc00000u32)),
+        ("RemInfinity", format!("{:08X}", 0x7fc00000u32)),
+        ("RemInfInf", format!("{:08X}", 0x7fc00000u32)),
+        (
+            "RemByInfinity",
+            format!(
+                "{:08X}",
+                (f32::from_bits(0xbf800000) % f32::from_bits(0x7f800000)).to_bits()
+            ),
+        ),
+        ("RemNan", format!("{:08X}", 0x7fc00000u32)),
+        ("RemZeroZero", format!("{:08X}", 0x7fc00000u32)),
+        ("RemainderResult", "3FC00000".to_owned()),
+        ("RawQuotient", "00000001".to_owned()),
+        ("RawProduct", "00000001".to_owned()),
+        ("Main", "40800000".to_owned()),
+        ("Negative", "BFE00000".to_owned()),
+        ("Join", "40800000".to_owned()),
+        ("Reference", "40800000".to_owned()),
+        ("Field", "40800000".to_owned()),
+        ("Array", "40800000".to_owned()),
+        ("Difference", "BF800000".to_owned()),
+        ("TinyDifference", "80000001".to_owned()),
+        ("InvalidDifference", "7FC00000".to_owned()),
+        ("Negated", "BFC00000".to_owned()),
+        ("NegatedNegative", "40200000".to_owned()),
+        ("NegatedZero", "80000000".to_owned()),
+        ("NegatedTiny", "80000001".to_owned()),
+        ("NegatedInfinity", "FF800000".to_owned()),
+        ("NegatedNan", "FFC12345".to_owned()),
+        ("Product", "40C00000".to_owned()),
+        ("TransitionProduct", "00800000".to_owned()),
+        ("HalfProduct", "00000000".to_owned()),
+        ("DeepUnderflowProduct", "00000000".to_owned()),
+        ("ZeroProduct", "80000000".to_owned()),
+        ("OverflowProduct", "7F800000".to_owned()),
+        ("InfinityProduct", "FF800000".to_owned()),
+        ("NanProduct", "7FC00000".to_owned()),
+        ("NegativeProduct", "C0C00000".to_owned()),
+        ("TinyProduct", "00000002".to_owned()),
+        ("UnderflowProduct", "00400000".to_owned()),
+        ("InvalidProduct", "7FC00000".to_owned()),
+        ("TieProduct", "3F802002".to_owned()),
+        ("Quotient", "40600000".to_owned()),
+        ("RepeatingQuotient", "3EAAAAAB".to_owned()),
+        ("NegativeQuotient", "C0100000".to_owned()),
+        ("TinyQuotient", "00000002".to_owned()),
+        ("SubnormalQuotient", "00400000".to_owned()),
+        ("TransitionQuotient", "00800000".to_owned()),
+        ("DeepQuotient", "00000000".to_owned()),
+        ("OverflowQuotient", "7F800000".to_owned()),
+        ("ZeroQuotient", "80000000".to_owned()),
+        ("ZeroDivisor", "7F800000".to_owned()),
+        ("InvalidQuotient", "7FC00000".to_owned()),
+        ("InfiniteQuotient", "7FC00000".to_owned()),
+        ("FiniteOverInfinity", "80000000".to_owned()),
+        ("InfinityOverFinite", "FF800000".to_owned()),
+        ("NanQuotient", "7FC00000".to_owned()),
+        ("RoundedSum", "3E99999A".to_owned()),
+        ("PositiveDifference", "40100000".to_owned()),
+        ("OriginalDifference", "C0400000".to_owned()),
     ] {
         let name = format!("Program::{entry}");
         let mut object = compile::object_with_debug(&resolver, Some(&name), &[Some(&pdb), None])
@@ -144,20 +227,38 @@ fn roslyn_float_arithmetic_calls_joins_and_references_execute(
         )
         .unwrap();
         assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(fields.len(), if color { 6 } else { 5 }, "{entry}");
         assert_eq!(
-            execute(host, directory.path(), &linked, "__koh_exit"),
-            format!("00 {expected} D000 OK"),
+            &fields[..4],
+            &["00", expected.as_str(), "D000", "OK"],
             "{entry}"
         );
+        let mut heap = vec![0x5a; 4096];
+        if entry == "Array" {
+            heap[..2].copy_from_slice(&2u16.to_le_bytes());
+            heap[2..6].copy_from_slice(&1.5f32.to_bits().to_le_bytes());
+            heap[6..10].copy_from_slice(&2.5f32.to_bits().to_le_bytes());
+        }
+        super::assert_heap_snapshot(fields[4], &heap, entry);
+        if color {
+            super::assert_heap_snapshot(fields[5], &[0x6b; 4096], entry);
+        }
     }
-    let error = compile::object(&resolver, Some("Program::Unsupported"))
-        .err()
-        .expect("unimplemented float operation must reject");
-    assert!(
-        error.contains("IL_") && error.contains("f32.rem"),
-        "{error}"
-    );
     for (before, after, entry, expected) in [
+        (
+            "f32.rem",
+            "f32.zzz",
+            "RemainderResult",
+            "Missing KohRuntime f32.rem",
+        ),
         ("f32.add", "f32.zzz", "Main", "Missing KohRuntime f32.add"),
         (
             "f32.sub",
@@ -183,30 +284,37 @@ fn roslyn_float_arithmetic_calls_joins_and_references_execute(
         assert!(error.contains(expected), "{error}");
     }
     let image = resolver.assembly(1).unwrap();
-    let method = image
-        .metadata()
-        .method_defs
-        .iter()
-        .enumerate()
-        .find(|(i, _)| {
-            image
-                .method_name(0x06000001 + *i as u32)
-                .unwrap()
-                .ends_with("SoftFloat::SumF32")
-        })
-        .unwrap()
-        .1;
-    let heap = heap_offset(&images[1], "#Blob");
-    let start = heap + method.signature as usize;
-    assert_eq!(&images[1][start..start + 6], &[5, 0, 2, 9, 9, 9]);
-    let mut changed = images[1].clone();
-    changed[start + 3] = 8;
-    let resolver = Resolver::new(&[&images[0], &changed]).unwrap();
-    let error = compile::object(&resolver, Some("Program::Main"))
-        .err()
-        .unwrap();
-    assert!(
-        error.contains("uint(uint,uint)") && error.contains("IL_"),
-        "{error}"
-    );
+    for (method_name, entry) in [("SumF32", "Main"), ("RemF32", "RemainderResult")] {
+        let method = image
+            .metadata()
+            .method_defs
+            .iter()
+            .enumerate()
+            .find(|(i, _)| {
+                image
+                    .method_name(0x06000001 + *i as u32)
+                    .unwrap()
+                    .ends_with(&format!("SoftFloat::{method_name}"))
+            })
+            .unwrap()
+            .1;
+        let offset = heap_offset(&images[1], "#Strings") + method.name as usize;
+        let mut renamed = images[1].clone();
+        renamed[offset] = b'Z';
+        let selected = Resolver::new(&[&images[0], &renamed]).unwrap();
+        compile::object(&selected, Some(&format!("Program::{entry}"))).unwrap();
+        let heap = heap_offset(&images[1], "#Blob");
+        let start = heap + method.signature as usize;
+        assert_eq!(&images[1][start..start + 6], &[5, 0, 2, 9, 9, 9]);
+        let mut changed = images[1].clone();
+        changed[start + 3] = 8;
+        let resolver = Resolver::new(&[&images[0], &changed]).unwrap();
+        let error = compile::object(&resolver, Some(&format!("Program::{entry}")))
+            .err()
+            .unwrap();
+        assert!(
+            error.contains("uint(uint,uint)") && error.contains("IL_"),
+            "{error}"
+        );
+    }
 }

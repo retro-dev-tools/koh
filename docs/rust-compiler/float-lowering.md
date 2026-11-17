@@ -1,6 +1,6 @@
 # Native floating CIL lowering increment
 
-Status: binary32 addition/subtraction/multiplication/division/negation/comparisons/storage implemented; full floating-language support remains incomplete.
+Status: binary32 addition/subtraction/multiplication/division/remainder/negation/comparisons/storage implemented; full floating-language support remains incomplete.
 
 Float values need distinct IR types; treating them as integer stack values would
 accept invalid mixed CIL and permit integer optimizations to change float
@@ -51,8 +51,9 @@ payload bits without a call. Requiring the old `NegF32` helper would add a stack
 frame to a bit operation without improving semantics. The game library helper
 remains available for raw-bit callers; its historical use is not an ABI rule.
 
-Remainder, checked casts and bare internal-F shapes
-remain unfinished and explicitly reject; remainder diagnostics name `f32.rem`.
+Checked casts and bare internal-F shapes remain unsupported. Floating remainder
+now executes through the [exact shared core](floating-remainder.md); missing
+`f32.rem` or `f64.rem` metadata still diagnoses explicitly.
 The [integer conversion contract](float-conversions.md) documents signedness,
 rounding and the selected unchecked overflow/NaN policy.
 The [binary64 core](binary64.md) separately supports constants, addition,

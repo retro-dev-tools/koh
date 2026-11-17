@@ -1676,3 +1676,31 @@ oldintegerF32single-roundcounterexampleandbothsignedwraprowscovered.
 22COMPLETEmappings, last3rows3+6+4independentinputs. No productionchanges
 after703run; formatting/diffchecks pass. Finish59074workspacecheck/doclog
 thencommitintegerunit, batchpushwithf8e99a1(previousCIbc06529green).
+
+2026-11-17 DIRTYfloatingremainder afterpublishedccf8d9c. CI44009082004live.
+76260redEXIT1004.766s f64.remexplicitunsupported. AddedRemF64ordinaryinteger
+CIL:classifynan/inf/zero,magnitudeequality/order,53bitnormalize, binarymodulo
+alignmentusingcompare/subtract/shift,max54bitintermediate. Exactresidualencode
+noquotientorfloatdivision. RemF32widensbothexactly,RemF64,exactnarrow; remainder
+ofbinary32inputsisrepresentableinbinary32(proofrequiredindocs). C#truncating
+quotientremainder,notIEEEnearestremainder; primaryspecExpressions12.13.4.
+89971firstEXIT0 1/1pass32.022s. 57528native8caseslog
+/tmp/koh-float-rem-native.log terminalwhenpolled; allF32andF64specials/normal/
+subnormal/extremeexp-gaptested. F32driverupgradedwholeheap/bank2guards while
+retainingfirst4CPUfields;Arrayexpectedpayloadasserted. Existingmissingrem
+contractnowremoveskeyexplicitlyinsteadassumingdefaultlibraryabsence. New
+remhelpersmissing/renamed/wrongreturnsignednessprobes. Sourcegroupremains22/22
+ledger159/565complete406remain, no newsourceclosureorphysicalretirement.
+Addedhost20+256F32 and20+2048F64observationspendingnextrun,total16433.
+No productioneditsafter57528build; sourceonlymetadatarenamepositivesandhost
+casesaddedafterbuild, needfinalbroad. Parentownsfiles/builds. Reviewread-only
+againstHEADccf8d9c, NOedit/build/test/commit/spawn.
+
+37084TERMINALEXIT0/tmp/koh-float-rem-final.log714/714pass518.748s292unselected.
+65F32entries+159F64entries×4=896ROMs(136newrem),16433managednumericobservations.
+Wholeheap/bank2F32upgradearraypayloadpassedall4configs. Missing/renamed/wrong
+returnsignednessprobespassed. Reviewnoconfirmeddefectorcoveragegap.12829
+workspacecheckEXIT0(5.74s existingunusedcubeshelperwarning),separaterustdoc
+EXIT0fourzerocasecrates; Rustfmt/CSharpier3files/diffchecks pass. Noactive
+localbuilds. Readylogicalremcommit; holdpushwhilepublishedccf8d9cCI
+44009082004inprogress. Ledger159unchanged; fullmigrationincomplete.

@@ -81,6 +81,17 @@ fn runtime() -> Host {
 #[case::f64_to_integer_sweep2("f64-to-integer-sweep-2", 256)]
 #[case::f64_from_integer_sweep3("f64-from-integer-sweep-3", 256)]
 #[case::f64_to_integer_sweep3("f64-to-integer-sweep-3", 256)]
+#[case::f32_rem_bounds("f32-rem-bounds", 20)]
+#[case::f32_rem_sweep("f32-rem-sweep", 256)]
+#[case::f64_rem_bounds("f64-rem-bounds", 20)]
+#[case::f64_rem_sweep0("f64-rem-sweep-0", 256)]
+#[case::f64_rem_sweep1("f64-rem-sweep-1", 256)]
+#[case::f64_rem_sweep2("f64-rem-sweep-2", 256)]
+#[case::f64_rem_sweep3("f64-rem-sweep-3", 256)]
+#[case::f64_rem_sweep4("f64-rem-sweep-4", 256)]
+#[case::f64_rem_sweep5("f64-rem-sweep-5", 256)]
+#[case::f64_rem_sweep6("f64-rem-sweep-6", 256)]
+#[case::f64_rem_sweep7("f64-rem-sweep-7", 256)]
 fn software_runtime_matches_independent_numeric_oracles(
     runtime: &Host,
     #[case] group: &str,
@@ -97,6 +108,103 @@ fn software_runtime_matches_independent_numeric_oracles(
         expected.push(result);
     };
     match group {
+        "f32-rem-bounds" => {
+            for (a, b) in [
+                (0x40b00000u32, 0x40000000),
+                (0xc0b00000, 0x40000000),
+                (0x40b00000, 0xc0000000),
+                (0x40e00000, 0x40000000),
+                (0x80000000, 0x40000000),
+                (0xc0800000, 0x40000000),
+                (0x3f800000, 0x40000000),
+                (3, 2),
+                (0x80000003, 2),
+                (0x00800000, 3),
+                (0x7f7ffffe, 3),
+                (0x3f800000, 0),
+                (0x7f800000, 0x40000000),
+                (0x7f800000, 0x7f800000),
+                (0xbf800000, 0x7f800000),
+                (0x3f800000, 0x7fa12345),
+                (0, 0),
+                (0x7fa12345, 0x3f800000),
+                (0x7f7fffff, 0x00800000),
+                (0x00800001, 0x007fffff),
+            ] {
+                add(
+                    "RemF32",
+                    &[u64::from(a), u64::from(b)],
+                    u64::from((f32::from_bits(a) % f32::from_bits(b)).to_bits()),
+                );
+            }
+        }
+        "f32-rem-sweep" => {
+            let mut seed = 0x4a97e1cdu32;
+            for exponent in 0..256 {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                let a = (seed & 0x807fffff) | (exponent << 23);
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                let b = seed;
+                add(
+                    "RemF32",
+                    &[u64::from(a), u64::from(b)],
+                    u64::from((f32::from_bits(a) % f32::from_bits(b)).to_bits()),
+                );
+            }
+        }
+        "f64-rem-bounds" => {
+            for (a, b) in [
+                (0x4016000000000000u64, 0x4000000000000000),
+                (0xc016000000000000, 0x4000000000000000),
+                (0x4016000000000000, 0xc000000000000000),
+                (0x401c000000000000, 0x4000000000000000),
+                (0x8000000000000000, 0x4000000000000000),
+                (0xc010000000000000, 0x4000000000000000),
+                (0x3ff0000000000000, 0x4000000000000000),
+                (3, 2),
+                (0x8000000000000003, 2),
+                (0x0010000000000000, 3),
+                (0x7fefffffffffffff, 3),
+                (0x3ff0000000000000, 0),
+                (0x7ff0000000000000, 0x4000000000000000),
+                (0x7ff0000000000000, 0x7ff0000000000000),
+                (0xbff0000000000000, 0x7ff0000000000000),
+                (0x3ff0000000000000, 0x7ff0123456789abc),
+                (0, 0),
+                (0x7ff0123456789abc, 0x3ff0000000000000),
+                (0x7fefffffffffffff, 0x0010000000000000),
+                (0x0010000000000001, 0x000fffffffffffff),
+            ] {
+                add(
+                    "RemF64",
+                    &[a, b],
+                    (f64::from_bits(a) % f64::from_bits(b)).to_bits(),
+                );
+            }
+        }
+        group if group.starts_with("f64-rem-sweep-") => {
+            let start = group.rsplit('-').next().unwrap().parse::<u64>().unwrap() * 256;
+            let mut seed = 0xa7e15b3d8c294601u64 ^ start;
+            for exponent in start..start + 256 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let a = (seed & 0x800fffffffffffff) | (exponent << 52);
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let b = seed;
+                add(
+                    "RemF64",
+                    &[a, b],
+                    (f64::from_bits(a) % f64::from_bits(b)).to_bits(),
+                );
+            }
+        }
         "f64-from-integer-bounds" => {
             for bits in [
                 0u64,
@@ -845,6 +953,8 @@ fn software_runtime_matches_independent_numeric_oracles(
                 | "f32-div-sweep"
                 | "width-narrow-boundaries"
                 | "width-narrow-near"
+                | "f32-rem-bounds"
+                | "f32-rem-sweep"
         ) || group.starts_with("width-narrow-sweep-"))
             && f32::from_bits(expected as u32).is_nan()
         {
@@ -858,7 +968,8 @@ fn software_runtime_matches_independent_numeric_oracles(
             || group.starts_with("f64-div-sweep-")
             || group == "f64-mul-boundaries"
             || group.starts_with("f64-mul-sweep-")
-            || group.starts_with("width-widen-"))
+            || group.starts_with("width-widen-")
+            || group.starts_with("f64-rem-"))
             && f64::from_bits(expected).is_nan()
         {
             assert!(

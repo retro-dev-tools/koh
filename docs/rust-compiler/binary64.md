@@ -1,8 +1,8 @@
 # Binary64 core
 
 Status: constants, bit transport, addition/subtraction, negation, comparisons and
-eight-byte storage/calls, multiplication/division and unchecked integer/precision
-casts are implemented. Checked casts, remainder and mixed nominal precision
+eight-byte storage/calls, multiplication/division/remainder and unchecked integer/precision
+casts are implemented. Checked casts and mixed nominal precision
 arithmetic remain explicitly unsupported. This is not complete `double` or general .NET floating support.
 
 ## IR and ABI
@@ -48,7 +48,7 @@ the significand/bounds argument are not exhaustive verification of every pair.
 
 ## Native tests and source disposition
 
-`driver/float64.rs` runs142 entries in Debug/Release × DMG/CGB (568 ROMs): actual
+`driver/float64.rs` runs159 entries in Debug/Release × DMG/CGB (636 ROMs): actual
 Roslyn R8 constants, arithmetic, both comparison positions, calls, joins,
 references, fields and arrays. The emulator checks all eight result bytes at
 WRAM DFF8, array payload bytes and every surrounding byte/bank/frame guard.
@@ -157,8 +157,7 @@ Twenty-three boundary pairs plus2048 exponent-stratified pairs compare against
 independent Rust binary64 multiplication. Native ROM cases check all eight
 result bytes and surrounding heap/bank/frame guards for subnormals, halfway
 rounding, normal transition, product carry, overflow, zeros and NaNs. Metadata
-absence still diagnoses at the source member/IL location. Binary64 remainder
-is explicitly rejected with `f64.rem` rather than lowered as integer remainder.
+absence still diagnoses at the source member/IL location. Binary64 remainder subsequently gains the [exact runtime implementation](floating-remainder.md).
 
 `F64_Arithmetic_MatchesHost` is PORT COMPLETE: original1.25+3.5,5-1.5,2×3.25
 and7/2 execute with independent expected bits in Debug/Release and both

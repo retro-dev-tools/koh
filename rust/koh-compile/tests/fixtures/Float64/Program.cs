@@ -170,7 +170,7 @@ public static class Float64
 
     public static int IntegerUnsigned64() => Store(Bits(ConvertUnsignedWide(0x8000008000000001)));
 
-    public static int UnsupportedRemainder() => Store(Bits(Remainder(5.5, 2.0)));
+    public static int RemainderResult() => Store(Bits(Remainder(5.5, 2.0)));
 
     public static int IntegerOutput() => Store((ulong)ConvertInt(1.5));
 
@@ -444,4 +444,67 @@ public static class Float64
 
     public static int OutputShortSignedWrap() =>
         Store(unchecked((ulong)(long)OutputShort(65535.0)));
+
+    public static int RemNegative() =>
+        Store(Bits(Remainder(From(0xc016000000000000UL), From(0x4000000000000000UL))));
+
+    public static int RemNegativeDivisor() =>
+        Store(Bits(Remainder(From(0x4016000000000000UL), From(0xc000000000000000UL))));
+
+    public static int RemTrunc() =>
+        Store(Bits(Remainder(From(0x401c000000000000UL), From(0x4000000000000000UL))));
+
+    public static int RemZero() =>
+        Store(Bits(Remainder(From(0x8000000000000000UL), From(0x4000000000000000UL))));
+
+    public static int RemMultiple() =>
+        Store(Bits(Remainder(From(0xc010000000000000UL), From(0x4000000000000000UL))));
+
+    public static int RemSmall() =>
+        Store(Bits(Remainder(From(0x3ff0000000000000UL), From(0x4000000000000000UL))));
+
+    public static int RemTiny() =>
+        Store(Bits(Remainder(From(0x0000000000000003UL), From(0x0000000000000002UL))));
+
+    public static int RemTinyNegative() =>
+        Store(Bits(Remainder(From(0x8000000000000003UL), From(0x0000000000000002UL))));
+
+    public static int RemTransition() =>
+        Store(Bits(Remainder(From(0x0010000000000000UL), From(0x0000000000000003UL))));
+
+    public static int RemExtreme() =>
+        Store(Bits(Remainder(From(0x7fefffffffffffffUL), From(0x0000000000000003UL))));
+
+    public static int RemZeroDivisor() =>
+        Store(
+            Bits(Remainder(From(0x3ff0000000000000UL), From(0x0000000000000000UL)))
+                & 0x7ff8000000000000
+        );
+
+    public static int RemInfinity() =>
+        Store(
+            Bits(Remainder(From(0x7ff0000000000000UL), From(0x4000000000000000UL)))
+                & 0x7ff8000000000000
+        );
+
+    public static int RemInfInf() =>
+        Store(
+            Bits(Remainder(From(0x7ff0000000000000UL), From(0x7ff0000000000000UL)))
+                & 0x7ff8000000000000
+        );
+
+    public static int RemByInfinity() =>
+        Store(Bits(Remainder(From(0xbff0000000000000UL), From(0x7ff0000000000000UL))));
+
+    public static int RemNan() =>
+        Store(
+            Bits(Remainder(From(0x3ff0000000000000UL), From(0x7ff0123456789abcUL)))
+                & 0x7ff8000000000000
+        );
+
+    public static int RemZeroZero() =>
+        Store(
+            Bits(Remainder(From(0x0000000000000000UL), From(0x0000000000000000UL)))
+                & 0x7ff8000000000000
+        );
 }

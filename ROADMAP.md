@@ -26,6 +26,8 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   the same native ABI. Broader constraints, constructed declaring layouts and
   boxing/runtime fallback remain unfinished; this is not full migration.
   The current ledger has159/565 complete methods and406 partial/outstanding;
+  binary32/binary64 [remainder](docs/rust-compiler/floating-remainder.md) now executes
+  through an exact shared core with signed-zero/subnormal/special-value coverage.
   all five [struct-return methods](docs/rust-compiler/struct-returns.md) now have
   native behavioral replacements. No legacy compiler definitions are removed yet.
   All 12 [basic CIL cases](docs/rust-compiler/cil-basics.md) also have native

@@ -21,6 +21,56 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
     .unwrap();
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
     for (entry, expected) in [
+        (
+            "RemNegative",
+            (f64::from_bits(0xc016000000000000) % f64::from_bits(0x4000000000000000)).to_bits(),
+        ),
+        (
+            "RemNegativeDivisor",
+            (f64::from_bits(0x4016000000000000) % f64::from_bits(0xc000000000000000)).to_bits(),
+        ),
+        (
+            "RemTrunc",
+            (f64::from_bits(0x401c000000000000) % f64::from_bits(0x4000000000000000)).to_bits(),
+        ),
+        (
+            "RemZero",
+            (f64::from_bits(0x8000000000000000) % f64::from_bits(0x4000000000000000)).to_bits(),
+        ),
+        (
+            "RemMultiple",
+            (f64::from_bits(0xc010000000000000) % f64::from_bits(0x4000000000000000)).to_bits(),
+        ),
+        (
+            "RemSmall",
+            (f64::from_bits(0x3ff0000000000000) % f64::from_bits(0x4000000000000000)).to_bits(),
+        ),
+        (
+            "RemTiny",
+            (f64::from_bits(0x0000000000000003) % f64::from_bits(0x0000000000000002)).to_bits(),
+        ),
+        (
+            "RemTinyNegative",
+            (f64::from_bits(0x8000000000000003) % f64::from_bits(0x0000000000000002)).to_bits(),
+        ),
+        (
+            "RemTransition",
+            (f64::from_bits(0x0010000000000000) % f64::from_bits(0x0000000000000003)).to_bits(),
+        ),
+        (
+            "RemExtreme",
+            (f64::from_bits(0x7fefffffffffffff) % f64::from_bits(0x0000000000000003)).to_bits(),
+        ),
+        ("RemZeroDivisor", 0x7ff8000000000000),
+        ("RemInfinity", 0x7ff8000000000000),
+        ("RemInfInf", 0x7ff8000000000000),
+        (
+            "RemByInfinity",
+            (f64::from_bits(0xbff0000000000000) % f64::from_bits(0x7ff0000000000000)).to_bits(),
+        ),
+        ("RemNan", 0x7ff8000000000000),
+        ("RemZeroZero", 0x7ff8000000000000),
+        ("RemainderResult", 1.5f64.to_bits()),
         ("InputInt0", (0u64 as f64).to_bits()),
         ("InputInt1", (5u64 as f64).to_bits()),
         ("InputInt2", (-5i64 as f64).to_bits()),
@@ -340,13 +390,8 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
             super::assert_heap_snapshot(fields[5], &[0x6b; 4096], entry);
         }
     }
-    for (entry, expected) in [("UnsupportedRemainder", "f64.rem")] {
-        let error = compile::object(&resolver, Some(&format!("Float64::{entry}")))
-            .err()
-            .unwrap();
-        assert!(error.contains("IL_") && error.contains(expected), "{error}");
-    }
     for (key, entry) in [
+        ("f64.rem", "RemainderResult"),
         ("f64.add", "Main"),
         ("f64.cmp", "CompareNan"),
         ("f64.div", "Division"),
@@ -379,31 +424,38 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
         );
     }
     let runtime = resolver.assembly(1).unwrap();
-    let method = runtime
-        .metadata()
-        .method_defs
-        .iter()
-        .enumerate()
-        .find(|(i, _)| {
-            runtime
-                .method_name(0x06000001 + *i as u32)
-                .unwrap()
-                .ends_with("SoftFloat::AddF64")
-        })
-        .unwrap()
-        .1;
-    let start = heap_offset(&images[1], "#Blob") + method.signature as usize;
-    assert_eq!(&images[1][start..start + 6], &[5, 0, 2, 11, 11, 11]);
-    let mut changed = images[1].clone();
-    changed[start + 3] = 10;
-    let resolver = Resolver::new(&[&images[0], &changed]).unwrap();
-    let error = compile::object(&resolver, Some("Float64::Main"))
-        .err()
-        .unwrap();
-    assert!(
-        error.contains("ulong(ulong,ulong)") && error.contains("IL_"),
-        "{error}"
-    );
+    for (method_name, entry) in [("AddF64", "Main"), ("RemF64", "RemainderResult")] {
+        let method = runtime
+            .metadata()
+            .method_defs
+            .iter()
+            .enumerate()
+            .find(|(i, _)| {
+                runtime
+                    .method_name(0x06000001 + *i as u32)
+                    .unwrap()
+                    .ends_with(&format!("SoftFloat::{method_name}"))
+            })
+            .unwrap()
+            .1;
+        let offset = heap_offset(&images[1], "#Strings") + method.name as usize;
+        let mut renamed = images[1].clone();
+        renamed[offset] = b'Z';
+        let selected = Resolver::new(&[&images[0], &renamed]).unwrap();
+        compile::object(&selected, Some(&format!("Float64::{entry}"))).unwrap();
+        let start = heap_offset(&images[1], "#Blob") + method.signature as usize;
+        assert_eq!(&images[1][start..start + 6], &[5, 0, 2, 11, 11, 11]);
+        let mut changed = images[1].clone();
+        changed[start + 3] = 10;
+        let resolver = Resolver::new(&[&images[0], &changed]).unwrap();
+        let error = compile::object(&resolver, Some(&format!("Float64::{entry}")))
+            .err()
+            .unwrap();
+        assert!(
+            error.contains("ulong(ulong,ulong)") && error.contains("IL_"),
+            "{error}"
+        );
+    }
     for (name, entry, expected, returns) in [
         ("ToF64", "Widen0", "ulong(uint)", 11u8),
         ("ToF32", "Narrow0", "uint(ulong)", 9),
