@@ -8,6 +8,76 @@ fn debugger() -> Host {
     super::support::build_fixture_host("DebuggerHost")
 }
 
+#[rstest]
+#[case(&[0x00], 1)]
+#[case(&[0x3e, 0x00], 2)]
+#[case(&[0xc3, 0x00, 0x00], 3)]
+#[case(&[0xcb, 0x37], 2)]
+#[case(&[0xf0, 0x44], 2)]
+#[case(&[0xe0, 0x44], 2)]
+fn sm83_disassembly_preserves_independent_instruction_boundaries(
+    debugger: &Host,
+    #[case] bytes: &[u8],
+    #[case] length: usize,
+) {
+    use koh_objects::{Object, Section, read_elf, write_elf};
+    use serde_json::json;
+    let directory = tempfile::tempdir().unwrap();
+    let mut boot = vec![0; 0x153];
+    boot[0x100..0x104].copy_from_slice(&[0, 0xc3, 0x50, 1]);
+    boot[0x150..].copy_from_slice(&[0x76, 0x18, 0xfd]);
+    let mut data = bytes.to_vec();
+    data.push(0);
+    let object = Object {
+        sections: vec![
+            Section {
+                name: ".fixture.boot".into(),
+                kind: 0,
+                address: Some(0),
+                size: boot.len() as u32,
+                data: boot,
+                ..Default::default()
+            },
+            Section {
+                name: ".fixture.instructions".into(),
+                kind: 0,
+                address: Some(0x3000),
+                size: data.len() as u32,
+                data,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let object = read_elf(&write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(&[object], &Default::default()).unwrap();
+    assert_eq!(&linked.rom[0x3000..0x3000 + bytes.len()], bytes);
+    let rom = directory.path().join("instructions.gb");
+    let kdbg = rom.with_extension("kdbg");
+    std::fs::write(&rom, &linked.rom).unwrap();
+    std::fs::write(&kdbg, linked.kdbg().unwrap()).unwrap();
+    let requests = [
+        json!({"seq":1,"type":"request","command":"launch","arguments":{"program":rom,"debugInfo":kdbg}}).to_string(),
+        json!({"seq":2,"type":"request","command":"disassemble","arguments":{"memoryReference":"0x3000","instructionCount":2}}).to_string(),
+    ];
+    let replies = debugger_replies(debugger, &requests);
+    assert!(replies.iter().all(|r| r["success"] == true), "{replies:#?}");
+    let instructions = replies[1]["body"]["instructions"].as_array().unwrap();
+    assert_eq!(instructions.len(), 2);
+    let actual: Vec<_> = instructions[0]["instructionBytes"]
+        .as_str()
+        .unwrap()
+        .split_whitespace()
+        .map(|b| u8::from_str_radix(b, 16).unwrap())
+        .collect();
+    assert_eq!(actual, bytes);
+    assert_eq!(actual.len(), length);
+    assert_eq!(
+        instructions[1]["address"],
+        format!("0x{:04X}", 0x3000 + length)
+    );
+}
+
 fn source_document<'a>(lines: &'a [koh_link::LinkedLine], source: &Path, line: usize) -> &'a Path {
     let physical = source.canonicalize().unwrap();
     let document = lines

@@ -10,6 +10,33 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Machine rewrite contract migration
+
+All38 `Sm83PeepholeTests` methods now have [native dispositions](rewrite-legality.md):
+one PORT for six independent ISA lengths,37 REPLACE decisions for private edit
+predicates. Actual Roslyn Debug/Release methods run with runtime/bound inputs
+before/after optimization:1536 ROMs check full64-bit carry/borrow/shifts, live
+call/branch results, pointer increments/decrements and exact native bus traces.
+A small observer in the existing C# test adapter retains overwritten write values
+and intervening reads; production emulator code is unchanged. The chosen typed-IR
+memory-effect and call ABI contracts replace private byte edits/flags/whitelists.
+
+Six native driver cases independently check known opcode bytes, lengths and next
+instruction addresses through the existing debugger API. The expanded library/
+rewrite/ISA/mapper/production-banked-call selection passed236/236 in38.223s, exit0
+(`/tmp/koh-rewrite-contracts-final.log`), with695 explicitly unselected cases.
+The ledger is421/565 complete (420 native replacements, one DELETE),144 outstanding.
+No compiler-owned case is deferred; no private byte edit or cycle improvement is
+declared part of the public contract.
+
+On preceding567a192, full native validation has now passed1891/1891 on Linux
+(1304.198s) and macOS (1123.478s), zero skipped. The macOS log confirms both real
+2048 SDK source-debugger cases and the release native graphics-run smoke test
+passed, alongside all other native cases. Primary logs:
+`/tmp/koh-full-567a192-{linux,macos}-native.log`. Windows remained running at this
+checkpoint; these older-head results do not validate the current test additions
+or turn the failing legacy .NET/full pipeline green.
+
 ### Mapper-state contract migration
 
 All six `RedundantBankSelectEliminationTests` methods now have
@@ -339,7 +366,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-383/565 dispositions complete (382 native replacements, one DELETE),182 outstanding,
+421/565 dispositions complete (420 native replacements, one DELETE),144 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

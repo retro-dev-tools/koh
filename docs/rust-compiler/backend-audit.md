@@ -372,48 +372,50 @@ and the128-bit helper in [full-width numeric acceptance](int128.md#source-test-d
 
 Classification: Rewrite legality plus private edit lists. Carry consumers, branch targets, aliases, calls, IO and asynchronous observers constrain transformations regardless of peephole architecture.
 
-Proposed future location: `rust/koh-compiler/tests/rewrite_legality.rs` (not implemented).
+Complete native locations: `tests/sm83.rs`, `tests/support/rewrites.rs`,
+`tests/driver/symbols.rs`, real Roslyn `RewriteContracts` and the existing
+emulator test adapter. See [38-row rewrite contracts](rewrite-legality.md).
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `InstructionLength_MatchesTheOpcodeTable` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `ConvertsZeroLoad_WhenFollowedByAFlagRedefiningOp` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `ConvertsZeroLoad_WhenFollowedByAFlagRewritingCbRotate` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsZeroLoad_WhenFollowedByCarryConsumer` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsZeroLoad_WhenFollowedByACbCarryRotate` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsZeroLoad_WhenFollowedByAControlFlowBoundary` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsZeroLoad_WhenNextInstructionIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `FoldsHlLoadWithFollowingIncrement` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `FoldsHlStoreWithFollowingDecrement` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DoesNotFoldWhenIncrementIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DoesNotFoldAnUnrelatedInstruction` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `FoldsTailCallToJump` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DoesNotFoldTailCall_WhenCallTargetIsNotWhitelisted` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DoesNotFoldTailCall_WhenCallIsNotFollowedByRet` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DoesNotFoldTailCall_WhenRetIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DeletesDeadStore_WhenSameSlotIsOverwrittenAdjacently` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DeletesDeadStore_AcrossANonReadingInstruction` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsStore_WhenTheSecondTargetsADifferentSlot` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsStore_WhenAReadIntervenes` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsStore_WhenAPointerWriteIntervenes` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsStore_WhenAddressIsAboveWram` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsStore_WhenAddressIsBelowWram` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsStore_WhenTheDeadStoreIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsStore_WhenAJoinIntervenes` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsStore_WhenDeadStoreEliminationIsDisabled` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DeletesRedundantReload_AfterStoreToSameSlot` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DeletesRedundantReload_AfterLoadOfSameSlot` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DeletesRedundantReload_AcrossAStoreToAnotherSlot` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsReload_WhenAIsWrittenBetween` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsReload_WhenAPointerWriteIntervenes` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsReload_WhenACallIntervenes` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsReload_WhenAddressIsNotWram` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsReload_WhenTheReloadIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsReload_WhenAJoinClearsTheMirror` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsReload_WhenEliminationIsDisabled` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DeletesJumpToFallThrough` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `KeepsJump_WhenNotMarkedRedundant` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
-| `DeletesJumpToFallThrough_EvenWhenTheJumpIsABranchTarget` | Mixed | REPLACE | Execute original/optimized fragments with register, flag and memory sentinels; retain this named positive/negative boundary. |
+| `InstructionLength_MatchesTheOpcodeTable` | Requirement | PORT, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `ConvertsZeroLoad_WhenFollowedByAFlagRedefiningOp` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `ConvertsZeroLoad_WhenFollowedByAFlagRewritingCbRotate` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsZeroLoad_WhenFollowedByCarryConsumer` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsZeroLoad_WhenFollowedByACbCarryRotate` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsZeroLoad_WhenFollowedByAControlFlowBoundary` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsZeroLoad_WhenNextInstructionIsABranchTarget` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `FoldsHlLoadWithFollowingIncrement` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `FoldsHlStoreWithFollowingDecrement` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DoesNotFoldWhenIncrementIsABranchTarget` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DoesNotFoldAnUnrelatedInstruction` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `FoldsTailCallToJump` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DoesNotFoldTailCall_WhenCallTargetIsNotWhitelisted` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DoesNotFoldTailCall_WhenCallIsNotFollowedByRet` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DoesNotFoldTailCall_WhenRetIsABranchTarget` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DeletesDeadStore_WhenSameSlotIsOverwrittenAdjacently` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DeletesDeadStore_AcrossANonReadingInstruction` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsStore_WhenTheSecondTargetsADifferentSlot` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsStore_WhenAReadIntervenes` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsStore_WhenAPointerWriteIntervenes` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsStore_WhenAddressIsAboveWram` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsStore_WhenAddressIsBelowWram` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsStore_WhenTheDeadStoreIsABranchTarget` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsStore_WhenAJoinIntervenes` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsStore_WhenDeadStoreEliminationIsDisabled` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DeletesRedundantReload_AfterStoreToSameSlot` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DeletesRedundantReload_AfterLoadOfSameSlot` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DeletesRedundantReload_AcrossAStoreToAnotherSlot` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsReload_WhenAIsWrittenBetween` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsReload_WhenAPointerWriteIntervenes` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsReload_WhenACallIntervenes` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsReload_WhenAddressIsNotWram` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsReload_WhenTheReloadIsABranchTarget` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsReload_WhenAJoinClearsTheMirror` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsReload_WhenEliminationIsDisabled` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DeletesJumpToFallThrough` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `KeepsJump_WhenNotMarkedRedundant` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
+| `DeletesJumpToFallThrough_EvenWhenTheJumpIsABranchTarget` | Mixed | REPLACE, complete | [Independent result, control, ABI or observable memory contract](rewrite-legality.md#source-test-disposition). |
 
 ### Ir/IrBuilderAndVerifierTests.cs (5)
 

@@ -22,10 +22,119 @@ mod optimizer_contracts;
 mod parallel_phis;
 #[path = "support/recursion.rs"]
 mod recursion_fixture;
+#[path = "support/rewrites.rs"]
+mod rewrites;
 #[path = "support/sum_loop.rs"]
 mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case("Debug")]
+#[case("Release")]
+fn machine_rewrites_preserve_carry_control_and_observed_memory(
+    host: &Host,
+    #[case] configuration: &str,
+) {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/RewriteContracts");
+    let output = dotnet()
+        .arg("build")
+        .arg(fixture.join("RewriteContracts.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let image =
+        std::fs::read(fixture.join(format!("bin/{configuration}/net10.0/RewriteContracts.dll")))
+            .unwrap();
+    let resolver = koh_compile::resolve::Resolver::new(&[&image]).unwrap();
+    let metadata = resolver.assembly(0).unwrap().metadata();
+    let identity = |name: &str| Definition {
+        assembly: 0,
+        token: 0x06000001
+            + metadata
+                .method_defs
+                .iter()
+                .position(|m| metadata.strings.get(m.name).unwrap() == name)
+                .unwrap() as u32,
+    };
+    let mut executions = 0;
+    for shape in rewrites::SHAPES
+        .iter()
+        .copied()
+        .chain(["Carry", "Borrow", "Shifts"])
+    {
+        let original = koh_compile::lower::assembly_method(&resolver, identity(shape)).unwrap();
+        let inputs: Vec<_> = match shape {
+            "Carry" | "Borrow" => rewrites::WIDE.to_vec(),
+            "Shifts" => [0x8000000000000001, 0x123456789abcdef0]
+                .into_iter()
+                .flat_map(|x| {
+                    [0, 1, 7, 8, 15, 31, 32, 33, 63, 64, 65, 127]
+                        .into_iter()
+                        .map(move |y| (x, y))
+                })
+                .collect(),
+            _ => rewrites::INPUTS
+                .iter()
+                .map(|&(x, y)| (u64::from(x), u64::from(y)))
+                .collect(),
+        };
+        let mut cases = Vec::new();
+        let mut observed = Vec::new();
+        for (x, y) in inputs {
+            let (value, trace) = match shape {
+                "Carry" => (x.wrapping_add(y), "-".into()),
+                "Borrow" => (x.wrapping_sub(y), "-".into()),
+                "Shifts" => (
+                    (x << ((y & 63) as u32)) ^ (x >> ((y & 63) as u32)),
+                    "-".into(),
+                ),
+                _ => rewrites::expected(shape, x as u32, y as u32),
+            };
+            let arguments = vec![x, y];
+            for (root, arguments) in [
+                (original.clone(), arguments.clone()),
+                (
+                    control_flow_scalars::constant_inputs(original.clone(), &arguments),
+                    vec![],
+                ),
+            ] {
+                let mut functions = vec![root];
+                for helper in match shape {
+                    "Call" => &["Change"][..],
+                    "Tail" | "NotTail" | "ReturnJoin" => &["Leaf"][..],
+                    _ => &[],
+                } {
+                    functions.push(
+                        koh_compile::lower::assembly_method(&resolver, identity(helper)).unwrap(),
+                    );
+                }
+                for optimized in [false, true] {
+                    if optimized {
+                        for function in &mut functions {
+                            koh_compile::optimize::simplify(function).unwrap();
+                        }
+                    }
+                    verify_program(&functions).unwrap();
+                    cases.push((
+                        rom_program(&functions, identity(shape), &arguments, 0xd000),
+                        Ok(value),
+                    ));
+                    observed.push(trace.clone());
+                }
+            }
+        }
+        executions += cases.len();
+        run_roms_observed(host, &cases, 0xd000, Some(&observed));
+    }
+    assert_eq!(executions, 768);
+}
 
 #[rstest::rstest]
 #[case("Debug", false)]
@@ -1869,12 +1978,27 @@ fn run_at(host: &Host, cases: &[(Function, Vec<u64>, Result<u64, u8>)], stack: u
 }
 
 fn run_roms(host: &Host, cases: &[(Vec<u8>, Result<u64, u8>)], stack: u16) {
+    run_roms_observed(host, cases, stack, None)
+}
+
+fn run_roms_observed(
+    host: &Host,
+    cases: &[(Vec<u8>, Result<u64, u8>)],
+    stack: u16,
+    observed: Option<&[String]>,
+) {
+    if let Some(observed) = observed {
+        assert_eq!(observed.len(), cases.len());
+    }
     let directory = tempfile::Builder::new()
         .prefix("rom run ")
         .tempdir_in(host.directory.path())
         .unwrap();
     let mut command = dotnet();
     command.arg(&host.dll);
+    if observed.is_some() {
+        command.arg("--observe-memory");
+    }
     for (index, (rom, _)) in cases.iter().enumerate() {
         let path = directory.path().join(format!("case{index}.gb"));
         std::fs::write(&path, rom).unwrap();
@@ -1892,6 +2016,13 @@ fn run_roms(host: &Host, cases: &[(Vec<u8>, Result<u64, u8>)], stack: u16) {
     assert_eq!(lines.len(), cases.len(), "{stdout}");
     for (index, (line, (_, expected))) in lines.iter().zip(cases).enumerate() {
         let fields: Vec<_> = line.split_whitespace().collect();
+        if let Some(observed) = observed {
+            assert_eq!(
+                fields.get(5),
+                Some(&observed[index].as_str()),
+                "case {index}: {line}"
+            );
+        }
         assert_eq!(
             fields[4], "OK",
             "stack guard modified reserved memory in case {index}"

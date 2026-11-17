@@ -2,6 +2,7 @@ using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 
 bool cost = args.Length > 0 && args[0] == "--cost";
+bool observe = args.Length > 0 && args[0] == "--observe-memory";
 bool fillCost = args.Length > 0 && args[0] == "--native-heap-cost";
 bool fillWrap = args.Length > 0 && args[0] == "--native-fill-wrap";
 bool copyWrap = args.Length > 0 && args[0] == "--native-copy-wrap";
@@ -46,7 +47,7 @@ int stopBank = native ? Convert.ToInt32(stopParts[0], 16) : 0;
 foreach (
     string path in args.Skip(
         native ? 2
-        : cost ? 1
+        : cost || observe ? 1
         : 0
     )
 )
@@ -66,6 +67,7 @@ foreach (
     var fillWrites = new WrapTrace(copyWrap);
     var rasterTrace = new RasterTrace(gb);
     var halTrace = new HalTrace(gb);
+    var observed = new ObservedMemory();
     if (cgbHal)
     {
         gb.Mmu.DebugWrite(0xff40, 0);
@@ -128,6 +130,8 @@ foreach (
         gb.Mmu.Hook = rasterTrace;
     if (cgbHal)
         gb.Mmu.Hook = new Koh.Emulator.Debug.CompositeMemoryHook(videoGuard, halTrace);
+    if (observe)
+        gb.Mmu.Hook = observed;
     int steps = 0;
     int dmaInstructions = 0;
     bool? controlIme = null;
@@ -404,7 +408,25 @@ foreach (
     Console.WriteLine(
         $"{gb.Mmu.DebugRead(0xC000):X2} {gb.Mmu.DebugRead(0xC001):X2} {Convert.ToHexString(result)} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}"
             + (cost ? $" {gb.Cpu.TotalTCycles}" : "")
+            + (observe ? $" {string.Join(',', observed.Events.DefaultIfEmpty("-"))}" : "")
     );
+}
+
+sealed class ObservedMemory : Koh.Emulator.Debug.MemoryHook
+{
+    public List<string> Events { get; } = [];
+
+    public override void OnRead(ushort address, byte value)
+    {
+        if (Events.Count < 64 && address is (0xC020 or 0xC021 or 0xFF80 or 0x9800 or 0xFF44))
+            Events.Add($"R{address:X4}");
+    }
+
+    public override void OnWrite(ushort address, byte value)
+    {
+        if (Events.Count < 64 && address is (0xC020 or 0xC021 or 0xFF80 or 0x9800))
+            Events.Add($"W{address:X4}:{value:X2}");
+    }
 }
 
 sealed class HalTrace(GameBoySystem gb) : Koh.Emulator.Debug.MemoryHook
