@@ -1,3 +1,5 @@
+#[path = "driver/checked_casts.rs"]
+mod checked_casts;
 use koh_compile::{compile, resolve::Resolver};
 use rstest::rstest;
 use std::path::{Path, PathBuf};

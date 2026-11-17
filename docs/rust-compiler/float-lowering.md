@@ -51,7 +51,8 @@ payload bits without a call. Requiring the old `NegF32` helper would add a stack
 frame to a bit operation without improving semantics. The game library helper
 remains available for raw-bit callers; its historical use is not an ABI rule.
 
-Checked casts and bare internal-F shapes remain unsupported. Floating remainder
+[Checked casts](checked-casts.md) now validate range before conversion. Checked
+arithmetic and bare internal-F shapes remain unsupported. Floating remainder
 now executes through the [exact shared core](floating-remainder.md); missing
 `f32.rem` or `f64.rem` metadata still diagnoses explicitly.
 The [integer conversion contract](float-conversions.md) documents signedness,

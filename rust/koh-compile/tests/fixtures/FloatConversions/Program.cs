@@ -139,5 +139,5 @@ public static class FloatConversions
 
     public static int WideOutput() => unchecked((int)ToLong(1.0f));
 
-    public static int CheckedUnsupported() => Checked(3.7f);
+    public static int CheckedPositive() => Checked(3.7f);
 }

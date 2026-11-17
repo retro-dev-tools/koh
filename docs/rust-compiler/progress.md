@@ -12,7 +12,8 @@ Current compiler increment adds distinct binary32 IR, explicit bit transport,
 float constants/calls/joins/byrefs/fields/arrays and metadata-selected software
 addition/subtraction/multiplication/division, direct sign-bit negation and ordered/unordered comparisons.
 Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
-covered. Checked casts and bare internal-F expressions remain unsupported; floating
+covered. [Checked numeric casts](checked-casts.md) now guard integer and floating
+conversions; checked arithmetic and bare internal-F expressions remain unsupported. Floating
 remainder now executes through the [exact shared runtime core](floating-remainder.md). All22 methods in the legacy CilFloatTests group now have
 native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions): the current ledger is159/565 complete,406 outstanding.
@@ -22,12 +23,13 @@ subnormal flushing and missing special-value handling before enabling CIL `mul`.
 It adds26 boundary and256 exponent-stratified numeric observations plus56 native
 multiplication executions. Subsequent [division work](softfloat-division.md) adds
 another26+256 numeric observations and64 division ROMs, closes the mixed arithmetic
-rows and preserves the unsupported-remainder diagnostic. Checked casts remain unfinished; no floating feature has been retired. [32-bit conversions](float-conversions.md)
+rows; subsequent remainder work replaces the earlier rejection with execution.
+No floating feature has been retired. [32-bit conversions](float-conversions.md)
 now cover signed/unsigned32/64-bit and16-bit-native inputs, with explicit
 clamping/NaN choices and narrower integer truncation. Wide conversion rounds
 once without binary64 intermediates and verifies all eight returned bytes in
 WRAM. At that checkpoint, additional integer-width coverage did not change the
-148-method ledger; checked casts remain open. The [binary64 core](binary64.md) now adds distinct typed
+148-method ledger. The [binary64 core](binary64.md) now adds distinct typed
 64-bit float constants/storage/calls, corrected software addition/subtraction,
 negation and ordered/unordered comparisons. Unchecked integer↔binary64 conversions now use direct53-bit rounding and
 explicit32/64-bit clamping/NaN policy. Binary32↔binary64 casts

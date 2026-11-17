@@ -1,3 +1,5 @@
+#[path = "ir/range_guards.rs"]
+mod range_guards;
 use koh_compile::ir::*;
 use koh_compile::resolve::Definition;
 use rstest::rstest;

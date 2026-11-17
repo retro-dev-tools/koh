@@ -472,6 +472,37 @@ pub(crate) fn float_conversion(resolver: &Resolver<'_>, key: &str) -> Result<Def
     Ok(definition)
 }
 
+pub(crate) fn float_range(resolver: &Resolver<'_>, wide: bool) -> Result<Definition, String> {
+    use clrmeta::{
+        ElementType::{U1, U4, U8},
+        TypeSig::Primitive,
+    };
+    let key = if wide { "f64.checkInt" } else { "f32.checkInt" };
+    let definition = runtime_method(resolver, key)?;
+    let metadata = resolver.assembly(definition.assembly)?.metadata();
+    let method = row(&metadata.method_defs, definition.token & 0xffffff)?;
+    let signature = crate::signature::method(
+        metadata
+            .blobs
+            .get(method.signature)
+            .map_err(|e| e.to_string())?,
+    )?;
+    if signature.params
+        != [
+            Primitive(if wide { U8 } else { U4 }),
+            Primitive(U1),
+            Primitive(U1),
+        ]
+        || signature.return_type != Primitive(U1)
+    {
+        return Err(format!(
+            "KohRuntime {key} requires byte({},byte,byte) raw-bit signature",
+            if wide { "ulong" } else { "uint" }
+        ));
+    }
+    Ok(definition)
+}
+
 fn alignment_payload(bytes: &[u8]) -> Result<u16, String> {
     if bytes.len() != 8 || bytes[..2] != [1, 0] || bytes[6..] != [0, 0] {
         return Err("Invalid KohAligned attribute payload".into());

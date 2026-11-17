@@ -2243,6 +2243,16 @@ pub(crate) fn emit_with_strings_origin(
                         code.store_a(destination + byte);
                     }
                 }
+                Op::RequireRange(condition) => {
+                    code.bytes(&[0x0e, 0]);
+                    for byte in 0..place(condition).bytes {
+                        code.load_a(slot(condition) + byte);
+                        code.bytes(&[0xb1, 0x4f]);
+                    }
+                    code.bytes(&[0x79, 0xb7]);
+                    let fault = code.import("__koh_trap_arithmetic".into());
+                    code.jump(0xca, fault);
+                }
                 Op::Convert {
                     value,
                     bits,

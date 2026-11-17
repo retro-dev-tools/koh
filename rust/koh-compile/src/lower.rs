@@ -4,6 +4,7 @@ use crate::{
     resolve::Definition,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
+mod checked;
 
 fn primitive_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
     use clrmeta::{ElementType, TypeSig};
@@ -3101,6 +3102,11 @@ fn translate(
                 b.value(precision, Op::Reinterpret(bits.0))?
             };
             b.stack.push(value);
+        }
+        0x82..=0x8b | 0xb3..=0xba | 0xd4..=0xd5 => {
+            let value = b.pop()?;
+            let converted = checked::convert(b, value, i.opcode)?;
+            b.stack.push(converted);
         }
         0x67..=0x6a | 0x6d..=0x6e | 0xd1..=0xd3 | 0xe0 => {
             let (bits, signed, ty) = match i.opcode {

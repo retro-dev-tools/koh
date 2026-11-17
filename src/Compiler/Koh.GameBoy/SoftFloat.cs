@@ -1157,4 +1157,35 @@ public static class SoftFloat
             return sign | (ma >> (1 - ea));
         return sign | ((ulong)ea << 52) | (ma & 0xfffffffffffff);
     }
+
+    [KohRuntime("f32.checkInt")]
+    public static byte CheckIntF32(uint a, byte width, byte signed) =>
+        CheckIntF64(ToF64(a), width, signed);
+
+    [KohRuntime("f64.checkInt")]
+    public static byte CheckIntF64(ulong a, byte width, byte signed)
+    {
+        if ((width != 8 && width != 16 && width != 32 && width != 64) || signed > 1)
+            return 0;
+        int exponent = (int)((a >> 52) & 0x7ff);
+        if (exponent == 2047)
+            return 0;
+        if (exponent < 1023)
+            return 1;
+        if (exponent >= 1087)
+            return 0;
+        ulong magnitude = ToU64(a & 0x7fffffffffffffff);
+        if (signed == 0)
+        {
+            if ((a >> 63) != 0)
+                return 0;
+            if (width == 64)
+                return 1;
+            return magnitude < ((ulong)1 << width) ? (byte)1 : (byte)0;
+        }
+        ulong limit = (ulong)1 << (width - 1);
+        return (a >> 63) != 0
+            ? (magnitude <= limit ? (byte)1 : (byte)0)
+            : (magnitude < limit ? (byte)1 : (byte)0);
+    }
 }

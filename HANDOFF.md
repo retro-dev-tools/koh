@@ -1704,3 +1704,70 @@ workspacecheckEXIT0(5.74s existingunusedcubeshelperwarning),separaterustdoc
 EXIT0fourzerocasecrates; Rustfmt/CSharpier3files/diffchecks pass. Noactive
 localbuilds. Readylogicalremcommit; holdpushwhilepublishedccf8d9cCI
 44009082004inprogress. Ledger159unchanged; fullmigrationincomplete.
+
+2026-11-17 DIRTYcheckedcasts afterLOCAL592aea8(rem,notpushed). Published
+ccf8d9cCI44009082004nowTERMINALSUCCESS; needcompletedprimarylogbeforeclaims.
+18819redEXIT1006.834s conv.ovf.i4unsupported. NewIRRequireRange(I32predicate)
+is sideeffecting,typed/verifier/operand/optimizeralias/backendchecked; false
+usesexistingarithmeticfault2. Newlower/checked.rs handles20checkedconversion
+opcodes, signed/unsigned source interpretation, all8/16/32/64/native16targets.
+Sourceextensionusesinputsignforwiden, nottargetsign. Floatguardsmetadata
+f32/f64.checkIntbyte(raw,bytewidth,bytesigned), exacttruncatedmagnitudecheck,
+rejectNaN/inf; convertwitholduncheckedhelperonlyAFTERguard. Width/flagvalidated.
+FirstpositiveF32checks68391passed4/4 26.786s. NewCheckedCastsfixture209rows
+(132success77fault)×4=836ROMs. Initial52053/77854/15124faultfail: newbackend
+guardassumed4bytes butlegalizedI32predicatescanuse1; adjacentnonzerobitsmade
+falsepredicateappeartrue. Fixedroottoactualplace(condition).bytes; noabort
+orharnesschange. Removedtemporary/tmpROMdumpcode, retainedperentryfailurelog.
+Current95199LIVE/tmp/koh-checked-casts-fixed.log31cases(4native+7IR+20handCIL),
+first2nativecasespass209each34.681s/32.930s. Host214rangeprobespendingnextbuild;
+addedByteargumentadaptationonlytoSoftFloatHost(noassertlogic). NewIRtestsverify
+I32/noresult/definedpredicate, optimizerlocalalias, emitfaultABI. HandCIL20
+opcodesvalidatebefore/afteroptandexecution. Parentownsfiles/builds. Reviewer
+READONLYagainstHEAD592aea8; noedits/build/test/commit/spawn. Needterminal,
+metadata-key/argsdiagnostics,fullregression/checks/docs/logicalcommit. Ledger159
+unchangedunlessindependentnewsourcecontractclosureproved. Fullgoalactive.
+
+95199terminalEXIT100: all4nativecasespassed836ROMs +7IRtests, thenhandCIL
+firstcasefailedtestinterpretermissingunsignedCompare(notcompilerfailure).
+AddedunsignedLess/Greateroracleoperations;10476focused27IR/handCILrunning
+/tmp/koh-checked-casts-ir.log. Newmetadataguardsignaturetests(4argument/return
+signednessmutations,keymissing,rename)addedafter95199build;mustrunfinal.
+Native132success+77faultscenarios/configincludingdiscardedcheckedvalueand
+loops: failuresterminatebeforeanyheapwrite,successall8bytes/SP/bankguards.
+Float214oracleprobesincludeNaN/inf,truncationfractions,invalidwidth/flag;
+sourceByteadapteronlyC#testhostnotcompileralgorithm. Parentownsallfiles/builds.
+
+10476IRrun18/27failedmissingtestinterpreterOr afterunsignedcomparisonsadded;
+addedbitwiseOroracle.24944TERMINALEXIT0 27/27pass0.155s407unselected. No
+productioneditsafter95199native4passed. FinalbroadnowLIVE
+/tmp/koh-checked-casts-final.log explicitchecked_castsfilterincludes4newnative
+cases(earlierfloatfilterwouldnot). Newmetadataarity3rename/missing/four
+signednessmutationprobes+host214 includedinfinal. Sourcefixture209scenarios
+×4=836, success132/fault77each. Read-onlyreviewassignmentagainstHEAD592aea8
+nowapplicable; parentownsallfiles/builds. Publishedccf8d9cCI44009082004
+TERMINALSUCCESS1516/1516Rust1823.836szeroskips,separaterustdocfourzero,
+.NETfast562pass2UI-skips0fail. Primary/tmp/koh-ci-ccf8d9c-completed.logGH_EXIT0.
+Pushgatecleared; finishunitthenbatch592aea8+checkedcasts.
+
+Continuation verification:97800 confirmed live via tool handle and process1996120.
+All4 checked-cast cases pass (836ROMs), binary32/binary64/comparison/conversion
+and primitive-array groups pass so far; managed numeric-oracle cases running.
+Rustfmt EXIT0; CSharpier4files EXIT0; diff check clean. New checked-casts.md
+and ABI/float/progress/ROADMAP links document fault2 and remaining unsupported
+checked arithmetic/EH. Serial Roslyn group covers binary(driver), including
+new fixture. Main unrelated battle.png hash unchanged fb818583...c1454.
+Do not run another cargo build until97800 terminal. Then all-target/all-feature
+check and separate rustdoc; record final log, commit checked casts, batch push
+with592aea8, update PR55 checklist and exact-head CI. Publishedccf CI passed
+1516Rust +rustdoc +562.NET/2UI skips; current PR body still says pending and
+needs refresh. No legacy closure/count change; full migration incomplete.
+
+97800TERMINALEXIT0:747/747selectedpass658.402s292unselected. All836checkedROMs,
+214newrangeoracleobservations,total16647numericobservations included.
+Workspaceall-target/all-featurecheck9970EXIT0(7.11s,existingunusedcubeshelper
+warning);separaterustdocEXIT0fourcrateszerocases. FormattingRustfmt/CSharpier4
+filesEXIT0,diffclean. No productionchangesaftertestedbuild. Checkedcasts.md
+recordscontract/ABI/fault2/testcommand; floatdocsupdatedtoavoidstalerejections.
+Nextcommitcheckedcastsandbatchpushwith592aea8;updatePR55fromlocal/pending
+claimsusingexactremoteheadandnewrun. Ledger159/565unchanged;goalactive.

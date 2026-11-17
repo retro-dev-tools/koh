@@ -66,8 +66,10 @@ these values without a new ABI or compiler integer type.
 integer rounding, signed native extension, truncation, NaNs/infinities/limits,
 narrowing choices, canonical ELF, banked runtime calls, full result bits and
 stack guards. Renaming `FromI32` to `CastI32` proves metadata-key selection.
-Missing helper keys, wrong raw argument/return signedness and checked casts must
-produce member/IL diagnostics. The old temporary64-bit rejection cases are
+Missing helper keys and wrong raw argument/return signedness must produce
+member/IL diagnostics. [Checked casts](checked-casts.md) now execute with explicit
+range guards; their former rejection case checks the successful value3 instead.
+The old temporary64-bit rejection cases are
 replaced by positive input/output checks. Sixteen wide-result entries store all
 eight result bytes in WRAM and assert every byte, surrounding memory and CGB
 bank2 isolation, avoiding a low-word-only oracle.

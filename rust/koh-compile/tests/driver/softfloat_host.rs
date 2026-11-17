@@ -92,6 +92,8 @@ fn runtime() -> Host {
 #[case::f64_rem_sweep5("f64-rem-sweep-5", 256)]
 #[case::f64_rem_sweep6("f64-rem-sweep-6", 256)]
 #[case::f64_rem_sweep7("f64-rem-sweep-7", 256)]
+#[case::checked_f32("checked-f32-range", 107)]
+#[case::checked_f64("checked-f64-range", 107)]
 fn software_runtime_matches_independent_numeric_oracles(
     runtime: &Host,
     #[case] group: &str,
@@ -108,6 +110,52 @@ fn software_runtime_matches_independent_numeric_oracles(
         expected.push(result);
     };
     match group {
+        "checked-f32-range" | "checked-f64-range" => {
+            let wide = group == "checked-f64-range";
+            let key = if wide { "CheckIntF64" } else { "CheckIntF32" };
+            for width in [8u8, 16, 32, 64] {
+                for signed in [false, true] {
+                    let high = 2f64.powi(i32::from(width) - i32::from(signed));
+                    let low = if signed { -high } else { 0.0 };
+                    for candidate in [
+                        0.9,
+                        -0.9,
+                        low,
+                        low - 0.75,
+                        low - 1.0,
+                        low + 0.75,
+                        high - 1.0,
+                        high - 0.25,
+                        high,
+                        high + 1.0,
+                        f64::NAN,
+                        f64::NEG_INFINITY,
+                        f64::INFINITY,
+                    ] {
+                        let value = if wide {
+                            candidate
+                        } else {
+                            f64::from(candidate as f32)
+                        };
+                        let valid =
+                            value.is_finite() && value.trunc() >= low && value.trunc() < high;
+                        let raw = if wide {
+                            value.to_bits()
+                        } else {
+                            u64::from((value as f32).to_bits())
+                        };
+                        add(
+                            key,
+                            &[raw, u64::from(width), u64::from(signed)],
+                            u64::from(valid),
+                        );
+                    }
+                }
+            }
+            for (width, sign) in [(0, 0), (24, 1), (8, 2)] {
+                add(key, &[0, width, sign], 0);
+            }
+        }
         "f32-rem-bounds" => {
             for (a, b) in [
                 (0x40b00000u32, 0x40000000),

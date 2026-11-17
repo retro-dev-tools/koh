@@ -71,6 +71,45 @@ fn unsigned_float_conversion_requires_explicit_precision(#[case] il: &[u8]) {
 }
 
 #[rstest]
+#[case(0x82, Type::I32)]
+#[case(0x83, Type::I32)]
+#[case(0x84, Type::I32)]
+#[case(0x85, Type::I64)]
+#[case(0x86, Type::I32)]
+#[case(0x87, Type::I32)]
+#[case(0x88, Type::I32)]
+#[case(0x89, Type::I64)]
+#[case(0x8a, Type::Native)]
+#[case(0x8b, Type::Native)]
+#[case(0xb3, Type::I32)]
+#[case(0xb4, Type::I32)]
+#[case(0xb5, Type::I32)]
+#[case(0xb6, Type::I32)]
+#[case(0xb7, Type::I32)]
+#[case(0xb8, Type::I32)]
+#[case(0xb9, Type::I64)]
+#[case(0xba, Type::I64)]
+#[case(0xd4, Type::Native)]
+#[case(0xd5, Type::Native)]
+fn checked_integer_opcodes_are_verified_and_backend_legal(
+    #[case] opcode: u8,
+    #[case] returns: Type,
+) {
+    let mut il = vec![0x21];
+    il.extend(42u64.to_le_bytes());
+    il.extend([opcode, 0x2a]);
+    let mut input = method(&il);
+    input.returns = Some(returns);
+    let mut f = lower(input).unwrap();
+    verify(&f).unwrap();
+    assert_eq!(execute(&f), 42);
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    verify(&f).unwrap();
+    assert_eq!(execute(&f), 42);
+    koh_compile::sm83::emit(&f).unwrap();
+}
+
+#[rstest]
 #[case(0x16, 7)]
 #[case(0x17, 9)]
 fn cil_stack_join_becomes_typed_block_arguments(#[case] condition: u8, #[case] expected: u64) {
@@ -394,11 +433,26 @@ fn execute_with(f: &Function, arguments: &[u64]) -> u64 {
                     left,
                     right,
                 } => (signed(left) >> count(left, right)) as u64,
+                Op::Binary {
+                    op: Binary::Or,
+                    left,
+                    right,
+                } => v(left) | v(right),
                 Op::Compare {
                     op: Comparison::Equal,
                     left,
                     right,
                 } => u64::from(v(left) == v(right)),
+                Op::Compare {
+                    op: Comparison::LessUnsigned,
+                    left,
+                    right,
+                } => u64::from(v(left) < v(right)),
+                Op::Compare {
+                    op: Comparison::GreaterUnsigned,
+                    left,
+                    right,
+                } => u64::from(v(left) > v(right)),
                 Op::Compare {
                     op: Comparison::LessSigned,
                     left,
@@ -422,6 +476,10 @@ fn execute_with(f: &Function, arguments: &[u64]) -> u64 {
                     } else {
                         v(value) & ((1u64 << bits) - 1)
                     }
+                }
+                Op::RequireRange(condition) => {
+                    assert_ne!(v(condition), 0, "Unexpected checked conversion fault");
+                    0
                 }
                 _ => panic!("test interpreter missing {:?}", i.op),
             };

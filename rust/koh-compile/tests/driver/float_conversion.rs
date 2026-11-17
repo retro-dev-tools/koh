@@ -239,12 +239,11 @@ fn roslyn_float_integer_conversions_preserve_width_and_signedness(
             "{entry}"
         );
     }
-    for (entry, text) in [("CheckedUnsupported", "0x00b7")] {
-        let error = compile::object(&resolver, Some(&format!("FloatConversions::{entry}")))
-            .err()
-            .unwrap();
-        assert!(error.contains("IL_") && error.contains(text), "{error}");
-    }
+    let linked = link_entry(&resolver, "CheckedPositive", color);
+    assert_eq!(
+        execute(host, directory.path(), &linked, "__koh_exit"),
+        "00 00000003 D000 OK"
+    );
     for (key, entry) in [("i32.toF32", "Main"), ("f32.toI32", "Positive")] {
         let mut changed = images[1].clone();
         let offsets: Vec<_> = changed

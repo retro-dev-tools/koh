@@ -536,6 +536,7 @@ pub enum Op {
         left: u32,
         right: u32,
     },
+    RequireRange(u32),
     Negate(u32),
     Not(u32),
     Convert {
@@ -648,7 +649,8 @@ impl Op {
             Self::Binary { left, right, .. } | Self::Compare { left, right, .. } => {
                 [Some(left), Some(right)]
             }
-            Self::Negate(value)
+            Self::RequireRange(value)
+            | Self::Negate(value)
             | Self::Not(value)
             | Self::Convert { value, .. }
             | Self::StoreLocal { value, .. }
@@ -1810,6 +1812,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             );
                         }
                         Some(Type::I32)
+                    }
+                    Op::RequireRange(value) => {
+                        if check(value, position)? != Type::I32 {
+                            return Err("Range guard requires an int32 predicate".into());
+                        }
+                        None
                     }
                     Op::Negate(value) | Op::Not(value) => {
                         let ty = check(value, position)?;

@@ -313,6 +313,7 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                 | Op::CastClass { object: id, .. }
                 | Op::TryCastClass { object: id, .. }
                 | Op::ObjectFieldAddress { object: id, .. }
+                | Op::RequireRange(id)
                 | Op::Not(id)
                 | Op::Convert { value: id, .. }
                 | Op::StoreLocal { value: id, .. }

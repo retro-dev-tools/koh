@@ -259,3 +259,9 @@ Floating `rem` uses the same binary raw-bit signatures as add/subtract:
 `f32.rem` returns unsigned32, `f64.rem` unsigned64. The binary32 helper reaches
 precision-conversion helpers and the exact binary64 integer core through normal
 calls. No new frame, register, linker or object-format convention is introduced.
+
+Checked numeric conversions emit effectful range guards before truncation.
+The guard reads its legalized predicate width and reaches the existing
+arithmetic-fault code2 on failure. Floating predicates use `f32.checkInt`
+`byte(uint,byte,byte)` or `f64.checkInt` `byte(ulong,byte,byte)`, with destination
+width and signed flag following raw bits. See [checked casts](checked-casts.md).

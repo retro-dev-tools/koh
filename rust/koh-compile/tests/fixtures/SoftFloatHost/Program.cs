@@ -21,6 +21,7 @@ foreach (string request in args)
         );
         values[index] = Type.GetTypeCode(parameters[index].ParameterType) switch
         {
+            TypeCode.Byte => unchecked((byte)value),
             TypeCode.Int32 => unchecked((int)value),
             TypeCode.UInt32 => unchecked((uint)value),
             TypeCode.Int64 => unchecked((long)value),

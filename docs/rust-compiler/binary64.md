@@ -286,8 +286,10 @@ as integers even when their bit patterns happen to encode a floating NaN.
 All13 original parameter rows and104 expanded assertions are retained. The
 float source group is now22/22 methods,74 original cases and504 expanded
 assertions. That includes the required missing-remainder diagnostic; it does
-not mean every .NET floating operation, checked cast or internal-F shape is
+not mean every .NET floating operation or internal-F shape is
 supported. No legacy definition is physically retired by this increment.
+Subsequent [checked-cast support](checked-casts.md) guards integer conversions;
+catchable exceptions and checked arithmetic remain unsupported.
 
 Verification: the expanded focused run passed22/22 cases in195.205s. After
 adding the signed short/native wrapping boundaries, the broader regression
