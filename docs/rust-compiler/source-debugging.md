@@ -281,3 +281,11 @@ cases and symbol-free builds, passed8/8 in125.882s, exit0
 (`/tmp/koh-debug-source-identity-final.log`);488 cases were explicitly unselected.
 Rustfmt and diff checks passed. This local Linux result does not substitute for
 the next hosted macOS/Windows run.
+
+Hosted revalidation on567a192 subsequently passed all1891 native cases on macOS
+and1889 on Windows, zero skipped. Their logs confirm all four basic debugger
+cases and both real2048 SDK source-debugger cases passed. Linux also passed1891.
+See the [recorded three-host checkpoint](../ci-validation.md#recorded-native-compiler-checkpoint)
+for scope and separate full-pipeline failures. This closes the demonstrated
+source-document identity failures; it does not assert current-head release or
+full-migration acceptance.

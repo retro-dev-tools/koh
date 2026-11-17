@@ -10,6 +10,22 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Native three-platform validation checkpoint
+
+Full run44193814588 on567a192 completed all native jobs successfully: Linux
+1891/1891 (1304.198s), macOS1891/1891 (1123.478s), Windows1889/1889 (2206.247s),
+zero skipped. Separate doctests, release tools, graphics SDK smoke and LSP/native
+artifact publication passed in each job. Both basic and real2048 SDK source-debug
+cases passed on Windows/macOS, validating the physical-document identity fix.
+The Windows count excludes only two documented Unix assembler tests.
+
+Both .NET jobs still failed114 legacy compiler tests each and blocked dependent
+benchmark/AOT jobs. Thus the overall pipeline is not green. Later mapper/rewrite
+commits change tests/docs only; their newly added coverage has focused local
+proof and still needs current-head full validation. Exact scope, primary logs
+and run link: [CI checkpoint](../ci-validation.md#recorded-native-compiler-checkpoint).
+No controlled compiler-performance improvement is claimed.
+
 ### Machine rewrite contract migration
 
 All38 `Sm83PeepholeTests` methods now have [native dispositions](rewrite-legality.md):
