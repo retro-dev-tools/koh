@@ -69,6 +69,11 @@ pub(crate) fn value_target(
         return Err("Constrained call requires an instance method".into());
     }
     if resolver.type_definition(owner)? == raw_value {
+        if owner != value {
+            return Err(
+                "Constrained value method owner must match its closed receiver type".into(),
+            );
+        }
         if declared.flags & 0x400 != 0 || declared.rva == 0 {
             return Err("Constrained value method has no body".into());
         }

@@ -57,6 +57,36 @@ complete migration acceptance; legacy source-method dispositions remain91/565.
 
 ## Closed generic value receivers
 
+### Exact owners for direct constrained bodies
+
+Direct constrained calls must retain the closed method owner as well as its
+underlying TypeDef. Previously `Cell<byte>` and `Cell<ulong>` compared equal at
+the direct-body check, after which lowering silently rebound either method to
+the receiver. The check now rejects differing closed owners before selecting a
+body. Interface/MethodImpl dispatch keeps its separate existing owner checks.
+[ECMA-335 III.2.1](https://www.ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf)
+requires the constrained value type to implement the selected method for the
+unboxed call; sharing a generic definition does not establish that identity.
+
+The real-Roslyn `ConstrainedOwners` fixture contains byte and64-bit `Cell<T>`
+receivers, a constrained generic caller and ordinary direct method references.
+Tests replace only the constrained call's token with each closed direct
+reference. Four Debug/Release × DMG/CGB cases execute the original and matching
+own-body calls (16 ROMs and16 .NET reflection invocations), checking42, caller
+mutation, complete byte/64-bit payloads, balanced SP, guards and untouched heaps.
+Both mismatched directions are rejected in each configuration (eight negative
+compilations). The four original red cases wrongly emitted an object for the
+first mismatched direction (`/tmp/koh-constrained-owners-red.log`). No CLR
+rejection is used as a specification or expected-success substitute.
+
+Library and neighboring closed-type/constrained-interface checks passed232/232
+in38.774s, exit0 (`/tmp/koh-constrained-owners-green.log`). After adding the
+independent .NET checks, all four new cases passed in12.588s, exit0
+(`/tmp/koh-constrained-owners-managed.log`). This corrects a compiler bug and
+adds native acceptance without changing the legacy source-disposition count.
+
+### Existing generic receiver coverage
+
 Metadata method/MethodImpl rows are read through the underlying TypeDef, while
 the selected call retains the exact closed struct owner. Losing that owner would
 erase field widths or confuse a reference-library payload with a local row of the
