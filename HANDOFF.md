@@ -6,10 +6,12 @@ Local commitbe80033 independently improves regression setup: run-scoped reuse of
 successful execution-host builds in the serialized roslyn group, MSBuild on each
 new run. Same8 delegate cases:46.865s baseline,42.954s incremental,26.850s reused,
 all8 passed. Separate generic/debugger consumer8/8 pass53.513s,fmt passed.
-Queued for push until CI44117991696 finishes; do not cancel that run by pushing.
+Commit249a789 contains the verified instantiated-interface unit. Both commits
+are queued with the class signature-byte budget fix for one publication batch.
 
-Published head remains3d44c0b; CI44117991696 is still running, with .NET fast
-tests successful. Current uncommitted resolver binding shares closed InterfaceImpl
+Published head remains3d44c0b; CI44117991696 completed failure:1807/1808 passed,
+one unchanged signature-byte budget test failed, zero skipped; .NET fast passed.
+Primary /tmp/koh-ci-3d44-completed-plain.log,GH_EXIT0. Resolver binding shares closed InterfaceImpl
 substitution across layout, constraints and dispatch. New ClosedTypes entry tests
 implicit, explicit, inherited and multiple instantiations on one receiver.
 Initial four cases reject valid TypeSpec rows; corrected four cases pass34.089s,
@@ -43,8 +45,15 @@ fmt (exit0) and workspace/all-feature rustdoc (exit0,4crates/0cases). Logs:
 /tmp/koh-instantiated-interfaces-final-doc.log. Discovery1812 includes all4new
 unignored cases; CSharpier checked3files,exit0. Fixture hashes
 /tmp/koh-instantiated-interface-fixtures.sha256 verified unchanged.
-Interface unit ready to commit. Next gaps include method-generic reference
+Interface unit committed249a789. Next gaps include method-generic reference
 dispatch, variance and boxing/default-interface value fallback. Ledger unchanged.
+
+The hosted byte-budget failure reproduced locally. Layout now charges all
+instance-field signature bytes before parsing/binding any field, preserving the
+limit and static-field behavior without double-charging. Unchanged test passes;
+all54 layout plus closed-type4/interface-budget2 pass60/60 in266.024s,exit0,
+/tmp/koh-layout-byte-budget-regression.log; fmt passes. Commit this separate fix,
+push batch (previous CI terminal), verify remote head/new CI and update PR55.
 
 ## Latest closed-reference dispatch unit
 

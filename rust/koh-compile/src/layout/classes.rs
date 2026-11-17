@@ -289,6 +289,18 @@ impl Classes<'_, '_> {
             return Err("Class field count exceeds4096".into());
         }
         self.work((end - ty.field_list) as usize)?;
+        for index in ty.field_list..end {
+            let field = &metadata.fields[index as usize - 1];
+            if field.flags & 0x10 == 0 {
+                self.work(
+                    metadata
+                        .blobs
+                        .get(field.signature)
+                        .map_err(|e| e.to_string())?
+                        .len(),
+                )?;
+            }
+        }
         let explicit_fields: HashSet<_> = metadata
             .field_layouts
             .iter()
@@ -309,7 +321,6 @@ impl Classes<'_, '_> {
                 .blobs
                 .get(row.signature)
                 .map_err(|e| e.to_string())?;
-            self.work(blob.len())?;
             let signature = signature::field(blob)?;
             let arguments = self
                 .resolver

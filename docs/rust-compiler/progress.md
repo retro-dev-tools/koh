@@ -31,6 +31,21 @@ Another run passed8/8 generic execution and source-breakpoint/machine-inspection
 cases in53.513s (`/tmp/koh-host-speed-consumers.log`), rebuilding EmulatorHost
 and DebuggerHost once each for that new run. Rustfmt check passed.
 
+### Field-signature budget before binding
+
+Completed CI44117991696 on3d44c0b ran1,808 cases:1,807 passed, one failed,
+zero skipped; the .NET fast job passed. The original oversized-field-signature
+test reached the newer rank32 rejection before accumulating the intended byte
+budget. Class layout now charges all instance-field signature bytes before
+parsing/binding fields. It retains the same byte limit, skips static fields and
+does not double-charge. Unsupported array ranks remain unsupported.
+
+The unchanged failing test reproduced locally, then all54 layout cases plus
+four closed-type and two interface-budget cases passed60/60 in266.024s, exit0.
+Rustfmt check passed. Logs: `/tmp/koh-ci-3d44-completed-plain.log`,
+`/tmp/koh-layout-byte-budget-red.log`, `/tmp/koh-layout-byte-budget-regression.log`.
+The earlier132-case interface regression predates this separate budget fix.
+
 [Closed base-class layouts](closed-types.md#closed-base-classes) now substitute
 declaring arguments through inherited storage, including nested and referenced
 base types. [Inherited method references](closed-types.md#inherited-method-references)
