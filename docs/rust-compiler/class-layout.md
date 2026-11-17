@@ -147,11 +147,12 @@ Logs: `/tmp/koh-class-workspace-check.log`, `/tmp/koh-class-doctests.log`.
 | `CilVirtualDispatchTests::InheritedFields_UsePrefixLayout_NoOverlap` | PORT complete: native `ObjectCore::InheritedFields` checks exact before/base/after packets in four configurations. Metadata also covers hidden fields. |
 | `CilClassStringFieldTests::StringCtorParameter_StoredInClassField_ReadBackViaLengthAndIndexer` | PORT complete: native `ObjectCore::BannerFields` checks two distinct strings/scores, length and indexed characters in exact heap records. |
 | `CilVirtualDispatchTests::VirtualCalls_TagDispatchThroughBaseTypedStatic` | PORT complete: class dispatch tests execute three runtime types through a reassigned static receiver, exact Area/Kind packets and banked calls. |
-| `CilVirtualDispatchTests::SceneMachine_GameRun_DeferredChangeWithCtorState` | PORT remains incomplete: executable dispatch alone is not scene-transition acceptance. |
+| `CilVirtualDispatchTests::SceneMachine_GameRun_DeferredChangeWithCtorState` | PORT complete: [scene-flow acceptance](scene-flow.md) now executes actual Game.Run and checks deferred lifecycle order, constructor state and frame count. |
 | Old scalar-aligned class layout / element-scaled GEP internals | REPLACE with the documented packed target ABI and independent offset/alias tests; old padding and helper-class names are not compatibility contracts. |
 
-Three class methods have complete native replacements; none is deferred. The
-565-method ledger now has48 complete and517 partial/outstanding. This work stays in
+At the original class-layout checkpoint, three class methods had complete native
+replacements and the ledger had48 complete and517 partial/outstanding. The
+scene-flow acceptance above is a subsequent increment. This work stays in
 the single migration PR; final acceptance still requires integrated native
 objects and real games, followed by removal of the retiring compiler.
 

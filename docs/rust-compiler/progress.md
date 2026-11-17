@@ -21,7 +21,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-191/565 dispositions complete (190 native replacements, one DELETE),374 outstanding,
+192/565 dispositions complete (191 native replacements, one DELETE),373 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The remaining five [CGB HAL methods](cgb-hal.md) now check actual referenced
 code, both VRAM banks, all palette bytes and CGB-only CPU writes.
@@ -1626,5 +1626,13 @@ documentation; it does not add code verification claims.
 Eleven [comparison/conversion source methods](optimizer-scalar-contracts.md)
 now have complete native replacements:70 new parameterized cases,920 ROM
 executions and44,440 before/after IR evaluations. Both full affected targets
-passed310/310, zero skipped,510.277s, exit0. Ledger191/565 complete,374
+passed310/310, zero skipped,510.277s, exit0. Ledger192/565 complete,374
 outstanding; no legacy compiler/test definitions physically removed.
+
+## Real framework scene-flow acceptance
+
+[Scene flow](scene-flow.md) closes one additional compiler-owned source method
+with four native Debug/Release × DMG/CGB cases. Actual Game.Run executes two
+deferred transitions and preserves constructor state across three scenes.
+Final neighboring object/virtual/tileset regression16/16 passed112.176s, exit0.
+Ledger192/565 complete,373 outstanding; no legacy definitions removed.

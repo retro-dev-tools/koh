@@ -482,7 +482,7 @@ Inherited fields never overlap, base-typed calls dispatch by runtime receiver, s
 - **PORT, complete** `InheritedFields_UsePrefixLayout_NoOverlap` — same native driver, `ObjectCore::InheritedFields`; exact base/derived/alias packets and final heap descriptors in Debug/Release × DMG/CGB; see test-disposition.md.
 - **REPLACE, complete** `UntraceableInterfaceCall_IsDiagnostic` — the old unsupported-interface exception is an implementation limit, not a language contract. Native `driver::interfaces` executes the stored byte-returning receiver and directly checks hardware FF42=07/FF43=EE in D/R × DMG/CGB, alongside interface binding, runtime faults and malformed/unsupported IL diagnostics. See interfaces.md.
 - **PORT, complete** `VirtualCalls_TagDispatchThroughBaseTypedStatic` — native `driver::virtual_slots_and_constructor_dispatch_execute`, exact three-type Area/Kind packets through static receiver reloads and loop reassignment; separate ROM banks including257+, four D/R × DMG/CGB cases. Slot representation is redesigned; see virtual-dispatch.md.
-- **PORT** `SceneMachine_GameRun_DeferredChangeWithCtorState`.
+- **PORT, complete** `SceneMachine_GameRun_DeferredChangeWithCtorState` — native `driver::game_loop_defers_scene_changes_and_preserves_constructor_state` executes actual Game.Run, nine ordered lifecycle events, constructor state1234 and frame4 in D/R × DMG/CGB; see [scene flow](scene-flow.md).
 - **PORT** `TagDispatch_CoexistsWithInterruptHandlerRoots`.
 
 ### CilWideArithmeticTests.cs

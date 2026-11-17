@@ -52,6 +52,48 @@ mod vram;
 mod wide_arithmetic;
 use support::{Host, dotnet};
 
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn game_loop_defers_scene_changes_and_preserves_constructor_state(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "SceneFlow");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let done = compile::entry(&resolver, Some("Program::Done")).unwrap();
+    let object = compile::object(&resolver, Some("Program::Main")).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Compatible
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let report = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        &koh_compile::sm83::symbol(done),
+        "--native-scene",
+    );
+    let fields: Vec<_> = report.split_whitespace().collect();
+    assert_eq!(fields.len(), if color { 7 } else { 6 }, "{report}");
+    assert_eq!(fields.last().unwrap(), &"15CD5B07D2040400", "scene packet");
+    let stack_pointer = u16::from_str_radix(fields[2], 16).unwrap();
+    assert!((0xc100..0xd000).contains(&stack_pointer));
+    assert_eq!(fields[3], "OK", "stack guards: {report}");
+}
+
 #[rstest::fixture]
 #[once]
 fn host() -> Host {

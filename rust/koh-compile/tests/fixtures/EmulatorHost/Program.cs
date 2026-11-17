@@ -16,6 +16,7 @@ bool arena = args.Length > 0 && args[0] == "--native-arena";
 bool scroll = args.Length > 0 && args[0] == "--native-scroll";
 bool registers = args.Length > 0 && args[0] == "--native-registers";
 bool cgbHal = args.Length > 0 && args[0] == "--native-cgb-hal";
+bool scene = args.Length > 0 && args[0] == "--native-scene";
 bool video = frame || oamMode || rawOam || maps || (args.Length > 0 && args[0] == "--native-video");
 bool heap =
     video
@@ -24,6 +25,7 @@ bool heap =
     || scroll
     || registers
     || cgbHal
+    || scene
     || fillCost
     || fillWrap
     || copyWrap
@@ -288,6 +290,8 @@ foreach (
         if (raster)
             snapshot +=
                 $" {((rasterTrace.FinalIme ?? gb.Cpu.Ime) ? 1 : 0)}:{gb.Mmu.DebugRead(0xff70):X2}:{(gb.KeyOne.DoubleSpeed ? 1 : 0)} {string.Join(',', rasterTrace.Reads.DefaultIfEmpty("-"))} {string.Join(',', rasterTrace.Writes.DefaultIfEmpty("-"))}";
+        if (scene)
+            snapshot += " " + Convert.ToHexString(result);
         Console.WriteLine(
             $"{gb.Cpu.Registers.A:X2} {gb.Cpu.Registers.DE:X4}{gb.Cpu.Registers.HL:X4} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}{snapshot}"
         );

@@ -1965,3 +1965,13 @@ no production optimizer changes or old graph-rewrite claims. Ledger191/565
 (190native+1DELETE),374 outstanding,zero physically removed. Source matrix
 totals corrected105PORT/184REPLACE/1DELETE. CI44027838391 remains in_progress
 on published49ac462; do not cancel. Commit locally, batch push after CI.
+
+## Scene-flow acceptance increment
+
+Actual Game.Run fixture now checks nine ordered lifecycle events, constructor
+value1234 across three scenes and frame4, D/R×DMG/CGB. Test-only host packet
+mode; no emulator production/API/compiler changes. Full neighboring selection
+16/16 pass112.176s,412excluded,EXIT0; primary /tmp/koh-scene-flow-regression.log.
+CSharpier two files/Rustfmt/diff checks pass. Ledger192/565 complete (191native
++1DELETE),373outstanding. Prior55ff6f2 remains local; batch both after published
+49ac462 CI44027838391 terminal. Never cancel current run; .NET job succeeded.
