@@ -62,6 +62,26 @@ context. Both boundary cases and four existing literal ROM cases passed6/6 in
 cases failed because compilation incorrectly succeeded. This checks frontend
 resource accounting; ROM capacity remains the linker's responsibility.
 
+The IR verifier independently applies that same per-function limit, including
+mixed string/span payloads. Reachability also charges span blobs against the
+existing shared 16 MiB program budget before optimization. A second Roslyn test
+accepts exactly 16 MiB of reachable UTF-16 data and rejects an additional span
+payload, retaining member/IL diagnostics. Its unused over-budget root proves
+that accounting follows reachability. This checks IR construction, not ROM fit.
+The positive/negative cases run in both Debug and Release.
+
+All-span stress inputs can reach the independent generic-metadata work budget
+first when repeatedly resolving framework signatures. That guard remains active;
+the mixed-payload case isolates the data limit without increasing either budget.
+It does not establish support for arbitrarily large literal programs.
+
+Before correction both whole-program rejection cases incorrectly succeeded, and
+the verifier accepted five16KiB span payloads. After correction the final
+library/span/literal-budget selection passed236/236 in11.440s, zero skipped,
+exit0 (`/tmp/koh-literal-budgets-final-reviewed.log`). Three native verifier cases
+cover the exact limit, span-only overflow and mixed-payload overflow. Existing
+per-method real-CIL boundaries, canonical ELF round-trip and native linking remain.
+
 ## Metadata work accounting
 
 The real framework reference assembly exposed a false generic-budget rejection.

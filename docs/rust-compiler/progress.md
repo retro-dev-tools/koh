@@ -22,6 +22,24 @@ ROM tests passed6/6 in15.035s; the final library/span/budget selection passed
 231/231 in4.653s, zero skipped, exit0 (`/tmp/koh-span-budget-final.log`).
 This closes a resource-validation bug, not an additional legacy disposition.
 
+Follow-up review found the same omission in IR verification and whole-program
+reachability accounting. Both now charge readonly-span blobs. Debug/Release
+mixed UTF-16/span fixtures accept exactly16MiB of reachable data and reject the
+next span payload with member/IL context. Three verifier cases retain the exact
+64KiB boundary and reject span-only/mixed excess before emission. Both omissions
+were reproduced before fixing them. Final selection:236/236, zero skipped,
+11.440s, exit0 (`/tmp/koh-literal-budgets-final-reviewed.log`). The independent
+generic-metadata work budget remains unchanged; see [limits and evidence](literals.md).
+
+Full three-platform run44187413725 was started on published head e412837.
+Its Linux .NET job completed with114 failures in the legacy C# compiler suite,
+including stale intrinsic dispatch for `memfill`, `memcopy` and graphics contracts.
+Primary downloaded job log: `/tmp/koh-full-linux-dotnet-job.log`. This is an
+unresolved full-validation failure, not grounds for restoring compiler algorithms
+in C# or skipping coverage. Native Linux/Windows/macOS jobs were still running
+at this checkpoint. Final compiler/test deletion and current-head full acceptance
+remain required; no full-validation pass is claimed.
+
 ### Faster iteration and full validation
 
 [Metadata images](fixture-images.md) now build once per serialized nextest run

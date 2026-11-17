@@ -341,6 +341,20 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
                             return Err("Reachable literal data exceeds 16 MiB budget".into());
                         }
                     }
+                    if let Op::ByteSpanLiteral { ref bytes, .. } = instruction.op {
+                        data_bytes += bytes.len();
+                        if data_bytes > 16 * 1024 * 1024 {
+                            let origin =
+                                resolver.instance(identity)?.map_or(identity, |i| i.method);
+                            let name = resolver
+                                .assembly(origin.assembly)?
+                                .method_name(origin.token)?;
+                            return Err(format!(
+                                "{name} IL_{:04x}: Reachable literal data exceeds 16 MiB budget",
+                                instruction.il_offset
+                            ));
+                        }
+                    }
                     if let Op::Call { target, .. } | Op::NewDelegate { target, .. } = instruction.op
                     {
                         if interrupts.values().any(|&handler| handler == target) {

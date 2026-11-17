@@ -1076,7 +1076,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
         .flat_map(|b| &b.instructions)
         .try_fold(0usize, |total, i| {
             total.checked_add(match &i.op {
-                Op::InitializeArray { bytes, .. } => bytes.len(),
+                Op::InitializeArray { bytes, .. } | Op::ByteSpanLiteral { bytes, .. } => {
+                    bytes.len()
+                }
                 Op::StringLiteral(units) => units.len() * 2 + 2,
                 _ => 0,
             })
