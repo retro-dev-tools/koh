@@ -751,10 +751,11 @@ impl Builder<'_, '_> {
                 }
                 (Type::F64, Binary::Add) => "f64.add",
                 (Type::F64, Binary::Subtract) => "f64.sub",
-                (Type::F64, Binary::Multiply) => {
-                    return Err("Binary64 multiplication is not implemented".into());
-                }
+                (Type::F64, Binary::Multiply) => "f64.mul",
                 (Type::F64, Binary::DivideSigned) => "f64.div",
+                (Type::F64, Binary::RemainderSigned) => {
+                    return Err("Unsupported binary64 operation f64.rem".into());
+                }
                 _ => {
                     return Err(format!(
                         "Unsupported floating binary operation {op:?} on {:?}",

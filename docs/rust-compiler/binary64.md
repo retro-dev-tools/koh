@@ -1,8 +1,8 @@
 # Binary64 core
 
 Status: constants, bit transport, addition/subtraction, negation, comparisons and
-eight-byte storage/calls and division are implemented. Multiplication and numeric
-conversions remain explicitly unsupported pending independently correct runtime
+eight-byte storage/calls and multiplication/division are implemented. Numeric
+conversions and remainder remain explicitly unsupported pending independently correct runtime
 lowering. This is not complete `double` or general .NET floating support.
 
 ## IR and ABI
@@ -15,7 +15,7 @@ arrays carry all eight bytes. `System.Double` primitive resolution uses the same
 authenticated framework identity rules as integer and binary32 storage.
 
 Existing integer64 argument/return storage moves the raw bits. Metadata keys
-`f64.add`/`f64.sub`/`f64.div` require `ulong(ulong,ulong)`, while `f64.cmp` requires
+`f64.add`/`f64.sub`/`f64.mul`/`f64.div` require `ulong(ulong,ulong)`, while `f64.cmp` requires
 `byte(ulong,ulong)` and the equal/less/greater/unordered0/1/2/3 contract. Calls
 compile the ordinary reachable library CIL; no host floating execution occurs in
 production. Negation flips bit63. Value/fused-branch comparisons use the same
@@ -38,8 +38,7 @@ at that exponent and emits exponent0 when the rounded significand remains
 subnormal. Separate NaN/infinity/zero handling preserves signed-zero semantics
 and quiets arithmetic NaNs. The53-bit significand plus three rounding/sticky bits
 fits in64 bits, including the addition carry. This requires no `UInt128` or new
-general compiler integer type. The binary64 multiplication routine still uses an unverified path and is not
-selected. Division now uses the independently bounded implementation below.
+general compiler integer type. Multiplication and division use the independently bounded implementations below.
 
 Independent [Rust binary64 arithmetic](https://doc.rust-lang.org/core/primitive.f64.html)
 provides numeric observations consistent with ECMA-335 I.12.1.3. Fourteen boundary
@@ -50,7 +49,7 @@ the significand/bounds argument are not exhaustive verification of every pair.
 
 ## Native tests and source disposition
 
-`driver/float64.rs` runs41 entries in Debug/Release × DMG/CGB (164 ROMs): actual
+`driver/float64.rs` runs57 entries in Debug/Release × DMG/CGB (228 ROMs): actual
 Roslyn R8 constants, arithmetic, both comparison positions, calls, joins,
 references, fields and arrays. The emulator checks all eight result bytes at
 WRAM DFF8, array payload bytes and every surrounding byte/bank/frame guard.
@@ -67,8 +66,8 @@ before and after optimization.
 All four original parameter rows and32 expanded assertions are retained through
 compile/IR verification, complete CPU return, all result bits and guards. One
 method closes; mixed binary64 arithmetic and conversion methods remain open.
-The float disposition group now covers13 of22 methods,47 original
-parameter-expanded cases and310 explicit expanded assertions. No legacy source
+The float disposition group now covers14 of22 methods,51 original
+parameter-expanded cases and342 explicit expanded assertions. No legacy source
 definition is physically retired by this increment.
 
 ## Verification
@@ -84,8 +83,7 @@ Workspace all-target/all-feature checking passed with the existing unused
 `cubes` test helper warning. Separate workspace rustdoc checking passed (zero
 doctests in each of four crates); Rustfmt, CSharpier and diff checks passed.
 These local selections do not establish full migration or cross-platform
-acceptance. Binary64 multiplication and numeric conversions remain
-explicitly unsupported.
+acceptance. Binary64 numeric conversions remain explicitly unsupported.
 
 ## Division
 
@@ -133,3 +131,46 @@ Focused reproduction (with the .NET SDK on PATH or `KOH_DOTNET` set):
 cargo nextest run -p koh-compile --test driver \
   -E 'test(float64::) | test(softfloat_host::)' --locked
 ```
+
+## Multiplication
+
+The former `MulF64` required `UInt128` and flushed subnormal inputs/results. The
+replacement normalizes each finite nonzero operand to53 bits, then constructs
+the exact106-bit product from four32×32 partial products. Low-limb wrap carries
+into the high limb explicitly. Every partial product fits64 bits; the complete
+product fits two64-bit limbs. All wrap additions are explicitly unchecked.
+
+The rounding helper shifts the two limbs with an accumulated sticky bit and
+retains three guard/round/sticky bits. It first accounts for the final
+subnormal scale and then rounds once to nearest, ties to even. Shifts above106
+return signed zero; ordinary CIL shift operands remain bounded1/32/63. A
+rounding carry can promote a subnormal to normal or overflow the largest normal.
+Special-value classification precedes normalization and zero/infinity is invalid.
+
+Generating the whole routine as one function exceeded the existing16 KiB bank
+capacity check. A shared private partial-product function and a private rounding
+function keep each emitted function within that limit. They use ordinary CIL
+calls, reachability, existing64-bit argument/result storage and linker banking;
+there is no new integer type, compiler intrinsic or alternative object format.
+
+Twenty-three boundary pairs plus2048 exponent-stratified pairs compare against
+independent Rust binary64 multiplication. Native ROM cases check all eight
+result bytes and surrounding heap/bank/frame guards for subnormals, halfway
+rounding, normal transition, product carry, overflow, zeros and NaNs. Metadata
+absence still diagnoses at the source member/IL location. Binary64 remainder
+is explicitly rejected with `f64.rem` rather than lowered as integer remainder.
+
+`F64_Arithmetic_MatchesHost` is PORT COMPLETE: original1.25+3.5,5-1.5,2×3.25
+and7/2 execute with independent expected bits in Debug/Release and both
+cartridge modes. All four original rows and32 expanded assertions are retained
+by `OriginalAdd`, `OriginalSubtract`, `Multiplication` and `Division`. One source
+method closes; conversions and the remaining floating group stay open.
+
+Verification:55/55 focused cases passed in170.946s before the review-requested
+double-carry vector was added. The final selected regression passed676/676 in
+381.176s, including228 binary64 ROMs (56 multiplication executions),9323 managed
+numeric observations and all primitive-array CLI cases;292 tests were outside
+the selection. Workspace all-target/all-feature checking, separate rustdoc and
+formatting passed. Independent review found no confirmed defect and its extra
+carry vector is covered by the final run. These local results do not establish
+complete migration, exhaustive numeric proof or cross-platform acceptance.

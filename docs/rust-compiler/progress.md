@@ -13,9 +13,9 @@ float constants/calls/joins/byrefs/fields/arrays and metadata-selected software
 addition/subtraction/multiplication/division, direct sign-bit negation and ordered/unordered comparisons.
 Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
 covered. Other float operations remain unfinished and reject explicitly; this
-does not close the full legacy floating test group. Thirteen float methods now have
-native replacements (47 original parameter-expanded cases,310 explicit expanded
-assertions): the current ledger is150/565 complete,415 outstanding.
+does not close the full legacy floating test group. Fourteen float methods now have
+native replacements (51 original parameter-expanded cases,342 explicit expanded
+assertions): the current ledger is151/565 complete,414 outstanding.
 See [float lowering contract and evidence](float-lowering.md).
 The [multiplication correction](softfloat-multiplication.md) replaces inherited
 subnormal flushing and missing special-value handling before enabling CIL `mul`.
@@ -30,8 +30,8 @@ once without binary64 intermediates and verifies all eight returned bytes in
 WRAM. Checked casts remain open; the148-method ledger is unchanged by this
 additional width coverage. The [binary64 core](binary64.md) now adds distinct typed
 64-bit float constants/storage/calls, corrected software addition/subtraction,
-negation and ordered/unordered comparisons. Numeric conversions and binary64
-multiplication still reject explicitly. Division now uses bounded64-bit long
+negation and ordered/unordered comparisons. Numeric conversions still reject explicitly. Multiplication now uses exact
+two-limb products with final-scale rounding. Division now uses bounded64-bit long
 division with one rounding step at the final normal/subnormal scale.
 Final comparison regression passes606/606 selected tests156.717s, exit0;
 workspace all-target/all-feature check and separate rustdoc pass. Hosted

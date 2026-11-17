@@ -51,7 +51,7 @@ payload bits without a call. Requiring the old `NegF32` helper would add a stack
 frame to a bit operation without improving semantics. The game library helper
 remains available for raw-bit callers; its historical use is not an ABI rule.
 
-Remainder, checked casts and binary64 multiplication/conversions
+Remainder, checked casts and binary64 numeric conversions
 remain unfinished and explicitly reject; remainder diagnostics name `f32.rem`.
 The [integer conversion contract](float-conversions.md) documents signedness,
 rounding and the selected unchecked overflow/NaN policy.

@@ -666,6 +666,8 @@ public static class SoftFloat
         return AddF64(a, b ^ 0x8000000000000000);
     }
 
+    private static ulong MulPartF64(uint a, uint b) => (ulong)a * b;
+
     [KohRuntime("f64.mul")]
     public static ulong MulF64(ulong a, ulong b)
     {
@@ -674,36 +676,92 @@ public static class SoftFloat
         int eb = (int)((b >> 52) & 0x7FF);
         ulong ma = a & 0xFFFFFFFFFFFFF;
         ulong mb = b & 0xFFFFFFFFFFFFF;
-        if (ea == 0 || eb == 0)
+        if (ea == 2047 && ma != 0)
+            return a | 0x0008000000000000;
+        if (eb == 2047 && mb != 0)
+            return b | 0x0008000000000000;
+        bool za = ea == 0 && ma == 0;
+        bool zb = eb == 0 && mb == 0;
+        if ((ea == 2047 && zb) || (eb == 2047 && za))
+            return 0x7ff8000000000000;
+        if (ea == 2047 || eb == 2047)
+            return sign | 0x7ff0000000000000;
+        if (za || zb)
             return sign;
-        ulong siga = ma | 0x10000000000000;
-        ulong sigb = mb | 0x10000000000000;
-        UInt128 prod = (UInt128)siga * (UInt128)sigb; // up to 106 bits
-        int exp = ea + eb - 1023;
-        if (prod >= ((UInt128)1 << 105))
+        if (ea == 0)
         {
-            exp = exp + 1;
-        }
-        else
-        {
-            prod = prod << 1;
-        } // leading 1 at bit 105
-        ulong sig = (ulong)(prod >> 53); // 53-bit significand
-        ulong rem = (ulong)(prod & (((UInt128)1 << 53) - 1));
-        ulong half = (ulong)1 << 52;
-        if (rem > half || (rem == half && (sig & 1) != 0))
-        {
-            sig = sig + 1;
-            if (sig >= ((ulong)1 << 53))
+            ea = 1;
+            while (ma < 0x10000000000000)
             {
-                sig = sig >> 1;
-                exp = exp + 1;
+                ma <<= 1;
+                ea--;
             }
         }
+        else
+            ma |= 0x10000000000000;
+        if (eb == 0)
+        {
+            eb = 1;
+            while (mb < 0x10000000000000)
+            {
+                mb <<= 1;
+                eb--;
+            }
+        }
+        else
+            mb |= 0x10000000000000;
+        ulong low = MulPartF64((uint)ma, (uint)mb);
+        ulong high = MulPartF64((uint)(ma >> 32), (uint)(mb >> 32));
+        ulong cross = MulPartF64((uint)(ma >> 32), (uint)mb);
+        ulong sum = unchecked(low + (cross << 32));
+        if (sum < low)
+            high++;
+        low = sum;
+        high += cross >> 32;
+        cross = MulPartF64((uint)ma, (uint)(mb >> 32));
+        sum = unchecked(low + (cross << 32));
+        if (sum < low)
+            high++;
+        low = sum;
+        high += cross >> 32;
+        return RoundProductF64(low, high, ea + eb - 1023, sign);
+    }
+
+    private static ulong RoundProductF64(ulong low, ulong high, int exp, ulong sign)
+    {
+        int shift = 52;
+        if (high >= 0x20000000000)
+        {
+            exp++;
+            shift++;
+        }
         if (exp >= 2047)
-            return sign | ((ulong)0x7FF << 52);
+            return sign | 0x7ff0000000000000;
         if (exp <= 0)
+            shift += 1 - exp;
+        if (shift > 106)
             return sign;
+        ulong sticky = 0;
+        for (int i = 0; i < shift - 3; i++)
+        {
+            sticky |= low & 1;
+            low = (low >> 1) | (high << 63);
+            high >>= 1;
+        }
+        low |= sticky;
+        ulong sig = low >> 3;
+        ulong tail = low & 7;
+        if (tail > 4 || (tail == 4 && (sig & 1) != 0))
+            sig++;
+        if (exp <= 0)
+            return sign | sig;
+        if (sig == 0x20000000000000)
+        {
+            sig >>= 1;
+            exp++;
+        }
+        if (exp >= 2047)
+            return sign | 0x7ff0000000000000;
         return sign | ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF);
     }
 

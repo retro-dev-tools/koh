@@ -27,6 +27,8 @@ public static class Float64
 
     static double Divide(double a, double b) => a / b;
 
+    static double Remainder(double a, double b) => a % b;
+
     static double Convert(long value) => value;
 
     static int ConvertInt(double value) => (int)value;
@@ -75,7 +77,39 @@ public static class Float64
 
     public static int CompareFractions() => Store((ulong)(uint)Compare(0.1, 0.2));
 
-    public static int UnsupportedMultiply() => Store(Bits(Multiply(1.5, 2.5)));
+    public static int Multiplication() => Store(Bits(Multiply(2.0, 3.25)));
+
+    public static int MultiplyTiny() => Store(Bits(Multiply(From(1), 1.0)));
+
+    public static int MultiplyHalf() => Store(Bits(Multiply(From(1), 0.5)));
+
+    public static int MultiplyOddHalf() => Store(Bits(Multiply(From(3), 0.5)));
+
+    public static int MultiplyTransition() => Store(Bits(Multiply(From(0x001fffffffffffff), 0.5)));
+
+    public static int MultiplyFraction() => Store(Bits(Multiply(0.1, 0.1)));
+
+    public static int MultiplyCarry() =>
+        Store(Bits(Multiply(From(0x3fffffffffffffff), From(0x3ff0000000000001))));
+
+    public static int MultiplyBothCarries() =>
+        Store(Bits(Multiply(From(0x3fffffffffffffff), From(0x3fffffffffffffff))));
+
+    public static int MultiplyOverflow() => Store(Bits(Multiply(From(0x7fefffffffffffff), 2.0)));
+
+    public static int MultiplyZero() => Store(Bits(Multiply(From(0x8000000000000000), 2.0)));
+
+    public static int MultiplyInfinity() => Store(Bits(Multiply(-1.0, From(0x7ff0000000000000))));
+
+    public static int MultiplyInvalid() =>
+        Store(Bits(Multiply(0.0, From(0x7ff0000000000000))) & 0x7ff8000000000000);
+
+    public static int MultiplyNan() =>
+        Store(Bits(Multiply(1.0, From(0x7ff0123456789abc))) & 0x7ff8000000000000);
+
+    public static int OriginalAdd() => Store(Bits(Add(1.25, 3.5)));
+
+    public static int OriginalSubtract() => Store(Bits(Subtract(5.0, 1.5)));
 
     public static int Division() => Store(Bits(Divide(7.0, 2.0)));
 
@@ -120,6 +154,8 @@ public static class Float64
 
     public static int UnsupportedConversion() => Store(Bits(Convert(16777217)));
 
+    public static int UnsupportedRemainder() => Store(Bits(Remainder(5.5, 2.0)));
+
     public static int UnsupportedInteger() => ConvertInt(1.5);
 
     static double Choose(bool first, double a, double b) => first ? a : b;
@@ -127,6 +163,9 @@ public static class Float64
     static void Step(ref double value, double increment) => value += increment;
 
     public static int RawTiny() => Store(Koh.GameBoy.SoftFloat.AddF64(1, 1));
+
+    public static int RawMultiplyTiny() =>
+        Store(Koh.GameBoy.SoftFloat.MulF64(1, 0x3ff0000000000000));
 
     public static int RawDivideTiny() => Store(Koh.GameBoy.SoftFloat.DivF64(1, 0x3ff0000000000000));
 

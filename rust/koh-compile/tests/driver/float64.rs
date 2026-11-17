@@ -22,6 +22,28 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
     for (entry, expected) in [
         ("RawTiny", 2u64),
+        ("RawMultiplyTiny", 1),
+        ("Multiplication", 6.5f64.to_bits()),
+        ("MultiplyTiny", 1),
+        ("MultiplyHalf", 0),
+        ("MultiplyOddHalf", 2),
+        ("MultiplyTransition", 0x0010000000000000),
+        ("MultiplyFraction", (0.1f64 * 0.1).to_bits()),
+        (
+            "MultiplyCarry",
+            (f64::from_bits(0x3fffffffffffffff) * f64::from_bits(0x3ff0000000000001)).to_bits(),
+        ),
+        (
+            "MultiplyBothCarries",
+            (f64::from_bits(0x3fffffffffffffff) * f64::from_bits(0x3fffffffffffffff)).to_bits(),
+        ),
+        ("MultiplyOverflow", 0x7ff0000000000000),
+        ("MultiplyZero", 0x8000000000000000),
+        ("MultiplyInfinity", 0xfff0000000000000),
+        ("MultiplyInvalid", 0x7ff8000000000000),
+        ("MultiplyNan", 0x7ff8000000000000),
+        ("OriginalAdd", 4.75f64.to_bits()),
+        ("OriginalSubtract", 3.5f64.to_bits()),
         ("RawDivideTiny", 1),
         ("Division", 3.5f64.to_bits()),
         ("DivideThird", (1.0f64 / 3.0).to_bits()),
@@ -120,8 +142,8 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
         }
     }
     for (entry, expected) in [
-        ("UnsupportedMultiply", "multiplication"),
         ("UnsupportedConversion", "conversion"),
+        ("UnsupportedRemainder", "f64.rem"),
         ("UnsupportedInteger", "conversion"),
     ] {
         let error = compile::object(&resolver, Some(&format!("Float64::{entry}")))
@@ -133,6 +155,7 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
         ("f64.add", "Main"),
         ("f64.cmp", "CompareNan"),
         ("f64.div", "Division"),
+        ("f64.mul", "Multiplication"),
     ] {
         let mut changed = images[1].clone();
         let offsets: Vec<_> = changed

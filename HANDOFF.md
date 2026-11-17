@@ -1542,3 +1542,45 @@ Formatting/diffchecks passed. No semanticproductionchangesafter663run.
 36126arrayCLIfollowupTERMINALEXIT0 4/4pass20.102s360unselected. Alllocal
 buildsfinished. Readydivisionlogicalcommit; holdpushuntilpublished3a45685CI
 43999660970terminal. Newdivisionmethodledger150/565complete415remaining.
+
+2026-11-17 DIRTYbinary64multiplication afterLOCALd3384e8. Publishedhead3a45685
+CI43999660970stilllive. Red30347EXIT100 originalUInt128referencecannotresolve.
+Exactproductfour32×32partialscombinedlow/high64withcarry; normalizes53bits,
+rightshiftwithjamretains3GRSbitsandroundsonceafterunderflowscale. NaN/inf/zero
+classificationfirst. Initial57160andsharedpartial13566bothEXIT10016KiB
+functionlimit; validcapacitydiagnosticpreserved. SplitordinaryCILprivate
+MulPartF64(one32×32→64multiply) andRoundProductF64(productrounding), noABIor
+publicAPIchange. Current49566LIVE/tmp/koh-f64-mul-round-helper.log selects55
+F64native/softwarehostcases; firstDebugDMGpasses18.641s. Native56entries×4
+=224ROMs(52mul), includestiny/half/transition/carry/specials andoriginalfour
+legacyarithmeticrows. Hostadds22boundary+2048exponentstratifiedmulchecks;
+proposedsourceclosureF64ArithmeticMatchesHost→ledger151/565complete414remain.
+Parentownsallfiles/builds; reviewermayREADONLYcurrentdiffagainstHEADd3384e8.
+Do notedit/build/test/commit/spawn. Needterminalchecks,review,docsandcommit.
+
+49566TERMINALEXIT0 55/55pass170.946s318unselected. Reviewnoconfirmeddefect;
+addedreviewrequestedbothcrosscarryvector(3fffffffffffffff squared) tohostand
+nativefixturesAFTERinitialnativepass; now57entries×4=228ROMs(56mul),23+2048
+newmanagedmulobservations,total9323. Addedexplicitf64.remrejectionandactual
+CILnegativefixture. Nootherproductionchangesafterroundhelpersplit.
+FinalbroaderbuildnowLIVE/tmp/koh-f64-mul-final.log includesallLib/IR/lowering,
+float/softwaremath andproperlyselected4primitivearrayCLIcases. Needterminal
+checks/format/docsandlogicalcommit. Parentownsallfiles/builds.
+
+Nextconversionaudit(readonly): existingToF64flushesF32subnormals; ToF32flushes
+normalF64valuesthatshouldbeF32subnormalsandneedsonefinalscaleRNE. ToU64NaN
+currentlymax, inconsistentwithdeclaredNaN0policy; ToI64oldcommentassumesCLR
+castuniversal, mustuseexplicitKohpolicy. FromU64RNE11discardbitslooksplausible
+butneedsboundaries. FromI64minimumnegationmustbeexplicitunchecked. No edits
+totheseconversionsinmulunit. conv.r.uncurrentlyalwaysF32; beforeenablingR8
+conversionsinspectactualRoslynconv.r.un→conv.r4/r8shape. Preserveu64directF32
+2^63+2^39+1→5F000001; neverwidenthealreadyroundedF32forunsignedtodouble,
+andneverroundF64firstforunsignedtoF32. ValidunsupportedCILisnotmalformed.
+
+14887TERMINALEXIT0/tmp/koh-f64-mul-final.log676/676pass381.176s292unselected;
+all57×4=228F64ROMs(56mul),9323managednumericobservationsincludingreview
+doublecarryvector. f64.remactualCILdiagnosticpasses. 93434workspacecheck
+EXIT0(5.53s existingunusedcubeshelperwarning), separaterustdocEXIT0fourzero
+casecrates. Rustfmt/diff/CSharpierchecks pass. Noactivebuilds. Readylogical
+mulcommit, holdpushuntilpublished3a45685CI43999660970terminal. Ledger151/565
+complete414remaining; nolegacydefinitionsphysicallyretired.
