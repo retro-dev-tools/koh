@@ -261,36 +261,11 @@ impl Classes<'_, '_> {
         let base = if framework == Some(("System", "Object")) {
             None
         } else {
-            let table = ty.extends.table.ok_or("Reference class has no base type")?;
+            ty.extends.table.ok_or("Reference class has no base type")?;
             if ty.extends.row == 0 {
                 return Err("Reference class has no base type".into());
             }
-            Some(if table == TableId::TypeSpec {
-                let specification = metadata
-                    .type_specs
-                    .get(ty.extends.row as usize - 1)
-                    .ok_or("Invalid base TypeSpec")?;
-                let signature = signature::type_spec(
-                    metadata
-                        .blobs
-                        .get(specification.signature)
-                        .map_err(|e| e.to_string())?,
-                )?;
-                let arguments = self
-                    .resolver
-                    .type_instance(identity)?
-                    .map_or_else(Vec::new, |instance| instance.arguments);
-                let bound =
-                    self.resolver
-                        .bind_signature(raw.assembly, &signature, &[], &arguments)?;
-                let TypeSig::Class(encoded) = bound.ty else {
-                    return Err("Class base must name a reference class".into());
-                };
-                self.resolver.signature_type(bound.assembly, encoded)?
-            } else {
-                self.resolver
-                    .resolve_type(raw.assembly, ((table as u32) << 24) | ty.extends.row)?
-            })
+            self.resolver.base_type(identity)?
         };
         let (mut bytes, mut fields, depth) = if let Some(base) = base {
             let layout = self.layout(base)?;

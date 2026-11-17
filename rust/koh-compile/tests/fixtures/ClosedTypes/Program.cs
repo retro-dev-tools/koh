@@ -2,6 +2,33 @@ using System.Runtime.InteropServices;
 
 public static class Program
 {
+    public static int InheritedRemoteMembers()
+    {
+        var cell = new LocalDerived<Payload>(new Payload { Tag = 17, Value = 60000 });
+        return cell.Read().Tag == 17 && cell.Read().Value == 60000 && cell.Tag == 42 ? 42 : 0;
+    }
+
+    public static int InheritedMembers()
+    {
+        var cell = new DerivedCell<byte>(245, 17);
+        return
+            cell.Read() == 245
+            && cell.Value == 245
+            && cell.Tail == 17
+            && cell.Read(42) == 42
+            && cell.Echo(0xFEDCBA9876543210UL) == 0xFEDCBA9876543210UL
+            && ReadInherited(cell, (byte)42) == 42
+            ? 42
+            : 0;
+    }
+
+    static T ReadInherited<T>(object instance, T value)
+    {
+        var cell = (DerivedCell<T>)instance;
+        cell.Value = value;
+        return cell.Read();
+    }
+
     public static int Inheritance()
     {
         var small = new DerivedCell<byte>(245, 17);
@@ -289,6 +316,10 @@ class BaseCell<T>
     }
 
     public T Read() => Value;
+
+    public byte Read(byte marker) => marker;
+
+    public U Echo<U>(U value) => value;
 }
 
 class DerivedCell<T> : BaseCell<T>

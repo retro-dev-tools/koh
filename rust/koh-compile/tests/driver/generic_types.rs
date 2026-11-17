@@ -4,6 +4,166 @@ use rstest::rstest;
 #[path = "../support/metadata.rs"]
 mod metadata;
 
+#[rstest::fixture]
+#[once]
+fn managed() -> Host {
+    super::support::build_fixture_host("ManagedHost")
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn inherited_member_references_bind_the_closed_base(
+    host: &Host,
+    managed: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+    #[values(false, true)] fields: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "ClosedTypes");
+    let library = std::fs::read(
+        directory
+            .path()
+            .join(format!("bin/{configuration}/net10.0/GenericLibrary.dll")),
+    )
+    .unwrap();
+    let resolver = Resolver::new(&[&images[0], &images[1], &library]).unwrap();
+    let image = resolver.assembly(0).unwrap();
+    let data = image.metadata();
+    let mut bytes = images[0].clone();
+    let mut changes = 0;
+    let payload = data
+        .type_defs
+        .iter()
+        .position(|ty| data.strings.get(ty.type_name).unwrap() == "Payload")
+        .unwrap() as u32
+        + 1;
+    for (name, owner, argument) in [
+        (
+            "Program::InheritedMembers",
+            "DerivedCell`1",
+            clrmeta::TypeSig::Primitive(clrmeta::ElementType::U1),
+        ),
+        (
+            "Program::ReadInherited",
+            "DerivedCell`1",
+            clrmeta::TypeSig::MVar(0),
+        ),
+        (
+            "Program::InheritedRemoteMembers",
+            "LocalDerived`1",
+            clrmeta::TypeSig::ValueType(payload << 2),
+        ),
+    ] {
+        let derived = data
+            .type_defs
+            .iter()
+            .position(|ty| data.strings.get(ty.type_name).unwrap() == owner)
+            .unwrap() as u32
+            + 1;
+        let parent = data.type_specs.iter().position(|row|
+            matches!(koh_compile::signature::type_spec(data.blobs.get(row.signature).unwrap()).unwrap(),
+                clrmeta::TypeSig::GenericInst { type_ref, type_args, .. }
+                if type_ref == derived << 2 && type_args == vec![argument.clone()])
+        ).unwrap() as u32 + 1;
+        let method = (1..=data.method_defs.len())
+            .map(|row| 0x06000000 | row as u32)
+            .find(|&token| image.method_name(token).unwrap() == name)
+            .unwrap();
+        for instruction in koh_compile::cil::decode(image.method_body(method).unwrap().il).unwrap()
+        {
+            let koh_compile::cil::Operand::Token(mut token) = instruction.operand else {
+                continue;
+            };
+            if token >> 24 == 0x2b {
+                token = 0x0a000000
+                    | data.method_specs[(token & 0xffffff) as usize - 1]
+                        .method
+                        .row;
+            }
+            if token >> 24 != 0x0a {
+                continue;
+            }
+            let row = &data.member_refs[(token & 0xffffff) as usize - 1];
+            if !matches!(
+                data.strings.get(row.name).unwrap(),
+                "Read" | "Value" | "Echo"
+            ) {
+                continue;
+            }
+            if !fields && data.strings.get(row.name).unwrap() == "Value" {
+                continue;
+            }
+            let (offset, context) = metadata::table_row(
+                &bytes,
+                clrmeta::TableId::MemberRef,
+                (token & 0xffffff) as usize - 1,
+            );
+            let width = context.coded_index_size(clrmeta::CodedIndexKind::MemberRefParent);
+            bytes[offset..offset + width]
+                .copy_from_slice(&((parent << 3) | 4).to_le_bytes()[..width]);
+            changes += 1;
+        }
+    }
+    assert_eq!(changes, if fields { 8 } else { 6 });
+    let assembly = directory
+        .path()
+        .join(format!("bin/{configuration}/net10.0/ClosedTypes.dll"));
+    std::fs::write(&assembly, &bytes).unwrap();
+    let result = super::dotnet()
+        .arg(&managed.dll)
+        .arg(&assembly)
+        .arg("InheritedMembers")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&result.stdout).trim(),
+        if fields {
+            "THROW:System.MissingFieldException"
+        } else {
+            "42"
+        }
+    );
+    let resolver = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let result = compile::object(&resolver, Some("Program::InheritedMembers"));
+    if fields {
+        let error = result
+            .err()
+            .expect("Field reference must name its declaring type");
+        assert!(
+            error.contains("Unresolved field Value") && error.contains("IL_"),
+            "{error}"
+        );
+        return;
+    }
+    for entry in ["InheritedMembers", "InheritedRemoteMembers"] {
+        let object = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            execute_mode(host, directory.path(), &linked, "__koh_exit", "--native"),
+            "00 0000002A D000 OK"
+        );
+    }
+}
+
 #[rstest]
 #[case(8, false)]
 #[case(1024, true)]

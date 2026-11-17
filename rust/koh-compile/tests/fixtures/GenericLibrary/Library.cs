@@ -13,18 +13,6 @@ public static class Library
     public static float Unused() => 0.25f;
 }
 
-public class RemoteBase<T>
-{
-    public T Value;
-
-    public RemoteBase(T value)
-    {
-        Value = value;
-    }
-
-    public T Read() => Value;
-}
-
 public sealed class RemoteMarker : IRemoteMarker
 {
     public ushort Value;
@@ -76,6 +64,18 @@ public sealed class RemoteCell<T>
         Head = 34;
         Value = value;
         Tail = 30601;
+    }
+
+    public T Read() => Value;
+}
+
+public class RemoteBase<T>
+{
+    public T Value;
+
+    public RemoteBase(T value)
+    {
+        Value = value;
     }
 
     public T Read() => Value;

@@ -159,9 +159,8 @@ banked ELF execution, heap/stack guards and resolver-history determinism remain
 checked. Mutating the generic base to sealed must diagnose with IL context.
 This adds runtime coverage without claiming a legacy test-disposition closure.
 
-Inherited MemberRefs that require resolver-level generic signature substitution,
-and generic virtual/interface dispatch, remain separate gaps. Successful direct
-base calls do not establish those contracts.
+Generic virtual/interface dispatch remains separate. Successful direct base calls
+do not establish that contract.
 
 Final selected evidence: `/tmp/koh-inheritance-regression.log` reports438/438
 passing in460.872s, exit0, with375 excluded. This includes library/lowering tests,
@@ -169,3 +168,49 @@ delegates, virtual-slot binding, object identity, IRQ dispatch and all closed-ty
 configurations with sealed-base rejection. Rustfmt and separate all-feature
 workspace rustdoc pass (four crates, zero doc cases). Both formatted C# fixtures
 retain the hashes used in the final run. Full current-head CI remains required.
+
+## Inherited method references
+
+Method lookup can now carry the caller's declaring/method arguments through a
+constructed base chain. The resolved method retains its exact closed declaring
+identity; existing specialization, argument movement and source identity then
+apply. Base traversal is shared with class layout. Lookup checks signatures,
+assembly scopes, overload ambiguity and method arity; traversal and substitution
+are bounded and charged to the existing generic work budget.
+
+The distinction between member inheritance and metadata ownership matters:
+[ECMA-335 II.9.8 and II.22.25](https://ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf)
+identify the declaring type and uninstantiated member signature. A field reference
+naming a derived type that does not declare that field must not be repaired by
+walking its bases. The old resolver did that for nongeneric fields; the new
+resolver diagnoses the unresolved field instead. This changes an erroneous
+metadata lookup, without changing valid C# authoring APIs.
+
+`driver::generic_types::inherited_member_references_bind_the_closed_base` edits
+actual Roslyn metadata and runs Debug/Release × DMG/CGB cases. Valid method cases
+retain inherited overloads, MethodSpec arguments, a generic caller and a foreign
+base returning a local packed payload. Full results execute in the existing
+emulator. Invalid field cases retain an IL-context diagnostic. The managed host
+is a separate compatibility observation; literal values and metadata ownership
+justify the assertions. No legacy source-test disposition is claimed.
+
+An initial test incorrectly expected the edited field reference to execute.
+`/tmp/koh-inherited-members-managed.log` exposed MissingFieldException; isolating
+the edits showed method-only cases execute42 while field edits fail. This was a
+bad test expectation, not evidence for retiring a valid generic capability or
+calling well-formed but unresolved metadata structurally malformed. The earlier
+native acceptance of that field shape was removed. The corrected eight-case
+checkpoint passes65.825s in `/tmp/koh-inherited-members-declaring-final.log`.
+Nested open generic method-signature shapes and general constructed dispatch
+still need broader acceptance; this increment does not claim their completion.
+
+Final owned selection:249/249 pass262.796s, exit0,436 excluded,
+`/tmp/koh-inherited-members-owned-final.log`. Library invariants, all reference
+resolution cases, closed layouts, generic calls and static/byref cases pass.
+The earlier245/249 run exposed four fixture row-collision failures: placing the
+new RemoteBase at the end of GenericLibrary preserves the deliberate equal-row
+local/foreign types and every existing assertion. This was a fixture regression,
+not a reason to remove the collision checks. Final Rustfmt, CSharpier and separate
+workspace/all-feature rustdoc pass (four crates, zero doc cases). Workspace
+discovery lists1,804 tests; all eight new cases are unignored. Discovery is not
+full-suite execution. No legacy source disposition credit is added.

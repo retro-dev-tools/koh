@@ -179,7 +179,10 @@ impl<'r, 'a> Binder<'r, 'a> {
                 let resolved = self
                     .resolver
                     .resolve_method(owner.assembly, ((table as u32) << 24) | token.row)?;
-                if !resolved.type_arguments.is_empty() || !resolved.method_arguments.is_empty() {
+                if resolved.declaring.is_some()
+                    || !resolved.type_arguments.is_empty()
+                    || !resolved.method_arguments.is_empty()
+                {
                     return Err("Generic MethodImpl requires instantiated binding".into());
                 }
                 targets.push(resolved.definition);

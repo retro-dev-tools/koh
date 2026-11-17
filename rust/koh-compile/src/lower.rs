@@ -1434,7 +1434,12 @@ fn translate(
                 return Err("Missing method-pointer token".into());
             };
             let resolver = resolver.ok_or("Method pointer requires metadata resolution")?;
-            let resolved = resolver.resolve_method(method.identity.assembly, token)?;
+            let resolved = resolver.resolve_method_in(
+                method.identity.assembly,
+                token,
+                &b.method_arguments,
+                &b.type_arguments,
+            )?;
             let instantiated = resolver.instantiate_in(
                 &resolved,
                 &b.method_arguments,
@@ -2215,7 +2220,12 @@ fn translate(
                 }
                 return Ok(Control::Jump(b.edge(next()?)));
             }
-            let mut target = resolver.resolve_method(method.identity.assembly, token)?;
+            let mut target = resolver.resolve_method_in(
+                method.identity.assembly,
+                token,
+                &b.method_arguments,
+                &b.type_arguments,
+            )?;
             let constrained_value = if let Some(Type::Struct(value)) = constrained {
                 target.definition = crate::constrained::value_target(
                     resolver,

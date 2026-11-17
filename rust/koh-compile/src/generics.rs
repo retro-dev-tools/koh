@@ -487,7 +487,9 @@ impl Resolver<'_> {
         caller_owner: Option<Definition>,
     ) -> Result<Definition, String> {
         let owner = crate::lower::owner_type(self, target.definition)?;
-        let declaring = if !target.type_arguments.is_empty() {
+        let declaring = if let Some(owner) = target.declaring {
+            Some(owner)
+        } else if !target.type_arguments.is_empty() {
             let arguments = target
                 .type_arguments
                 .iter()

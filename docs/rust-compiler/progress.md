@@ -12,8 +12,10 @@ baseline; authoring needs and hardware constraints determine the new contract.
 
 [Closed base-class layouts](closed-types.md#closed-base-classes) now substitute
 declaring arguments through inherited storage, including nested and referenced
-base types. Generic virtual/interface dispatch and inherited MemberRef signature
-substitution remain open; this does not close another legacy test disposition.
+base types. [Inherited method references](closed-types.md#inherited-method-references)
+now bind caller scopes and exact closed base identities; field references retain
+their declaring-type requirement. Generic virtual/interface dispatch remains
+open; this does not close another legacy test disposition.
 
 Current compiler increment adds distinct binary32 IR, explicit bit transport,
 float constants/calls/joins/byrefs/fields/arrays and metadata-selected software

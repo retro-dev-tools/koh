@@ -1,5 +1,33 @@
 # Native compiler migration handoff
 
+## Current inherited-member unit
+
+Local d530aec plus pending CI/static and inherited-method increments are ready
+for publication after commit. Published6c2da32 CI44097447812 ended failure after
+1328 Rust passes: stale generic-static rejection assertion. .NET fast job passed.
+Primary log /tmp/koh-ci-6c2-completed.log,GH_EXIT0. driver.rs now executes
+NeedsGenericStorage=0 under poison; static capacity rejection is preserved.
+
+Typed inherited-method lookup carries caller scopes and exact closed base owner
+through specialization. Shared base_type replaces duplicate layout binding.
+Field references name their declaring type; the old ancestry search incorrectly
+repaired unresolved fields. Initial edited-field acceptance assumption was wrong
+under ECMA II9.8/22.25, corroborated by CoreCLR FindField. Corrected tests retain
+native method execution42, overloads/MethodSpec/generic caller/foreign packed
+payload and IL-context field rejection. No API/ABI changes or disposition credit.
+
+Final249/249 pass262.796s,exit0,436 excluded,
+/tmp/koh-inherited-members-owned-final.log. Prior245/249 exposed4 deliberate
+row-collision fixture assertions shifted by RemoteBase; moved new type to end,
+retained all assertions. Rustfmt/CSharpier and separate workspace/all-feature
+rustdoc pass (4crates,0doc cases). Discovery1804,all8 new cases unignored. Fixture
+hashes /tmp/koh-members-fixture.sha256 unchanged. No local builds remain live.
+
+Commit static CI assertion fix separately, then metadata/fixture/docs unit. Push
+queued batch now prior CI is terminal; refresh PR55 checklist/new CI and vault.
+Never merge. Ledger229/565,336 outstanding. Constructed virtual/interface dispatch
+and nested open generic method signatures remain open. Full migration incomplete.
+
 ## Current closed-base unit
 
 Published head6c2da323817694b7d5f8d387ba26cf958938f7cc, draft PR55/master.

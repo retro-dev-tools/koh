@@ -5,6 +5,7 @@ use std::collections::HashMap;
 mod arrays;
 mod delegates;
 mod index;
+mod inheritance;
 pub(crate) use arrays::{ArrayMethod, ArrayQuery};
 pub use delegates::DelegateDefinition;
 use index::Index;
@@ -21,6 +22,7 @@ pub struct ResolvedMethod {
     pub type_arguments: Vec<TypeSig>,
     pub method_arguments: Vec<TypeSig>,
     pub argument_assembly: usize,
+    pub(crate) declaring: Option<Definition>,
 }
 
 #[derive(Debug)]
@@ -932,6 +934,16 @@ impl<'a> Resolver<'a> {
     }
 
     pub fn resolve_method(&self, assembly: usize, token: u32) -> Result<ResolvedMethod, String> {
+        self.resolve_method_in(assembly, token, &[], &[])
+    }
+
+    pub(crate) fn resolve_method_in(
+        &self,
+        assembly: usize,
+        token: u32,
+        methods: &[crate::generics::Argument],
+        types: &[crate::generics::Argument],
+    ) -> Result<ResolvedMethod, String> {
         let metadata = self.assembly(assembly)?.metadata();
         match token >> 24 {
             6 => {
@@ -940,6 +952,7 @@ impl<'a> Resolver<'a> {
                 self.check_arity(definition, signature.generic_param_count as usize)?;
                 self.validate_method_types(assembly, &signature, 0)?;
                 Ok(ResolvedMethod {
+                    declaring: None,
                     definition,
                     type_arguments: Vec::new(),
                     method_arguments: Vec::new(),
@@ -960,7 +973,8 @@ impl<'a> Resolver<'a> {
                         .get(specification.instantiation)
                         .map_err(|e| e.to_string())?,
                 )?;
-                let mut method = self.resolve_method(assembly, coded(specification.method)?)?;
+                let mut method =
+                    self.resolve_method_in(assembly, coded(specification.method)?, methods, types)?;
                 self.check_arity(method.definition, arguments.len())?;
                 for argument in &arguments {
                     self.validate_type(assembly, argument, 0)?;
@@ -1033,6 +1047,7 @@ impl<'a> Resolver<'a> {
                     if let Some(definition) = found {
                         self.check_arity(definition, signature.generic_param_count as usize)?;
                         return Ok(ResolvedMethod {
+                            declaring: None,
                             definition,
                             type_arguments,
                             method_arguments: Vec::new(),
@@ -1044,9 +1059,7 @@ impl<'a> Resolver<'a> {
                         break;
                     }
                     if !type_arguments.is_empty() || ty.extends.table == Some(TableId::TypeSpec) {
-                        return Err(format!(
-                            "{name}: inherited generic substitution requires typed binding"
-                        ));
+                        return self.inherited_method(assembly, token, methods, types);
                     }
                     owner = self.resolve_type(owner.assembly, coded(ty.extends)?)?;
                 }
@@ -1082,8 +1095,8 @@ impl<'a> Resolver<'a> {
                 .map_err(|e| e.to_string())?,
         )?;
         self.validate_type(assembly, &signature, 0)?;
-        let (mut owner, type_arguments) = self.parent(assembly, coded(reference.class)?)?;
-        for _ in 0..64 {
+        let (owner, type_arguments) = self.parent(assembly, coded(reference.class)?)?;
+        {
             let image = self.assembly(owner.assembly)?;
             let owner_metadata = image.metadata();
             let mut found = None;
@@ -1130,16 +1143,6 @@ impl<'a> Resolver<'a> {
                     argument_assembly: assembly,
                 });
             }
-            let ty = row(&owner_metadata.type_defs, owner.token, 2)?;
-            if null_index(ty.extends, TableId::TypeDef)? {
-                break;
-            }
-            if !type_arguments.is_empty() || ty.extends.table == Some(TableId::TypeSpec) {
-                return Err(format!(
-                    "{name}: inherited generic substitution requires typed binding"
-                ));
-            }
-            owner = self.resolve_type(owner.assembly, coded(ty.extends)?)?;
         }
         Err(format!("Unresolved field {name} at token 0x{token:08x}"))
     }

@@ -134,7 +134,10 @@ pub(crate) fn value_target(
             }
             let target =
                 resolver.resolve_method(value.assembly, ((table as u32) << 24) | index.row)?;
-            if !target.type_arguments.is_empty() || !target.method_arguments.is_empty() {
+            if target.declaring.is_some()
+                || !target.type_arguments.is_empty()
+                || !target.method_arguments.is_empty()
+            {
                 return Err(
                     "Constructed constrained MethodImpl requires instantiated binding".into(),
                 );
