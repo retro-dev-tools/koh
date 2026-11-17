@@ -530,7 +530,8 @@ Proposed future location: `rust/koh-compiler/tests/banking.rs` (not implemented)
 
 Classification: Boolean algebra with private normalized nodes. Comparisons produce 0/1; comparisons of arbitrary integers must not be treated as booleans.
 
-Proposed future location: `rust/koh-compiler/tests/comparisons.rs` (not implemented).
+Complete native replacement: [comparison/conversion contracts](optimizer-scalar-contracts.md),
+`rust/koh-compile/tests/{lowering,sm83}.rs`.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
@@ -544,7 +545,8 @@ Proposed future location: `rust/koh-compiler/tests/comparisons.rs` (not implemen
 
 Classification: Conversion identities and private pipeline order. Truncate-to-original-width after extension preserves low bits; extension after truncation loses high bits and cannot generally be removed.
 
-Proposed future location: `rust/koh-compiler/tests/conversions.rs` (not implemented).
+Complete native replacement: [comparison/conversion contracts](optimizer-scalar-contracts.md),
+`rust/koh-compile/tests/{lowering,sm83}.rs`.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
@@ -653,7 +655,7 @@ Proposed future location: `rust/koh-compiler/tests/symbols.rs` (not implemented)
 
 ## Coverage accounting and acceptance boundary
 
-Disposition totals: **PORT 105, REPLACE 185, DELETE 0**;
+Disposition totals: **PORT 105, REPLACE 184, DELETE 1**;
 total **290**, matching the source [Test] attribute count. No DEFER entries.
 Only the migration-ledger inventory was checked here; the native files named above
 are destinations, not acceptance results. The old suite mixes direct IR construction,

@@ -4,12 +4,70 @@ use rstest::fixture;
 use std::path::Path;
 #[path = "support/liveness.rs"]
 mod liveness;
+#[path = "support/optimizer_contracts.rs"]
+mod optimizer_contracts;
 #[path = "support/recursion.rs"]
 mod recursion_fixture;
 #[path = "support/sum_loop.rs"]
 mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case(8)]
+#[case(16)]
+#[case(32)]
+#[case(64)]
+fn comparison_chain_optimization_preserves_boolean_and_integer_semantics(
+    host: &Host,
+    #[case] bits: u16,
+    #[values("double-negation", "ne-zero", "eq-zero", "eq-one", "nonboolean")] shape: &str,
+) {
+    let function = optimizer_contracts::comparison(bits, shape);
+    verify(&function).unwrap();
+    let mut optimized = function.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    verify(&optimized).unwrap();
+    let mut cases = Vec::new();
+    for (a, b) in optimizer_contracts::comparison_pairs(bits) {
+        let expected = optimizer_contracts::comparison_expected(bits, shape, a, b);
+        for f in [&function, &optimized] {
+            cases.push((f.clone(), vec![a, b], Ok(expected)));
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+#[case(8)]
+#[case(16)]
+#[case(32)]
+fn conversion_chain_optimization_preserves_bits_and_wraparound(
+    host: &Host,
+    #[case] bits: u16,
+    #[values(
+        "zero-roundtrip",
+        "sign-roundtrip",
+        "different-width",
+        "reverse",
+        "increment"
+    )]
+    shape: &str,
+) {
+    let function = optimizer_contracts::conversion(bits, shape);
+    verify(&function).unwrap();
+    let mut optimized = function.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    verify(&optimized).unwrap();
+    let mut cases = Vec::new();
+    for value in optimizer_contracts::CONVERSION_VALUES {
+        let expected = optimizer_contracts::conversion_expected(bits, shape, value);
+        for f in [&function, &optimized] {
+            cases.push((f.clone(), vec![value], Ok(expected)));
+        }
+    }
+    run(host, &cases);
+}
 
 #[rstest::rstest]
 #[case(0xd6u8)]

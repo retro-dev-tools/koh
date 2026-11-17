@@ -4,6 +4,94 @@ use koh_compile::{
     resolve::Definition,
 };
 use rstest::rstest;
+#[path = "support/optimizer_contracts.rs"]
+mod optimizer_contracts;
+
+#[rstest]
+#[case(8)]
+#[case(16)]
+#[case(32)]
+#[case(64)]
+fn comparison_chain_optimization_matches_independent_predicates(
+    #[case] bits: u16,
+    #[values("double-negation", "ne-zero", "eq-zero", "eq-one", "nonboolean")] shape: &str,
+) {
+    let function = optimizer_contracts::comparison(bits, shape);
+    let mut optimized = function.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    verify(&function).unwrap();
+    verify(&optimized).unwrap();
+    let mut pairs = optimizer_contracts::comparison_pairs(bits).to_vec();
+    let mut seed = 0x243f_6a88_85a3_08d3u64;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    for index in 0..512 {
+        let mut a = next();
+        let b = if index % 4 == 0 { a } else { next() };
+        if index % 8 == 1 {
+            a = 0;
+        }
+        if index % 8 == 2 {
+            a = 2;
+        }
+        pairs.push((a, b));
+    }
+    for (a, b) in pairs {
+        let expected = optimizer_contracts::comparison_expected(bits, shape, a, b);
+        for f in [&function, &optimized] {
+            assert_eq!(
+                execute_with(f, &[a, b]),
+                expected,
+                "{bits} {shape} {a:x} {b:x}"
+            );
+        }
+    }
+}
+
+#[rstest]
+#[case(8)]
+#[case(16)]
+#[case(32)]
+fn conversion_chain_optimization_matches_masks_and_modular_increment(
+    #[case] bits: u16,
+    #[values(
+        "zero-roundtrip",
+        "sign-roundtrip",
+        "different-width",
+        "reverse",
+        "increment"
+    )]
+    shape: &str,
+) {
+    let function = optimizer_contracts::conversion(bits, shape);
+    let mut optimized = function.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    verify(&function).unwrap();
+    verify(&optimized).unwrap();
+    let mut values = optimizer_contracts::CONVERSION_VALUES.to_vec();
+    values.extend((0..256).map(|v| 0xfedc_ba98_7654_3200 | v));
+    let mut seed = 0x1319_8a2e_0370_7344u64;
+    for _ in 0..512 {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        values.push(seed);
+    }
+    for value in values {
+        let expected = optimizer_contracts::conversion_expected(bits, shape, value);
+        for f in [&function, &optimized] {
+            assert_eq!(
+                execute_with(f, &[value]),
+                expected,
+                "{bits} {shape} {value:x}"
+            );
+        }
+    }
+}
 
 fn method(il: &[u8]) -> Method<'_> {
     Method {

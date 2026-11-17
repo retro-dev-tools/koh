@@ -1954,3 +1954,14 @@ unchanged,385outstanding,zero physicallyretired. Committhenbatch4b229d3+Mul
 aftergreenpublished401622aCI44020313613:1592Rust+doc+.NET562/2UIskips.
 Primary/tmp/koh-ci-401622a-completed.logGH_EXIT0. Verifyremotehead/newCI/PR
 draft/master,refreshconcisechecklistandvault.No localbuilds/reviewsremain.
+
+## Scalar optimizer contract increment
+
+Comparison/conversion groups:11 source methods,43 assertion sites replaced
+by70 rstest cases,920 ROM executions and44,440 independent IR evaluations.
+Full lowering+sm83 targets310/310 pass510.277s zero skips, EXIT0 verified
+from terminal session64981 and /tmp/koh-opt-contracts-final.log. Tests only;
+no production optimizer changes or old graph-rewrite claims. Ledger191/565
+(190native+1DELETE),374 outstanding,zero physically removed. Source matrix
+totals corrected105PORT/184REPLACE/1DELETE. CI44027838391 remains in_progress
+on published49ac462; do not cancel. Commit locally, batch push after CI.

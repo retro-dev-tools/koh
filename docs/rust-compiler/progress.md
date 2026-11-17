@@ -21,7 +21,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-180/565 dispositions complete (179 native replacements, one DELETE),385 outstanding,
+191/565 dispositions complete (190 native replacements, one DELETE),374 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The remaining five [CGB HAL methods](cgb-hal.md) now check actual referenced
 code, both VRAM banks, all palette bytes and CGB-only CPU writes.
@@ -1620,3 +1620,11 @@ log confirms584/584,0skips,271.132s. Current graphics-head hosted proof is separ
 Graphics commit `7c8b917` passed post-commit focused checks4/4,exit0,18.300s
 (`/tmp/koh-tiles-postcommit.log`). The separate roadmap refresh changes only
 documentation; it does not add code verification claims.
+
+## Scalar optimizer contract migration
+
+Eleven [comparison/conversion source methods](optimizer-scalar-contracts.md)
+now have complete native replacements:70 new parameterized cases,920 ROM
+executions and44,440 before/after IR evaluations. Both full affected targets
+passed310/310, zero skipped,510.277s, exit0. Ledger191/565 complete,374
+outstanding; no legacy compiler/test definitions physically removed.
