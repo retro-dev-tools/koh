@@ -142,23 +142,64 @@ public static class SoftFloat
         int eb = (int)((b >> 23) & 0xFF);
         uint ma = a & 0x7FFFFF;
         uint mb = b & 0x7FFFFF;
-        if (ea == 0 || eb == 0)
-            return sign; // 0 * x = 0 (subnormals flushed to zero)
-        uint siga = ma | 0x800000;
-        uint sigb = mb | 0x800000;
-        ulong prod = (ulong)siga * (ulong)sigb; // up to 48 bits
-        int exp = ea + eb - 127;
-        if (prod >= ((ulong)1 << 47))
+        if (ea == 255 && ma != 0)
+            return a | 0x00400000;
+        if (eb == 255 && mb != 0)
+            return b | 0x00400000;
+        if (ea == 255 || eb == 255)
         {
-            exp = exp + 1;
+            if ((ea == 0 && ma == 0) || (eb == 0 && mb == 0))
+                return 0x7fc00000;
+            return sign | 0x7f800000;
+        }
+        if ((ea == 0 && ma == 0) || (eb == 0 && mb == 0))
+            return sign;
+        if (ea == 0)
+        {
+            ea = 1;
+            while (ma < 0x800000)
+            {
+                ma <<= 1;
+                ea--;
+            }
         }
         else
         {
-            prod = prod << 1;
-        } // leading 1 now at bit 47
-        uint sig = (uint)(prod >> 24); // 24-bit significand (bit 23 = leading 1)
-        uint rem = (uint)(prod & 0xFFFFFF); // low 24 bits -> rounding
-        uint half = 0x800000;
+            ma |= 0x800000;
+        }
+        if (eb == 0)
+        {
+            eb = 1;
+            while (mb < 0x800000)
+            {
+                mb <<= 1;
+                eb--;
+            }
+        }
+        else
+        {
+            mb |= 0x800000;
+        }
+        ulong prod = (ulong)ma * mb;
+        int exp = ea + eb - 127;
+        int shift = 23;
+        if (prod >= ((ulong)1 << 47))
+        {
+            shift = 24;
+            exp++;
+        }
+        if (exp >= 255)
+            return sign | 0x7f800000;
+        if (exp <= 0)
+        {
+            shift += 1 - exp;
+            exp = 0;
+        }
+        if (shift >= 64)
+            return sign;
+        uint sig = (uint)(prod >> shift);
+        ulong rem = prod & (((ulong)1 << shift) - 1);
+        ulong half = (ulong)1 << (shift - 1);
         if (rem > half || (rem == half && (sig & 1) != 0))
         {
             sig = sig + 1;
@@ -170,8 +211,8 @@ public static class SoftFloat
         }
         if (exp >= 255)
             return sign | ((uint)0xFF << 23);
-        if (exp <= 0)
-            return sign;
+        if (exp == 0 && sig >= 0x800000)
+            exp = 1;
         return sign | ((uint)exp << 23) | (sig & 0x7FFFFF);
     }
 

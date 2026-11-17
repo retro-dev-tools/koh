@@ -64,6 +64,7 @@ fn roslyn_float_arithmetic_calls_joins_and_references_execute(
     .unwrap();
     koh_compile::ir::verify(&direct).unwrap();
     for (entry, expected) in [
+        ("RawProduct", "00000001"),
         ("Main", "40800000"),
         ("Negative", "BFE00000"),
         ("Join", "40800000"),
@@ -79,6 +80,19 @@ fn roslyn_float_arithmetic_calls_joins_and_references_execute(
         ("NegatedTiny", "80000001"),
         ("NegatedInfinity", "FF800000"),
         ("NegatedNan", "FFC12345"),
+        ("Product", "40C00000"),
+        ("TransitionProduct", "00800000"),
+        ("HalfProduct", "00000000"),
+        ("DeepUnderflowProduct", "00000000"),
+        ("ZeroProduct", "80000000"),
+        ("OverflowProduct", "7F800000"),
+        ("InfinityProduct", "FF800000"),
+        ("NanProduct", "7FC00000"),
+        ("NegativeProduct", "C0C00000"),
+        ("TinyProduct", "00000002"),
+        ("UnderflowProduct", "00400000"),
+        ("InvalidProduct", "7FC00000"),
+        ("TieProduct", "3F802002"),
     ] {
         let name = format!("Program::{entry}");
         let mut object = compile::object_with_debug(&resolver, Some(&name), &[Some(&pdb), None])

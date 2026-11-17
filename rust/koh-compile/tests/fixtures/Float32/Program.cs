@@ -17,6 +17,38 @@ public static class Program
 
     static float Negate(float value) => -value;
 
+    static float Multiply(float left, float right) => left * right;
+
+    public static int RawProduct() => unchecked((int)Koh.GameBoy.SoftFloat.MulF32(1, 0x3f800000));
+
+    public static int Product() => Bits(Multiply(2.0f, 3.0f));
+
+    public static int TransitionProduct() =>
+        Bits(Multiply(FromBits(0x007fffff), FromBits(0x3f800001)));
+
+    public static int HalfProduct() => Bits(Multiply(FromBits(1), 0.5f));
+
+    public static int DeepUnderflowProduct() => Bits(Multiply(FromBits(1), FromBits(1)));
+
+    public static int ZeroProduct() => Bits(Multiply(FromBits(unchecked((int)0x80000000)), 2.0f));
+
+    public static int OverflowProduct() =>
+        Bits(Multiply(FromBits(0x7f7ffffe), FromBits(0x3f800001)));
+
+    public static int InfinityProduct() => Bits(Multiply(FromBits(0x7f800000), -0.5f));
+
+    public static int NanProduct() => Bits(Multiply(FromBits(0x7fa12345), 1.0f)) & 0x7fc00000;
+
+    public static int NegativeProduct() => Bits(Multiply(-1.5f, 4.0f));
+
+    public static int TinyProduct() => Bits(Multiply(FromBits(1), 1.5f));
+
+    public static int UnderflowProduct() => Bits(Multiply(FromBits(0x00800000), 0.5f));
+
+    public static int InvalidProduct() => Bits(Multiply(0.0f, FromBits(0x7f800000))) & 0x7fc00000;
+
+    public static int TieProduct() => Bits(Multiply(FromBits(0x3f800800), FromBits(0x3f801800)));
+
     public static int Difference() => Bits(Subtract(1.5f, 2.5f));
 
     public static int TinyDifference() => Bits(Subtract(FromBits(1), FromBits(2)));

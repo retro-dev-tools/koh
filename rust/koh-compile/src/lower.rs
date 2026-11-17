@@ -692,6 +692,7 @@ impl Builder<'_, '_> {
             let key = match op {
                 Binary::Add => "f32.add",
                 Binary::Subtract => "f32.sub",
+                Binary::Multiply => "f32.mul",
                 _ => return Err("Unsupported float32 binary operation".into()),
             };
             let bits = self.float_call(key, left.0, right.0)?;

@@ -1,6 +1,6 @@
 # Native floating CIL lowering increment
 
-Status: binary32 addition/subtraction/negation/comparisons/storage implemented; full floating-language support remains incomplete.
+Status: binary32 addition/subtraction/multiplication/negation/comparisons/storage implemented; full floating-language support remains incomplete.
 
 Float values need distinct IR types; treating them as integer stack values would
 accept invalid mixed CIL and permit integer optimizations to change float
@@ -32,7 +32,7 @@ storage. The IR distinguishes `F32` from integers. `Reinterpret` permits only
 `I32`/`F32` bit transport; integer arithmetic, comparisons and numeric conversion
 cannot consume a float. SM83 uses the existing four-byte calling/storage ABI.
 
-Addition/subtraction select `f32.add`/`f32.sub` from qualified `Koh.GameBoy.KohRuntimeAttribute`
+Addition/subtraction/multiplication select `f32.add`/`f32.sub`/`f32.mul` from qualified `Koh.GameBoy.KohRuntimeAttribute`
 metadata owned by assembly `Koh.GameBoy`. The selected method must be static,
 nongeneric managed CIL with raw signature `uint(uint, uint)`. Missing keys,
 duplicates, invalid declarations/payloads and missing implementation bodies are
@@ -51,7 +51,7 @@ payload bits without a call. Requiring the old `NegF32` helper would add a stack
 frame to a bit operation without improving semantics. The game library helper
 remains available for raw-bit callers; its historical use is not an ABI rule.
 
-Multiplication, division, numeric float
+Division, numeric float
 conversions and binary64 lowering remain unfinished and explicitly reject.
 This increment does not retire those requirements or claim general .NET float
 compatibility. The separate addition arithmetic tests cover subnormals, rounding,
@@ -60,7 +60,7 @@ signed zeros, infinities and NaNs; they are not exhaustive IEEE verification.
 ## Evidence
 
 `tests/driver/float32.rs` compiles actual Roslyn Debug/Release assemblies for DMG
-and CGB, executing 60 ROMs across arithmetic, calls, joins, references, fields and
+and CGB, executing 116 ROMs across arithmetic, calls, joins, references, fields and
 arrays. Negation includes all three old finite inputs plus tiny values,
 infinity and NaN. Subtraction checks finite values, gradual underflow and
 infinity-minus-infinity. It checks full return bits, frame guards, PDB/ELF/KDBG provenance,

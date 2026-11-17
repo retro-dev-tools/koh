@@ -10,13 +10,18 @@ baseline; authoring needs and hardware constraints determine the new contract.
 
 Current compiler increment adds distinct binary32 IR, explicit bit transport,
 float constants/calls/joins/byrefs/fields/arrays and metadata-selected software
-addition/subtraction, direct sign-bit negation and ordered/unordered comparisons.
+addition/subtraction/multiplication, direct sign-bit negation and ordered/unordered comparisons.
 Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
 covered. Other float operations remain unfinished and reject explicitly; this
 does not close the full legacy floating test group. Two negation and three
 comparison/branch/join methods now have native replacements: the current ledger
 is142/565 complete,423 outstanding.
 See [float lowering contract and evidence](float-lowering.md).
+The [multiplication correction](softfloat-multiplication.md) replaces inherited
+subnormal flushing and missing special-value handling before enabling CIL `mul`.
+It adds26 boundary and256 exponent-stratified numeric observations plus56 native
+multiplication executions. Division/conversions/binary64 remain unfinished;
+this does not close the mixed arithmetic source test or change the ledger.
 Final comparison regression passes606/606 selected tests156.717s, exit0;
 workspace all-target/all-feature check and separate rustdoc pass. Hosted
 cceba4c run43981727648 stopped after1073 passes on an obsolete `FloatArray`

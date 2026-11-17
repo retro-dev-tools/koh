@@ -1355,3 +1355,27 @@ separatelyeed0a91(3files), notyetpushed. Currentcomparisonfeature readycommit;
 thenpush4286856+eed0a91+featureONEbatch. NewfullCIrequired, cceba4cCIisFAILED,
 notgreen. No localprocessesremain. Nextfloatruntimealgorithms/conversionsneed
 independentedgevalidationbeforelowering; nofullIEEE/overallmigrationclaim.
+
+2026-11-17 dirtyFloat32multiplicationincrementafterf8ca6c6: primaryraw1*1.0 old
+helperreturns0 BOTH actualROM(56627EXIT100) andCLR(host77470EXIT1002/2fail).
+FixedonlyMulF32ordinaryruntimebody: classifyNaN/inf/zero; normalize nonzero
+subnormals; exact48bitproduct; oneRNEroundafterunderflowshift; normal/subnormal/
+infcarry andshift>=64guard. NoAPIchange. Hostfirst22boundaries+256sweep pass,
+85758EXIT1002pass1fail: rawROMnowcorrect, actualtypedCILmul stillunsupported.
+EnabledBinaryMultiply→metadataf32.mulcheckeduint(uint,uint) ordinarybody.
+65454EXIT0 initial20/20pass76.365s; latesttests26boundaries+256sweep and13typed
+mulentries+1rawentry D/R DMG/CGB (56mulROMs;116fullFloat32ROMs). Newdocs
+softfloat-multiplication.md mathrationale/oracle/limits. Ledger142unchanged,
+fullmixedarithmeticmethodstillhasdivisionrowsoutstanding. Nofeature retirement.
+Current66614live /tmp/koh-float-mul-final.log selects28driver/SDKcases: allFloat32,
+comparison,rawAddF32,softwarehostmath andSDKfloatpathswithspaces. Atlastpoll25pass,
+2SDKpending. DoNOTbuildconcurrently. Finishlog,workspacecheck/separaterustdoc/
+format,logicalcommitlocally. f8ca6c6CI43984479501stillconfirmedin_progress;
+holdpushuntilterminal, batchfuturelogicalcommits. No newagents; parentownsfiles.
+66614TERMINAL EXIT0 28/28pass235.656s320unselected. All116Float32ROMs(56mul),
+284comparisonROMs,80rawAddROMs,697managednumericobservations and2SDKadd-entry
+D/R builds/execution pass. SDKcasesdoNOTclaimmulentryexecution; native driver
+provesmul. Checks43537finishing logs /tmp/koh-float-mul-check.log and
+/tmp/koh-float-mul-doc.log; readterminalbeforecommit. CI43984479501stilllive.
+43537TERMINALworkspacealltargets/allfeaturescheckEXIT0(5.24s, existingunused
+cubeshelperwarning), separaterustdocEXIT0zerocases. Rustfmt/diffcheckpass.
