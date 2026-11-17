@@ -28,6 +28,38 @@ if (startupFrames >= 2000)
     throw new InvalidOperationException("Showcase did not start");
 byte[] Read(ushort address, int count) =>
     Enumerable.Range(address, count).Select(i => gb.Mmu.DebugRead((ushort)i)).ToArray();
+if (args.Length > 1 && args[1] == "timeline")
+{
+    using var timeline = File.Create(args[0] + ".timeline");
+    for (int frame = 0; frame < 6000; frame++)
+    {
+        Frame();
+        var digits = Read(0x9C06, 5);
+        timeline.Write(digits);
+        timeline.Write(Read(0xFE00, 16));
+        timeline.Write(Read(0xFF47, 2));
+        timeline.Write(gb.Ppu.BgPalette.RawData[..8]);
+        timeline.Write(gb.Ppu.ObjPalette.RawData[..8]);
+        int score = 0;
+        foreach (byte digit in digits)
+        {
+            if (digit == 16)
+                continue;
+            if (digit < 32 || digit > 41)
+            {
+                score = -1;
+                break;
+            }
+            score = score * 10 + digit - 32;
+        }
+        if (score >= 80 * 17)
+        {
+            Console.WriteLine($"{bootFrames} {startupFrames} {frame + 1} {guard.Violations.Count}");
+            return;
+        }
+    }
+    throw new InvalidOperationException("Showcase timeline did not complete");
+}
 byte scroll = gb.Mmu.DebugRead(0xFF43);
 byte[] oam = Read(0xFE00, 160);
 int scrollChanges = 0;

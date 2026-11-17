@@ -100,7 +100,10 @@ These standalone groups are outside the565-method inventory; nothing is DEFERred
 The first four named methods now have complete Rust replacements in four
 `driver.rs::full_graphics_showcase_boots_and_animates` cases. They execute the
 unchanged sample through real DMG/CGB boot and retain chronological HUD progress.
-The other five remain partial/outstanding; see the linked disposition matrix.
+The other five now have complete PORT replacements through the extended
+[timeline matrix](showcase-timeline.md):24 assertion sites/36 expanded checks,
+exact sprite phases and both palette themes through79 updates. All nine methods
+are complete; the following bullets record their retained requirements.
 
 - **REPLACE** `Demo_CompilesWithoutDiagnostics`, `Demo_LinksToBootableRom`: real sample acceptance; managed IR verifier and partial header bytes become ELF/header/boot checks.
 - **PORT** `WindowMap_SpellsScoreViaFontBasePlusOffset`: stable SCORE glyphs after >=2 completed iterations.

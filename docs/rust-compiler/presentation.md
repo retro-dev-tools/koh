@@ -92,6 +92,7 @@ cases in48.744s, both exit0. Separate workspace documentation tests passed
 Full 1024-cell spans on both CGB maps now have executable checks. The inherited
 LY margin is still not a proof for every possible transfer start phase or future
 generated-code cost. Interrupt-driven updates and reentrancy remain unimplemented.
-Palette toggles across60 logical iterations and exact sprite/score phase relations
-from the legacy sample tests remain outstanding. The API audit must revisit
-these contracts rather than infer them from a passing HUD or one transfer phase.
+The later [showcase timeline](showcase-timeline.md) now closes palette toggles
+across60 logical iterations and exact sprite/score phases with simultaneous
+OAM/palette observations for every update through79. This is sample acceptance,
+not a general interrupt/reentrancy or arbitrary transfer-phase proof.

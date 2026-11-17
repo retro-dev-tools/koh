@@ -31,14 +31,14 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:214/565 methods (213 native behavioral replacements,
+**Complete dispositions:219/565 methods (218 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
 Six [interrupt/vector/dispatch methods](interrupts.md) now have complete native
 replacements (11 original assertion sites).
 Eleven [comparison/conversion optimizer methods](optimizer-scalar-contracts.md)
 now have complete native semantic replacements (43 source assertion sites).
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 351 methods still have
+The remaining 346 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -510,9 +510,11 @@ alongside4 sprite cases (`/tmp/koh-presentation-final-focused.log`, exit0).
 | Lcdc_HasBgObjAndWindowEnabled | LCD/BG/OBJ/window enable bits are hardware-visible display requirements | PORT: host requires LCDC=F3 before observing ongoing scroll/sprite/HUD progress |
 
 These are public game/toolchain contracts. No compiler-owned test is deferred.
-The remaining five graphics-demo methods are partial/outstanding: independent
-quarter-turn geometry does not yet replace exact sprite/score phase assertions,
-and the short observation window does not prove a60-iteration palette toggle.
+The remaining five methods now have complete PORT replacements covering24
+original assertion sites (36 expanded), with exact phase/OAM/palette timelines
+through79 completed updates. All four extended Debug/Release × DMG/CGB cases
+pass47.303s, exit0,440 other driver cases excluded. This closes all nine showcase
+methods. See the [per-method timeline matrix](showcase-timeline.md).
 The new full-map Fill/Clear checks strengthen hardware coverage but do not close
 the separate scattered-span/DMG-drip source methods without their own audit.
 See [presentation decisions and limits](presentation.md).

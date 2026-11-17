@@ -2178,3 +2178,15 @@ Ledger214/565 complete (213 native+1 DELETE),351 outstanding; no definitions
 physically removed. See docs/rust-compiler/original-2048.md. No production
 compiler/emulator changes. Pending discovery/commit; hosted predecessor CI
 44077140986 is still running, do not cancel by pushing pending docs early.
+
+## Showcase timeline closure
+
+Five additional source methods/24 assertion sites (36 expanded) have complete
+PORT replacements; all nine graphics-demo methods are closed. Four existing
+rstest cases now check every coherent update through79, exact OAM and both
+DMG/CGB palette themes. Final4/4 pass47.303s,exit0,440 excluded; primary
+/tmp/koh-showcase-timeline-final.log. Ledger219/565 complete (218 native+1 DELETE),
+346 outstanding,zero physically removed. No new production game/emulator code.
+Docs/showcase-timeline.md records coherence limits. Next: remaining cube sample
+source dispositions, then broader compiler groups/product gaps. Published
+3dbd750 CI44077140986 remains active; pending local commits must not cancel it.

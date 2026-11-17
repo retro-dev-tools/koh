@@ -41,6 +41,8 @@ mod pdb;
 mod rectangular;
 #[path = "driver/recursion.rs"]
 mod recursion;
+#[path = "driver/showcase.rs"]
+mod showcase;
 #[path = "driver/softfloat_bits.rs"]
 mod softfloat_bits;
 #[path = "driver/softfloat_host.rs"]
@@ -1802,6 +1804,30 @@ fn full_graphics_showcase_boots_and_animates(
             (0..160).all(|x| rgba[x * 4..x * 4 + 4] == colors[((x + phase) / 8) & 1])
         })),
         "rendered checkerboard must match a documented palette and scroll phase"
+    );
+    let timeline = dotnet()
+        .arg(&showcase_host.dll)
+        .arg(&rom)
+        .arg("timeline")
+        .output()
+        .unwrap();
+    assert!(
+        timeline.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&timeline.stdout),
+        String::from_utf8_lossy(&timeline.stderr)
+    );
+    let summary: Vec<usize> = String::from_utf8(timeline.stdout)
+        .unwrap()
+        .split_whitespace()
+        .map(|s| s.parse().unwrap())
+        .collect();
+    assert_eq!(summary.len(), 4);
+    assert!(summary[0] < 600 && summary[1] < 2000 && summary[2] <= 6000);
+    assert_eq!(summary[3], 0, "timeline mode3 writes");
+    showcase::assert_timeline(
+        &std::fs::read(rom.with_extension("gb.timeline")).unwrap(),
+        color,
     );
     if configuration == "Release" && color {
         let mut corrupt = std::fs::read(&rom).unwrap();

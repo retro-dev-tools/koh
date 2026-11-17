@@ -23,7 +23,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-214/565 dispositions complete (213 native replacements, one DELETE),351 outstanding,
+219/565 dispositions complete (218 native replacements, one DELETE),346 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The remaining five [CGB HAL methods](cgb-hal.md) now check actual referenced
 code, both VRAM banks, all palette bytes and CGB-only CPU writes.
@@ -1713,3 +1713,13 @@ cases excluded. This includes the four existing board/stack-buffer regressions.
 Whole-game checks cover full cartridge logo/checksums, boot, four input moves,
 score/spawn transitions, HUD/map bytes, exact OAM and every board/cursor pixel.
 The ledger advances to214/565 complete,351 outstanding; no physical retirement.
+
+## Graphics showcase timeline closure
+
+The [five remaining showcase methods](showcase-timeline.md) now have complete
+PORT replacements retaining24 original assertion sites/36 expanded assertions.
+Every coherent completed phase through79 must appear in order with exact sprite
+OAM and DMG/CGB palette packets. Final4/4 passes47.303s,exit0,440 driver cases
+excluded (/tmp/koh-showcase-timeline-final.log). No production game/emulator
+changes. All nine showcase methods are closed; ledger219/565 complete,346
+outstanding,zero physically removed.
