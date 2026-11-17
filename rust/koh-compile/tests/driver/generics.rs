@@ -72,6 +72,7 @@ fn generic_method_instances_execute_transitively(
     )
     .unwrap();
     for (entry, expected) in [
+        ("GenericRectangles", "0000002A"),
         ("Main", "00000082"),
         ("Wide", "0000002A"),
         ("References", "0000002A"),
@@ -217,6 +218,10 @@ fn generic_method_instances_execute_transitively(
         }
     }
     for (entry, expected) in [
+        (
+            "GenericRankThree",
+            "Rectangular array rank 3 is unsupported",
+        ),
         ("InvalidActivation", "Generic construction requires"),
         (
             "Expanding",

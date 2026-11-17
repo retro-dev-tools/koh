@@ -1482,7 +1482,7 @@ fn translate(
                     &resolver.type_signature(method.identity.assembly, token)?,
                     &b.method_arguments,
                 )?;
-                bound_storage(resolver, operand.assembly, &operand.ty)?
+                field_storage(resolver, operand.assembly, &operand.ty)?
             };
             let ty = storage.stack_type();
             if i.opcode == 0xfe1c {
@@ -1502,7 +1502,7 @@ fn translate(
                         Op::LoadMemory {
                             address: source.0,
                             bits: storage.bytes() * 8,
-                            signed: matches!(storage, Storage::Scalar(scalar) if scalar.signed()),
+                            signed: matches!(storage, FieldStorage::Value(Storage::Scalar(scalar)) if scalar.signed()),
                         },
                     )?)
                 } else if i.opcode == 0x81 {
@@ -1540,7 +1540,7 @@ fn translate(
                         il_offset: b.offset,
                     });
                 } else {
-                    let signed = matches!(storage, Storage::Scalar(scalar) if scalar.signed());
+                    let signed = matches!(storage, FieldStorage::Value(Storage::Scalar(scalar)) if scalar.signed());
                     let value = b.value(
                         ty,
                         Op::LoadMemory {

@@ -3,12 +3,14 @@
 The native compiler now specializes reachable static and instance generic methods
 on nongeneric declaring types. Concrete arguments may be supported primitive
 types, strings, nongeneric classes/interfaces/delegates, enums, nongeneric values
-or supported vectors of those types. A method
+or supported vectors and rank-two rectangular arrays of those types. A method
 and its full argument list identify an instance; byte and ushort remain distinct
 even though both use the CIL int32 evaluation-stack type.
 
 [Closed argument constraints](generic-constraints.md) now validate supported
 special, base/interface and method-parameter requirements before code generation.
+Rectangular-array arguments preserve foreign element scopes and typed reference
+cells for generic defaults and byref copies; see [contract and evidence](generic-rectangles.md).
 
 Nonvirtual class methods use the ordinary object receiver, including callvirt's
 null check; struct methods use the ordinary managed-byref receiver. Specialization

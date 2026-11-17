@@ -29,6 +29,50 @@ public static class Program
 
     static T Zero<T>() => default;
 
+    static void Clear<T>(ref T value) => value = default;
+
+    public static int GenericRankThree() => Library.Forward<int[,,]>(null) == null ? 42 : 0;
+
+    public static int GenericRectangles()
+    {
+        var numbers = new int[2, 3];
+        numbers[1, 2] = -70000;
+        var numberAlias = Recursive(Library.Forward(numbers), 3);
+        numberAlias[0, 1] = 42;
+        var local = new Payload[2, 3];
+        local[1, 2] = new Payload { Tag = 7, Value = 60000 };
+        var localAlias = Library.Forward(Wrap(local));
+        var remote = new RemotePayload[3, 2];
+        remote[2, 1] = new RemotePayload { Count = -70000, Wide = 5000000001 };
+        var remoteAlias = Wrap(Library.Forward(remote));
+        remoteAlias[0, 0] = new RemotePayload { Count = 42, Wide = -5000000001 };
+        var cleared = remoteAlias;
+        RemotePayload[,] vacant = null;
+        Swap(ref vacant, ref cleared);
+        bool transferred = cleared == null && vacant == remote;
+        Clear(ref vacant);
+        return
+            numberAlias == numbers
+            && numbers[0, 1] == 42
+            && numberAlias[1, 2] == -70000
+            && localAlias == local
+            && localAlias[1, 2].Tag == 7
+            && localAlias[1, 2].Value == 60000
+            && remoteAlias == remote
+            && remoteAlias[2, 1].Count == -70000
+            && remoteAlias[2, 1].Wide == 5000000001
+            && remote[0, 0].Count == 42
+            && remote[0, 0].Wide == -5000000001
+            && transferred
+            && vacant == null
+            && ReferenceOnly(remoteAlias) == remote
+            && Zero<RemotePayload[,]>() == null
+            && remoteAlias.GetLength(0) == 3
+            && remoteAlias.GetLength(1) == 2
+            ? 42
+            : 0;
+    }
+
     static float Unused<T>(T value) => 0.25f;
 
     static int Expand<T>() => Expand<T[]>();

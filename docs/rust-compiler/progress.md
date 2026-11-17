@@ -1671,3 +1671,16 @@ main helpers, bankzero/highbanks, exact CPU restoration and source mapping are
 covered. The broad384/384 selection includes all four real2048 SDK game cases.
 KDBG v1/high-bank unwinding remain explicit separate limitations, not execution
 acceptance. Ledger remains198/565; no source test definitions physically removed.
+
+## Generic rectangular-array arguments
+
+[Scoped rectangular-array arguments](generic-rectangles.md) now pass through
+generic calls across assemblies without losing element identity. Generic default
+initialization and byref swaps/clears use typed array reference cells through the
+existing storage/IR/ABI. Packed structs with colliding local/foreign metadata rows
+and signed wide fields execute in Debug/Release × DMG/CGB; rank-three generic
+arguments still diagnose. Constructed generic declaring layouts/statics remain
+unfinished. No additional legacy dispositions are claimed; ledger198/565 unchanged.
+The final compiler-library/lowering/SM83/generic/rectangle selection passes544/544
+in741.555s, exit0 (`/tmp/koh-generic-rectangle-regression.log`);400 other driver
+cases are excluded. Full-workspace execution remains separate.

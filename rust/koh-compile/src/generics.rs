@@ -249,6 +249,30 @@ fn canonical(
             )?;
             (element.assembly, TypeSig::SzArray(Box::new(element.ty)))
         }
+        TypeSig::Array {
+            element_type,
+            rank,
+            sizes,
+            lo_bounds,
+        } => {
+            let element = canonical(
+                resolver,
+                Argument {
+                    assembly: argument.assembly,
+                    ty: *element_type,
+                },
+                depth + 1,
+            )?;
+            (
+                element.assembly,
+                TypeSig::Array {
+                    element_type: Box::new(element.ty),
+                    rank,
+                    sizes,
+                    lo_bounds,
+                },
+            )
+        }
         _ => return Err("Compound generic arguments require instantiated type binding".into()),
     };
     Ok(Argument { assembly, ty })
@@ -283,6 +307,33 @@ mod tests {
         assert_eq!(
             result.ty,
             TypeSig::ByRef(Box::new(TypeSig::SzArray(Box::new(ty))))
+        );
+    }
+
+    #[rstest]
+    #[case(TypeSig::ValueType(12))]
+    #[case(TypeSig::Class(12))]
+    fn rectangular_substitution_preserves_foreign_scope(#[case] ty: TypeSig) {
+        let arguments = [Argument {
+            assembly: 7,
+            ty: ty.clone(),
+        }];
+        let input = TypeSig::Array {
+            element_type: Box::new(TypeSig::MVar(0)),
+            rank: 2,
+            sizes: vec![],
+            lo_bounds: vec![0, 0],
+        };
+        let result = scoped(2, &input, &arguments).unwrap();
+        assert_eq!(result.assembly, 7);
+        assert_eq!(
+            result.ty,
+            TypeSig::Array {
+                element_type: Box::new(ty),
+                rank: 2,
+                sizes: vec![],
+                lo_bounds: vec![0, 0],
+            }
         );
     }
 
@@ -458,7 +509,12 @@ impl Resolver<'_> {
             .map(|argument| {
                 let mut current = &argument.ty;
                 let mut count = 1usize;
-                while let TypeSig::SzArray(inner) = current {
+                while let TypeSig::SzArray(inner)
+                | TypeSig::Array {
+                    element_type: inner,
+                    ..
+                } = current
+                {
                     count += 1;
                     current = inner;
                 }

@@ -137,6 +137,10 @@ complete in `driver::wide_arithmetic::legacy_generic_wide_expressions_match_comp
 three PORT expression/extension contracts and one REPLACE build-mode-equality
 assertion with independent expected bytes for both modes. See the
 [per-method rationale and unfinished generic shapes](generic-methods.md).
+Additional [rectangular-array generic coverage](generic-rectangles.md) extends
+the same driver with cross-assembly element binding, aliases, null defaults,
+byref swaps/clears and rank diagnostics. It does not claim new completed source
+dispositions or change the198/565 ledger.
 
 ## Wide arithmetic replacement
 

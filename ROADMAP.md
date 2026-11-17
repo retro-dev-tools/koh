@@ -19,7 +19,9 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   Closed static/instance [generic methods](docs/rust-compiler/generic-methods.md) now specialize
   supported primitive/named arguments, including referenced transitive bodies,
   byref storage and original PDB provenance. Assembly scopes distinguish same-row
-  types across DLLs. Closed special/base/interface/parameter constraints now
+  types across DLLs. [Rectangular array arguments](docs/rust-compiler/generic-rectangles.md)
+  retain those scopes through generic calls, defaults and byref copies.
+  Closed special/base/interface/parameter constraints now
   validate, including constructor eligibility and malformed-metadata probes.
   Runtime class/interface dispatch, generic delegates, base calls and unboxed
   [constrained calls](docs/rust-compiler/constrained-calls.md) now execute through

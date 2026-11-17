@@ -2086,3 +2086,30 @@ Nevercancel/restartCIforobservationtimeout. Fullmigrationactive/incomplete;
 constructedgenericlayouts/statics/boxing/bankeddata/debug/SDK/releases/perf/
 hostfinalacceptance/test367closures/legacydeletionstillrequired. Maincheckout
 battle.pngpreexistingdirtyhashunchangedfb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454.
+
+## Generic rectangular arguments, locally verified
+
+Published head `5f59aa3` includes `1652f39`; PR55 remains draft against master.
+The description reflects bounded IRQ helpers. Exact-head CI44056288366 is still
+running, with .NET fast tests successful. Do not cancel/restart for a new commit.
+The full migration remains incomplete.
+
+Rectangular-array generic arguments now retain the original element assembly,
+shape and instantiation budget. Typed memory operations use existing FieldStorage
+for array reference cells; the verifier still requires matching typed cells.
+The actual fixture checks primitive/local packed3-byte/foreign packed12-byte
+arrays, colliding metadata rows, aliases, signed32/64-bit fields, cross-DLL calls,
+recursion, null defaults, byref swaps/clears and rank3 diagnostics in D/R × DMG/CGB.
+The first red log is `/tmp/koh-generic-rectangle-red.log` (binding); the second
+is `/tmp/koh-generic-rectangle-green.log` (initobj storage).
+
+Final `/tmp/koh-generic-rectangle-regression.log`:544/544 passed in741.555s,
+400 excluded, EXIT0. This selects all compiler-library/lowering/SM83 cases plus
+generic/rectangle drivers, not the full workspace. Workspace all-feature/all-target
+check and separate rustdoc pass (four crates, zero doctests). The existing unused
+cube build_host warning remains. See `docs/rust-compiler/generic-rectangles.md`.
+
+Ledger198/565 is unchanged,367 outstanding. Constructed generic declaring
+layouts/statics, boxing, banked data, final product/debug/release/performance/host
+acceptance and legacy deletion remain required. Commit this increment, then batch
+push after published CI is terminal. No delegates are active.
