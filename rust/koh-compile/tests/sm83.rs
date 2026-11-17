@@ -28,6 +28,136 @@ mod support;
 use support::{Host, dotnet};
 
 #[rstest::rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn mapper_writes_and_calls_preserve_physical_rom_reads(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] high: bool,
+) {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/BankingContracts");
+    let output = dotnet()
+        .arg("build")
+        .arg(fixture.join("BankingContracts.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let image =
+        std::fs::read(fixture.join(format!("bin/{configuration}/net10.0/BankingContracts.dll")))
+            .unwrap();
+    let resolver = koh_compile::resolve::Resolver::new(&[&image]).unwrap();
+    let metadata = resolver.assembly(0).unwrap().metadata();
+    let identity = |name: &str| Definition {
+        assembly: 0,
+        token: 0x06000001
+            + metadata
+                .method_defs
+                .iter()
+                .position(|m| metadata.strings.get(m.name).unwrap() == name)
+                .unwrap() as u32,
+    };
+    let inputs: &[(&str, u64, u64)] = if high {
+        &[("HighBit", 0, 0x31a331)]
+    } else {
+        &[
+            ("Same", 0, 0x3131),
+            ("Different", 0, 0x3142),
+            ("Call", 0, 0x314231),
+            ("Ordinary", 0, 0x312a),
+            ("OtherRegister", 0, 0x31),
+            ("Variable", 0, 0x310731),
+            ("Variable", 3, 0x313131),
+            ("Variable", 4, 0x314231),
+            ("Variable", 255, 0x31f531),
+        ]
+    };
+    let mut executions = 0;
+    for &(shape, bank, expected) in inputs {
+        let mut banks = vec![(0, 7), (3, 0x31), (4, 0x42)];
+        if high {
+            banks.push((259, 0xa3));
+        }
+        if bank == 255 {
+            banks.push((255, 0xf5));
+        }
+        let data = Object {
+            sections: banks
+                .iter()
+                .map(|&(bank, value)| Section {
+                    name: format!(".fixture.bank.{bank}"),
+                    kind: if bank == 0 { 0 } else { 1 },
+                    address: Some(if bank == 0 { 0x3ff0 } else { 0x7ff0 }),
+                    bank: Some(bank),
+                    size: 1,
+                    data: vec![value],
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let data = read_elf(&write_elf(&data).unwrap()).unwrap();
+        let original = koh_compile::lower::assembly_method(&resolver, identity(shape)).unwrap();
+        let mut cases = Vec::new();
+        for (root, arguments) in [
+            (original.clone(), vec![bank]),
+            (
+                control_flow_scalars::constant_inputs(original, &[bank]),
+                vec![],
+            ),
+        ] {
+            let mut functions = vec![root];
+            if shape == "Call" {
+                functions.push(
+                    koh_compile::lower::assembly_method(&resolver, identity("Change")).unwrap(),
+                );
+            }
+            for optimized in [false, true] {
+                if optimized {
+                    for function in &mut functions {
+                        koh_compile::optimize::simplify(function).unwrap();
+                    }
+                }
+                verify_program(&functions).unwrap();
+                for function in &functions {
+                    assert!(
+                        sm83::emit(function)
+                            .unwrap()
+                            .sections
+                            .iter()
+                            .filter(|s| s.name.starts_with(".text."))
+                            .all(|s| s.kind == 0),
+                        "Mapper-changing fixture code must stay in ROM0"
+                    );
+                }
+                let rom = rom_program_data(
+                    &functions,
+                    identity(shape),
+                    &arguments,
+                    0xd000,
+                    std::slice::from_ref(&data),
+                );
+                assert_eq!(rom[0x147], 0x19);
+                for &(bank, value) in &banks {
+                    assert_eq!(rom[bank as usize * 0x4000 + 0x3ff0], value);
+                }
+                cases.push((rom, Ok(expected)));
+            }
+        }
+        executions += cases.len();
+        run_roms(host, &cases, 0xd000);
+    }
+    assert_eq!(executions, if high { 4 } else { 36 });
+}
+
+#[rstest::rstest]
 #[case("Debug")]
 #[case("Release")]
 fn optimization_preserves_arithmetic_aliases_and_effects(host: &Host, #[case] configuration: &str) {
@@ -1586,6 +1716,16 @@ fn rom_program(
     arguments: &[u64],
     stack: u16,
 ) -> Vec<u8> {
+    rom_program_data(functions, entry, arguments, stack, &[])
+}
+
+fn rom_program_data(
+    functions: &[Function],
+    entry: Definition,
+    arguments: &[u64],
+    stack: u16,
+    data_objects: &[Object],
+) -> Vec<u8> {
     verify_program(functions).unwrap();
     let f = functions.iter().find(|f| f.identity == entry).unwrap();
     let objects: Vec<_> = functions
@@ -1593,6 +1733,9 @@ fn rom_program(
         .map(|f| read_elf(&write_elf(&sm83::emit(f).unwrap()).unwrap()).unwrap())
         .collect();
     let mut data = vec![0; 0x150];
+    if !data_objects.is_empty() {
+        data[0x147] = 0x19;
+    }
     data[0x100..0x103].copy_from_slice(&[0xc3, 0x50, 0x01]);
     data.extend_from_slice(&[0xf3, 0x31, stack as u8, (stack >> 8) as u8]);
     let ret_bytes = f.returns.map(|t| t.bits() / 8).unwrap_or(0);
@@ -1707,6 +1850,7 @@ fn rom_program(
     entry.sections[0].patches.push(patch(call, SymbolId(0)));
     let mut all = vec![entry];
     all.extend(objects);
+    all.extend_from_slice(data_objects);
     koh_link::link(&all, &koh_link::LinkOptions::default())
         .unwrap()
         .rom

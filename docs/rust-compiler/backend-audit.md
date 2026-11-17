@@ -562,16 +562,18 @@ See the [36-row quantified matrix](optimization-semantics.md).
 
 Classification: Mapper state and private elimination counts. Selecting a ROM bank changes which physical byte a window address denotes. Calls and unknown MBC writes can invalidate that state.
 
-Proposed future location: `rust/koh-compiler/tests/banking.rs` (not implemented).
+Complete native locations: `tests/sm83.rs::mapper_writes_and_calls_preserve_physical_rom_reads`,
+`tests/fixtures/BankingContracts`, and the production banked-call cases in
+`tests/driver.rs`. See [physical mapper-state contracts](mapper-state.md).
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `RemovesConsecutiveSelectsOfTheSameBank` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `KeepsSelectsOfDifferentBanks` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `CallInvalidatesKnownBank` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `OrdinaryMemoryWriteIsTransparent` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `WriteToAnotherMbcRegisterInvalidates` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `VariableBankSelectClearsKnownBank` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `RemovesConsecutiveSelectsOfTheSameBank` | Mixed | REPLACE, complete | [Physical-bank observation and independent hardware contract](mapper-state.md). |
+| `KeepsSelectsOfDifferentBanks` | Mixed | REPLACE, complete | [Physical-bank observation and independent hardware contract](mapper-state.md). |
+| `CallInvalidatesKnownBank` | Mixed | REPLACE, complete | [Physical-bank observation and independent hardware contract](mapper-state.md). |
+| `OrdinaryMemoryWriteIsTransparent` | Mixed | REPLACE, complete | [Physical-bank observation and independent hardware contract](mapper-state.md). |
+| `WriteToAnotherMbcRegisterInvalidates` | Mixed | REPLACE, complete | [Physical-bank observation and independent hardware contract](mapper-state.md). |
+| `VariableBankSelectClearsKnownBank` | Mixed | REPLACE, complete | [Physical-bank observation and independent hardware contract](mapper-state.md). |
 
 ### Ir/RedundantCompareEliminationPassTests.cs (5)
 

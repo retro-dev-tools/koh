@@ -10,6 +10,24 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Mapper-state contract migration
+
+All six `RedundantBankSelectEliminationTests` methods now have
+[native replacements](mapper-state.md) for17 assertion sites (six verifier,
+11 private pass/store-count checks). Actual Debug/Release CIL executes runtime
+and bound selectors before/after optimization:80 ROMs read distinct payloads in
+banks0/3/4/255/259. A valid callee changes the mapper, ordinary WRAM remains
+independent, and RAM-enable/high-ROM-bit writes have their actual distinct MBC5
+effects. The Rust linker places canonical ELF data sections and finalizes ROMs.
+Code is checked to remain in ROM0 for these raw mapper operations; this does not
+claim a managed banked-data API or safety for changing the executing ROMX bank.
+
+The expanded library/mapper/production-banked-call/optimizer selection passed
+230/230 in37.535s, exit0 (`/tmp/koh-mapper-contracts-final.log`), with693 explicitly
+unselected cases. It retains the existing DMG/CGB managed-call and recursion
+contract. The ledger is383/565 complete (382 native replacements, one DELETE),
+182 outstanding; no compiler-owned coverage is deferred.
+
 ### Hosted source-debugger path correction
 
 Full run44187413725 on e412837 completed: Linux native1880/1880 passed; macOS
@@ -321,7 +339,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-377/565 dispositions complete (376 native replacements, one DELETE),188 outstanding,
+383/565 dispositions complete (382 native replacements, one DELETE),182 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,
