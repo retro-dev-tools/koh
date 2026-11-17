@@ -9,7 +9,8 @@ signatures diagnose. Ordinary calls, captures and selecting an IRQ as cartridge
 entry diagnose; an interrupt is a hardware root, not a second ordinary entry ABI.
 
 The current leaf subset permits scalar integer computations, locals, branches
-and direct static-field loads/stores. The post-lowering validator rejects calls,
+and direct static-field loads/stores. Constant-address byte IO accesses are
+now supported as detailed below. The post-lowering validator rejects calls,
 allocation, object/reference operations, arbitrary indirect memory, floating
 runtime work and CPU-control instructions, including nested EI. Reachable invalid
 bodies report member identity and IL offset. This is an explicit intermediate
@@ -56,7 +57,7 @@ The test additionally verifies vector relocations and save/CALL/restore/RETI byt
 
 The deep-recursion entry has a post-call effect to retain real stack calls.
 At a failing stack-guard branch with SP below C200, the test adapter requests a
-Timer interrupt and captures the
+VBlank interrupt and captures the
 interrupted CPU state, and checks exact AF/BC/DE/HL/SP/PC and enabled IME at RETI.
 Recursion then reaches stack fault1 with the reserved-memory guard intact.
 The earlier effect-free recursion fixture optimized to a loop; its timeout is
@@ -82,7 +83,7 @@ static-void contract. Assertions are not weakened to keep the old restriction.
 Verification: broad compiler-library/SM83/scene/dispatch/contract selection passed
 372/372 in616.386s, exit0 (419 excluded), before the last metadata-label/duplicate
 checks and tighter boundary injection. Final current-input library/IRQ/contract
-selection passed200/200 in63.640s, exit0 (427 excluded). This includes20 ROM
+selection passed200/200 in63.640s, exit0 (427 excluded). At that checkpoint this included20 ROM
 executions and28 rejected metadata/body/entry variants across two configurations.
 Logs: `/tmp/koh-interrupt-final.log`, `/tmp/koh-interrupt-late-final.log`.
 The read-only independent review found no confirmed defect in the ABI accounting,
@@ -94,3 +95,38 @@ Workspace all-features/all-targets checking and separate workspace rustdoc pass
 new IRQ cases unignored. The pre-existing unused cube-host helper warning remains.
 Logs: `/tmp/koh-interrupt-workspace-check.log`, `/tmp/koh-interrupt-doctests.log`,
 `/tmp/koh-irq-discovery.json`. Discovery is not whole-workspace execution.
+
+## Safe register IO follow-up
+
+Leaf handlers now accept8-bit loads from constant native addresses FF00..FF7F
+and FFFF, and stores there except FF46, FF4D, FF4F, FF50, FF55 and FF70. These
+exceptions protect OAM DMA execution, speed-switch state, VRAM/WRAM banking, boot
+mapping and HDMA triggering. Register reads do not change those controls. Ordinary
+device state, including IE masking, is intentionally writable. This is an IRQ
+safety policy, not another intrinsic address table: hardware addresses still
+come from the game library's metadata, and emission uses existing memory ops.
+
+Native constants are interpreted at the target's16-bit width before checking
+addresses. Wider IO accesses, dynamic pointers, arbitrary ROM/RAM/HRAM accesses and unsafe
+controls remain explicit diagnostics. Direct static-field access keeps its prior
+width contract. The policy neither adds a pointer runtime nor changes the ABI.
+
+The actual VBlank fixture now reads/increments SCY by3, computes SCX=EE from the
+IE bit and publishes palette E0|frame. Counts2/3/5 check independently expected
+packets: SCY6/9/15, SCXEE and BGPE2/E3/E5, alongside existing vector counts,
+PPU periods, return values, bank257+ and stack checks. The synthetic boundary
+request now selects this larger VBlank body at the failing stack guard; it checks
+full CPU/IME restoration before trap1. An additional Joypad body masks IE tozero
+and completes the expected five-vector packet in both hardware modes.
+
+Current coverage executes24 ROMs and52 rejected metadata/body/entry variants.
+Mutants cover each denied control, wrapped native addresses,16-bit reads/writes,
+dynamic pointers and out-of-range storage. The neighboring compiler-library,
+IRQ, scene and actual-tileset selection passes207/207 in94.112s, exit0 (420
+excluded). After switching the tight-stack probe to the larger VBlank body,
+the final six IRQ cases pass6/6 in38.159s, exit0 (428 excluded). Logs:
+`/tmp/koh-irq-mmio-final.log` and `/tmp/koh-irq-mmio-boundary-final.log`.
+The original supported-IO rejection is `/tmp/koh-irq-mmio-red.log`.
+No additional legacy dispositions are counted: the ledger remains198/565.
+Independent read-only review found no confirmed policy/alias/width defect;
+physical undocumented-register behavior was not certified.

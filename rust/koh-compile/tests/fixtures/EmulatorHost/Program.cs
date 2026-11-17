@@ -165,7 +165,7 @@ foreach (
             && gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) == 0xDA
         )
         {
-            gb.Mmu.DebugWrite(0xFF0F, 4);
+            gb.Mmu.DebugWrite(0xFF0F, 1);
             injectedIrq = true;
         }
         bool returningIrq =
@@ -203,7 +203,7 @@ foreach (
             interrupted = null;
             irqChecks++;
         }
-        if (irqAbi && gb.Cpu.Registers.Pc == 0x50 && interrupted is null)
+        if (irqAbi && gb.Cpu.Registers.Pc == 0x40 && interrupted is null)
         {
             var expected = gb.Cpu.Registers;
             expected.Pc = (ushort)(
@@ -362,7 +362,8 @@ foreach (
         if (irqAbi)
             snapshot += $" {irqChecks}:{irqSp:X4}";
         if (irqCount)
-            snapshot += $" {vblankTicks.Count}";
+            snapshot +=
+                $" {vblankTicks.Count}:{gb.Mmu.DebugRead(0xFF42):X2}{gb.Mmu.DebugRead(0xFF43):X2}{gb.Mmu.DebugRead(0xFF47):X2}";
         Console.WriteLine(
             $"{gb.Cpu.Registers.A:X2} {gb.Cpu.Registers.DE:X4}{gb.Cpu.Registers.HL:X4} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}{snapshot}"
         );

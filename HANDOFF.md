@@ -2007,3 +2007,32 @@ release/licensing/performance/hostacceptance andfinalC#compilerremoval remain.
 No localbuilds/reviews live. Published4065231 CI44032064732 stillin_progress
 (Rusttests; .NETjobpassed), do notcancel/restart. Commitnativeunitthenbatch with
 f2836f6 afterCIterminal. Preserveunrelatedmaincheckoutdirtybattle.png.
+
+## Safe IRQ MMIO follow-up under verification
+
+Published e0b05d1 after4065231 CI44032064732 terminalsuccess1733/1733 Rust,
+zero skips,docs/.NET562pass2skip; primary/tmp/koh-ci-4065231-completed.log GH0.
+PushEXIT0, newexactheadCI44037748828 running. PRpublishedledger198updated.
+Dirty newunit allows constant native byte IRQ IO accesses FF00..FF7F/FFFF;
+forbids writes FF46/4D/4F/50/55/70 (DMA/speed/bank/boot). Reads do notswitchbanks.
+Staticmemorypolicyunchanged,wide/dynamic/RAM/ROM/HRAM address accessrejected.
+Main ownsimplementation/tests/docs. Reviewer read-only owns policy/alias/width
+analysis, no builds/edits. Current35395 runs compilerlib+IRQ+scene+tileset
+selection /tmp/koh-irq-mmio-final.log; don'tbuildconcurrently. Initial6/6passes
+beforeextra targetednegative andIE-mask cases;red /tmp/koh-irq-mmio-red.log.
+
+## IRQ MMIO follow-up ready to commit
+
+Current-input207/207 pass94.112s420excluded; strongerlargest-handlerboundary
+6/6pass38.159s428excluded,EXIT0. Primary/tmp/koh-irq-mmio-final.log,
+/tmp/koh-irq-mmio-boundary-final.log. 24ROMs and52negative variants; ledger198
+unchanged,367outstanding. Nativeconstant byteIOonly; sixcontrolwritesblocked,
+wide/dynamic/out-of-range/wrapped-bank diagnostics. IE0masking executes all5
+vectors; VBlankSCY3*count/SCXEE/BGPE0|count packets verified. Tightguard now
+injects largerVBlankbody, fullCPU/IMErestore thenstacktrap1. Independentread-only
+reviewnoconfirmeddefects, didnotrun tests. Workspaceallfeatures/alltargetscheck
+andrustdoc4zero,format/diffpass;preexistingunusedcubeshelperwarning. No builds
+or reviewers live. Committhisunit;holdlocalwhilepublished e0b05d1 CI44037748828
+runs;nevercancel/restartfornewcommits. Previous4065231 CI44032064732success
+1733/1733,zero skips;log/tmp/koh-ci-4065231-completed.log GH0. e0b05d1 batch
+pushedEXIT0 andPRdraft/master/currentheadverified. Fullmigrationstillincomplete.

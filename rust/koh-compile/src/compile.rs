@@ -183,6 +183,22 @@ fn verify_interrupt(function: &Function) -> Result<(), String> {
                 .map(|r| r.0)
         })
         .collect();
+    let registers: std::collections::HashMap<_, _> = function
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|instruction| match (instruction.result, &instruction.op) {
+            (Some((value, Type::Native)), Op::Constant(address)) => Some((value, *address as u16)),
+            _ => None,
+        })
+        .collect();
+    let memory = |address, bits, write| {
+        statics.contains(&address)
+            || (bits == 8
+                && registers
+                    .get(&address)
+                    .is_some_and(|&physical| interrupt_register(physical, write)))
+    };
     for block in &function.blocks {
         if block.parameters.iter().any(|&(_, ty)| !scalar(ty)) {
             return Err("Interrupt leaf handlers require integer block parameters".into());
@@ -190,9 +206,8 @@ fn verify_interrupt(function: &Function) -> Result<(), String> {
         for instruction in &block.instructions {
             let supported = match instruction.op {
                 Op::StaticAddress { .. } => true,
-                Op::LoadMemory { address, .. } | Op::StoreMemory { address, .. } => {
-                    statics.contains(&address)
-                }
+                Op::LoadMemory { address, bits, .. } => memory(address, bits, false),
+                Op::StoreMemory { address, bits, .. } => memory(address, bits, true),
                 Op::Constant(_)
                 | Op::Binary { .. }
                 | Op::Compare { .. }
@@ -217,6 +232,11 @@ fn verify_interrupt(function: &Function) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn interrupt_register(address: u16, write: bool) -> bool {
+    matches!(address, 0xff00..=0xff7f | 0xffff)
+        && (!write || !matches!(address, 0xff46 | 0xff4d | 0xff4f | 0xff50 | 0xff55 | 0xff70))
 }
 
 pub fn entry(resolver: &Resolver<'_>, selected: Option<&str>) -> Result<Definition, String> {

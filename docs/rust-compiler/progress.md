@@ -1652,3 +1652,12 @@ rather than adapting compiler output to that bug. See [IRQ contract](interrupts.
 and [reference correction](reti-reference-correction.md). Whole migration remains
 incomplete; richer handlers/reentrancy, game/debug/SDK/release/performance/host
 acceptance and C# compiler removal are still required.
+
+## Leaf IRQ register IO
+
+[Safe byte register accesses](interrupts.md#safe-register-io-follow-up) now let
+actual VBlank handlers update scroll/palette state and a Joypad handler mask IE.
+Bank/DMA/boot/speed-control writes, wide/dynamic IO and arbitrary pointers diagnose.
+The larger VBlank body also passes full CPU restoration at a failing stack guard.
+Current24 ROMs/52 diagnostics,207/207 neighboring checks and6/6 final IRQ checks
+pass locally. Ledger remains198/565; no extra source dispositions are claimed.

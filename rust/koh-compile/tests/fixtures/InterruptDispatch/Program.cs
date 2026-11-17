@@ -25,7 +25,13 @@ public static class Program
     static byte joypad;
 
     [Interrupt("VBlank")]
-    static void OnVBlank() => frames++;
+    static void OnVBlank()
+    {
+        frames++;
+        Hardware.SCY += 3;
+        Hardware.SCX = (byte)(0xED + (Hardware.IE & 1));
+        Hardware.BGP = (byte)(0xE0 | frames);
+    }
 
     [Interrupt("Stat")]
     static void OnStat() => stat++;
@@ -45,7 +51,37 @@ public static class Program
 
     static void Allocates() => current = new Doubler();
 
-    static void RawWrite() => Hardware.IE = 0;
+    static unsafe void UnsafeDma() => *(byte*)0xFF46 = 0xC0;
+
+    static unsafe void UnsafeVramBank() => *(byte*)0xFF4F = 1;
+
+    static unsafe void UnsafeWramBank() => *(byte*)0xFF70 = 2;
+
+    static unsafe void UnsafeSpeed() => *(byte*)0xFF4D = 1;
+
+    static unsafe void UnsafeBoot() => *(byte*)0xFF50 = 1;
+
+    static unsafe void UnsafeHdma() => *(byte*)0xFF55 = 0x80;
+
+    static unsafe void UnsafeWideWrite() => *(ushort*)0xFF42 = 0x0102;
+
+    static unsafe void UnsafeWideRead() => frames = (byte)*(ushort*)0xFF42;
+
+    static unsafe void UnsafeRam() => *(byte*)0xC010 = 1;
+
+    static unsafe void UnsafeRom() => *(byte*)0x2000 = 1;
+
+    static unsafe void UnsafeHram() => *(byte*)0xFF80 = 1;
+
+    static unsafe void UnsafeWrappedBank() => *(byte*)0x1FF4F = 1;
+
+    static unsafe void UnsafeDynamic() => *(byte*)(0xFF00 + frames) = 1;
+
+    static void SafeMask()
+    {
+        Hardware.IE = 0;
+        joypad++;
+    }
 
     static void Recursive() => OnVBlank();
 
@@ -62,7 +98,7 @@ public static class Program
         Hardware.LCDC = 0;
         *(byte*)0xFF07 = 0;
         Hardware.IF = 0;
-        Hardware.IE = 4;
+        Hardware.IE = 1;
         Hardware.EnableInterrupts();
         return Deep(1);
     }
@@ -76,7 +112,12 @@ public static class Program
         Hardware.EnableInterrupts();
         while (frames == 0 || stat == 0 || timer == 0 || serial == 0 || joypad == 0) { }
         Hardware.DisableInterrupts();
-        return frames | (stat << 4) | (timer << 8) | (serial << 12) | (joypad << 16);
+        return frames
+            | (stat << 4)
+            | (timer << 8)
+            | (serial << 12)
+            | (joypad << 16)
+            | ((Hardware.IE & 0x1F) << 20);
     }
 
     public static int Main() => Real(2);
@@ -90,6 +131,9 @@ public static class Program
         Hardware.DisableInterrupts();
         Hardware.LCDC = 0;
         Hardware.IF = 0;
+        Hardware.SCY = 0;
+        Hardware.SCX = 0;
+        Hardware.BGP = 0;
         current = new Doubler();
         int sum = current.Step(7);
         current = new Tripler();

@@ -8,7 +8,7 @@ mod metadata;
 #[case("Debug")]
 #[case("Release")]
 fn interrupt_contract_failures_are_explicit(host: &Host, #[case] configuration: &str) {
-    let (_directory, images) = gameboy_images(host, configuration, "InterruptDispatch");
+    let (directory, images) = gameboy_images(host, configuration, "InterruptDispatch");
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
     let image = resolver.assembly(0).unwrap();
     let methods = &image.metadata().method_defs;
@@ -21,7 +21,25 @@ fn interrupt_contract_failures_are_explicit(host: &Host, #[case] configuration: 
     let handler = index("OnVBlank");
     let (row, context) = metadata::table_row(&images[0], clrmeta::TableId::MethodDef, handler);
     let mut variants = Vec::new();
-    for replacement in ["Calls", "Nested", "Allocates", "RawWrite", "Recursive"] {
+    for replacement in [
+        "Calls",
+        "Nested",
+        "Allocates",
+        "UnsafeDma",
+        "Recursive",
+        "UnsafeVramBank",
+        "UnsafeWramBank",
+        "UnsafeSpeed",
+        "UnsafeBoot",
+        "UnsafeHdma",
+        "UnsafeWideWrite",
+        "UnsafeWideRead",
+        "UnsafeRam",
+        "UnsafeRom",
+        "UnsafeHram",
+        "UnsafeWrappedBank",
+        "UnsafeDynamic",
+    ] {
         let mut bytes = images[0].clone();
         bytes[row..row + 4].copy_from_slice(&methods[index(replacement)].rva.to_le_bytes());
         variants.push((bytes, "Interrupt"));
@@ -97,6 +115,37 @@ fn interrupt_contract_failures_are_explicit(host: &Host, #[case] configuration: 
         error.contains("Interrupt handler cannot be the cartridge entry"),
         "{error}"
     );
+    let mut bytes = images[0].clone();
+    let (joypad, _) = metadata::table_row(&bytes, clrmeta::TableId::MethodDef, index("OnJoypad"));
+    bytes[joypad..joypad + 4].copy_from_slice(&methods[index("SafeMask")].rva.to_le_bytes());
+    let resolver = Resolver::new(&[&bytes, &images[1]]).unwrap();
+    let object = compile::object(&resolver, Some("Program::Software")).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    for color in [false, true] {
+        let linked = koh_link::link(
+            &[object.clone()],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        assert_eq!(
+            &report.split_whitespace().collect::<Vec<_>>()[..4],
+            ["00", "00011111", "D000", "OK"]
+        );
+    }
 }
 
 #[rstest]
@@ -115,7 +164,7 @@ fn virtual_dispatch_coexists_with_interrupt_roots(
         ("Main", "00020038"),
         ("Count3", "00030038"),
         ("Count5", "00050038"),
-        ("Software", "00011111"),
+        ("Software", "01F11111"),
         ("Stack", ""),
     ] {
         eprintln!("Interrupt entry {entry}");
@@ -187,9 +236,12 @@ fn virtual_dispatch_coexists_with_interrupt_roots(
         } else {
             assert_eq!(&fields[..4], ["00", expected, "D000", "OK"]);
             if entry != "Software" {
+                let packet: Vec<_> = fields.last().unwrap().split(':').collect();
+                let frames = u32::from_str_radix(expected, 16).unwrap() >> 16;
+                assert_eq!(packet[0].parse::<u32>().unwrap(), frames);
                 assert_eq!(
-                    fields.last().unwrap().parse::<u32>().unwrap(),
-                    u32::from_str_radix(expected, 16).unwrap() >> 16
+                    packet[1],
+                    format!("{:02X}EE{:02X}", frames * 3, 0xe0 | frames)
                 );
             }
         }
