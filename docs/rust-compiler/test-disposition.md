@@ -31,18 +31,23 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:312/565 methods (311 native behavioral replacements,
+**Complete dispositions:316/565 methods (315 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
 Six [interrupt/vector/dispatch methods](interrupts.md) now have complete native
 replacements (11 original assertion sites).
 Eleven [comparison/conversion optimizer methods](optimizer-scalar-contracts.md)
 now have complete native semantic replacements (43 source assertion sites).
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 253 methods still have
+The remaining 249 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
+
+All six `CilLiteralTests` methods now have native replacements: the four
+[array/UTF-8 methods](literals.md#source-test-disposition) add16 audited assertion
+sites, mutable array isolation, readonly ROM views and checked lengths. The
+two128-bit methods are mapped separately below. No literal-only test stays in TUnit.
 
 The23 [allocation-independent backend methods](allocation-contracts.md) now have
 complete native replacements:20 backend methods, one emitter method and two

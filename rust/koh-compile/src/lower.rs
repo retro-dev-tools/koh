@@ -6,6 +6,7 @@ use crate::{
 use std::collections::{HashMap, HashSet, VecDeque};
 mod checked;
 mod int128;
+mod spans;
 
 fn primitive_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
     use clrmeta::{ElementType, TypeSig};
@@ -2302,6 +2303,9 @@ fn translate(
                 return Err("Direct CIL calls to type/module constructors are unsupported".into());
             }
             let instance = resolver.instance(instantiated)?;
+            if spans::call(resolver, instantiated, constructing, b)? {
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
             let method_types = crate::generics::method_types(
                 resolver,
                 instantiated,
@@ -2592,6 +2596,7 @@ fn translate(
                     Type::F64 => Scalar::F64,
                     Type::Native => Scalar::NativeSigned,
                     Type::ByRef(_)
+                    | Type::RomByteRef
                     | Type::Delegate(_)
                     | Type::Object(_)
                     | Type::ReferenceCell(_)
@@ -2917,6 +2922,15 @@ fn translate(
             )?;
             let image = resolver.assembly(target.definition.assembly)?;
             let field = &image.metadata().fields[(target.definition.token & 0xffffff) as usize - 1];
+            if i.opcode == 0x7f && field.flags & 0x110 == 0x110 {
+                image.field_data(target.definition.token)?;
+                let value = b.value(
+                    Type::FieldHandle(target.definition),
+                    Op::FieldHandle(target.definition),
+                )?;
+                b.stack.push(value);
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
             if field.flags & 0x10 == 0 || field.flags & (0x40 | 0x100) != 0 {
                 return Err("Static field flags require literal/RVA/instance lowering".into());
             }

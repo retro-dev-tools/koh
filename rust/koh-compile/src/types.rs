@@ -147,6 +147,25 @@ impl Resolver<'_> {
         })
     }
 
+    pub(crate) fn readonly_byte_span(&self, identity: Definition) -> Result<bool, String> {
+        let framework = self.framework_definition(identity)?;
+        if framework == Some(("System", "Span`1")) {
+            return Err("Mutable Span<T> execution is unsupported".into());
+        }
+        if framework != Some(("System", "ReadOnlySpan`1")) {
+            return Ok(false);
+        }
+        let instance = self
+            .type_instance(identity)?
+            .ok_or("ReadOnlySpan requires a closed byte element")?;
+        if instance.arguments.len() != 1
+            || instance.arguments[0].ty != TypeSig::Primitive(clrmeta::ElementType::U1)
+        {
+            return Err("Only ReadOnlySpan<byte> literal views are supported".into());
+        }
+        Ok(true)
+    }
+
     pub(crate) fn close_type(
         &self,
         definition: Definition,

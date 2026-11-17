@@ -217,6 +217,16 @@ impl Build<'_, '_> {
     }
 
     fn build(&mut self, identity: Definition) -> Result<Layout, String> {
+        if self.resolver.readonly_byte_span(identity)? {
+            return Ok(Layout {
+                identity,
+                bytes: 6,
+                alignment: 2,
+                fields: vec![],
+                contains_references: false,
+                depth: 0,
+            });
+        }
         let raw = self.resolver.type_definition(identity)?;
         let metadata = self.resolver.assembly(raw.assembly)?.metadata();
         let rid = raw.token & 0xffffff;

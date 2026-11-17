@@ -10,6 +10,8 @@ mod int128;
 mod interrupts;
 #[path = "driver/ir_contracts.rs"]
 mod ir_contracts;
+#[path = "driver/literals.rs"]
+mod literals;
 use koh_compile::{compile, resolve::Resolver};
 use rstest::rstest;
 use std::path::{Path, PathBuf};

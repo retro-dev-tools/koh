@@ -1862,6 +1862,35 @@ pub(crate) fn emit_with_stack_reserve(
                     code.jump(0x01, target);
                     code.save_word(destination);
                 }
+                Op::ByteSpanLiteral { ref bytes, length } => {
+                    code.extend(place(length), destination + 2, 4);
+                    let fault = code.import("__koh_trap_bounds".into());
+                    code.load_a(destination + 4);
+                    code.bytes(&[0xb7]);
+                    code.jump(0xc2, fault);
+                    code.load_a(destination + 5);
+                    code.bytes(&[0xb7]);
+                    code.jump(0xc2, fault);
+                    code.below_constant(destination + 2, bytes.len() as u16 + 1, fault);
+                    let target = code.literal(bytes)?;
+                    code.jump(0x01, target);
+                    code.save_word(destination);
+                }
+                Op::ByteSpanElement { span, index } => {
+                    code.extend(place(index), layout.arithmetic, 4);
+                    code.compare(
+                        layout.arithmetic,
+                        slot(span) + 2,
+                        layout.arithmetic + 8,
+                        4,
+                        Comparison::LessUnsigned,
+                    );
+                    code.load_a(layout.arithmetic + 8);
+                    code.bytes(&[0xb7]);
+                    let fault = code.import("__koh_trap_bounds".into());
+                    code.jump(0xca, fault);
+                    code.arithmetic(slot(span), layout.arithmetic, destination, 2, 0x88);
+                }
                 Op::StringLength(string) => {
                     code.indirect(slot(string));
                     code.check_reference(Type::String);

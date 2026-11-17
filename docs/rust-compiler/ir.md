@@ -13,6 +13,11 @@ Signedness belongs to operations and scalar storage. Its 16-byte values are not
 compressed by the backend's 64-bit range analysis. `Constant(u64)` zero-extends;
 negative wide values require an explicit signed conversion or arithmetic.
 
+[Readonly byte-span literals](literals.md) carry a ROM address and int32 length
+as a nominal six-byte aggregate. Checked indexing produces `RomByteRef`, which
+permits byte loads and rejects stores and numeric conversions. Constructor extent
+and indexing checks remain effectful even when their resulting values are unused.
+
 `LocalAddress` produces a typed reference into stable invocation storage.
 Narrow metadata storage is normalized on both local loads and stores; padded high
 bytes are not an alias invariant. [Reference checks](local-references.md) reject

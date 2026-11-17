@@ -10,6 +10,31 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Array and UTF-8 literal acceptance
+
+The [literal matrix](literals.md) closes the remaining four `CilLiteralTests`
+methods and their16 assertion sites. All six methods in that source group now
+have native replacements. The ledger is316/565 complete (315 native replacements,
+one DELETE),249 outstanding; nothing is physically retired yet.
+
+Native readonly byte-span views now retain a ROM address and logical int32 length
+through calls, copies and returns. UTF-8 terminators remain outside that length;
+negative, empty and past-end indexing fault. The IR rejects readonly writes,
+numeric conversions and fabricated references, and preserves unused bounds checks.
+Mutable array literals instead retain fresh RAM storage with ROM initializer data;
+the tests check mutation isolation rather than unconditionally promoting arrays.
+The real framework assembly also exposed and fixed an inflated generic-constraint
+work charge; actual scans remain budgeted before execution.
+
+Final focused acceptance passed249/249 in58.278s, exit0
+(`/tmp/koh-literals-final.log`), including48 new ROM executions,12 unsupported-span
+diagnostics, nine native IR cases, all220 unit cases, and generic/128-bit neighbors.
+Workspace discovery finds1869 cases, including1692 compiler cases, zero ignored
+(`/tmp/koh-literals-discovery.json`). This is not a full workspace/platform pass.
+The final signature review passed233/233 unit/span/literal cases in11.791s,
+exit0 (`/tmp/koh-literals-reviewed.log`). Separate workspace doctests succeeded
+for all four crates (zero examples); rustfmt and diff checks passed.
+
 ### 128-bit implementation increment
 
 [Framework Int128/UInt128 operators](int128.md) now lower to typed native integer
@@ -150,7 +175,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-312/565 dispositions complete (311 native replacements, one DELETE),253 outstanding,
+316/565 dispositions complete (315 native replacements, one DELETE),249 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

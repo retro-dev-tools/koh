@@ -443,7 +443,12 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                     value(dimension);
                 }
                 Op::InitializeArray { array, .. } => value(array),
+                Op::ByteSpanElement { span, index } => {
+                    value(span);
+                    value(index);
+                }
                 Op::NewArray { length, .. }
+                | Op::ByteSpanLiteral { length, .. }
                 | Op::ArrayLength(length)
                 | Op::StringLength(length) => value(length),
                 Op::StringChar { string, index } => {

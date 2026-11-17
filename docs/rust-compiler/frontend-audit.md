@@ -215,14 +215,14 @@ Where/Select/Sum and direct-array Max must compute correct reductions and reject
 
 ### CilLiteralTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilLiteralTests.cs`. The two128-bit methods are complete in `driver::int128`; the remaining literal group is pending. See [assertion mapping](int128.md#source-test-disposition).
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilLiteralTests.cs`. All six methods are complete in `driver::literals` and `driver::int128`; see [literal assertion mapping](literals.md#source-test-disposition) and [128-bit mapping](int128.md#source-test-disposition).
 
 Array and UTF-8 literals retain exact bytes; Int128 arithmetic retains integer behavior. ROM deduplication/startup elimination is an optimization requiring a mutability proof, not C# array semantics.
 
-- **REPLACE** `LocalArrayLiteral_LandsInRomWithInitialBytesNotRebuiltAtStartup` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
-- **PORT** `LocalArrayLiteral_DebugAndReleaseProduceIdenticalObservableState`.
-- **REPLACE** `U8Literal_LandsInRomWithInitialBytesNotRebuiltAtStartup` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
-- **PORT** `U8Literal_DebugAndReleaseProduceIdenticalObservableState`.
+- **REPLACE, complete** `LocalArrayLiteral_LandsInRomWithInitialBytesNotRebuiltAtStartup` — actual ROM initializer bytes and mutable fresh arrays; no unproved ROM object promotion.
+- **PORT, complete** `LocalArrayLiteral_DebugAndReleaseProduceIdenticalObservableState`.
+- **REPLACE, complete** `U8Literal_LandsInRomWithInitialBytesNotRebuiltAtStartup` — raw blob, logical length, relocated execution and no heap writes.
+- **PORT, complete** `U8Literal_DebugAndReleaseProduceIdenticalObservableState`.
 - **PORT, complete** `Int128Arithmetic_RoundTripsThroughRealArithmeticOnTheHost` — full128-bit packet and managed host oracle.
 - **PORT, complete** `Int128Arithmetic_DebugAndReleaseProduceIdenticalObservableState` — each mode agrees with independent numeric expectations.
 

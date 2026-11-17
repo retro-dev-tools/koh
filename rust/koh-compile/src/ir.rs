@@ -132,6 +132,7 @@ pub enum Type {
     I32,
     I64,
     I128,
+    RomByteRef,
     F32,
     F64,
     Native,
@@ -248,6 +249,7 @@ impl Type {
     }
     pub(crate) fn addresses(self, bits: u16) -> bool {
         self == Self::Native
+            || (self == Self::RomByteRef && bits == 8)
             || matches!(self, Self::ByRef(scalar) if u16::from(scalar.bits()) == bits)
             || matches!(self, Self::StructRef(value) if value.bytes * 8 == bits)
             || matches!(self, Self::ReferenceCell(_) if bits == 16)
@@ -261,6 +263,7 @@ impl Type {
             Self::I64 | Self::F64 => 64,
             Self::I128 => 128,
             Self::Native
+            | Self::RomByteRef
             | Self::Delegate(_)
             | Self::ByRef(_)
             | Self::Array(_, _)
@@ -391,6 +394,14 @@ pub(crate) fn is_hblank_register(register: u16) -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
+    ByteSpanLiteral {
+        bytes: Vec<u8>,
+        length: u32,
+    },
+    ByteSpanElement {
+        span: u32,
+        index: u32,
+    },
     Reinterpret(u32),
     IsClass {
         object: u32,
@@ -626,9 +637,11 @@ impl Op {
             | Self::Upcast { value: bytes, .. } => [Some(bytes), None],
             Self::InitializeArray { array, .. } => [Some(array), None],
             Self::NewArray { length, .. }
+            | Self::ByteSpanLiteral { length, .. }
             | Self::ArrayLength(length)
             | Self::StringLength(length) => [Some(length), None],
             Self::ArrayAddress { array, index } => [Some(array), Some(index)],
+            Self::ByteSpanElement { span, index } => [Some(span), Some(index)],
             Self::StringChar { string, index } => [Some(string), Some(index)],
             Self::LoadMemory { address, .. } | Self::FieldAddress { address, .. } => {
                 [Some(address), None]
@@ -1390,6 +1403,27 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         Some(Type::FieldHandle(field))
                     }
+                    Op::ByteSpanLiteral { ref bytes, length } => {
+                        if bytes.is_empty()
+                            || bytes.len() > 0x4000
+                            || check(length, position)? != Type::I32
+                            || !matches!(result, Some(Type::Struct(value)) if value.bytes == 6 && !value.references)
+                        {
+                            return Err("Invalid readonly byte-span literal".into());
+                        }
+                        result
+                    }
+                    Op::ByteSpanElement { span, index } => {
+                        if !matches!(check(span, position)?, Type::Struct(value) if value.bytes == 6 && !value.references)
+                            || check(index, position)? != Type::I32
+                        {
+                            return Err(
+                                "Readonly byte-span indexing requires a view and int32 index"
+                                    .into(),
+                            );
+                        }
+                        Some(Type::RomByteRef)
+                    }
                     Op::InitializeArray { array, ref bytes } => {
                         if !matches!(
                             check(array, position)?,
@@ -1614,6 +1648,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         value,
                         bits,
                     } => {
+                        if check(address, position)? == Type::RomByteRef {
+                            return Err("Cannot write through a readonly ROM reference".into());
+                        }
                         if !check(address, position)?.addresses(bits) {
                             return Err(
                                 "Memory address must be native or a matching primitive reference"
@@ -1745,6 +1782,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                 "Aggregate constants require explicit storage operations".into()
                             );
                         }
+                        if ty == Type::RomByteRef {
+                            return Err("ROM references require checked span indexing".into());
+                        }
                         if matches!(ty, Type::FieldHandle(_) | Type::MethodHandle(_)) {
                             return Err("Field handles require metadata identity".into());
                         }
@@ -1855,6 +1895,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                 | Type::Null
                                 | Type::FieldHandle(_)
                                 | Type::MethodHandle(_)
+                                | Type::RomByteRef
                         ) {
                             return Err("Managed reference conversion is unsupported".into());
                         }

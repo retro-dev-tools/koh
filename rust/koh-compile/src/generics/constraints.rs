@@ -176,34 +176,38 @@ pub(crate) fn validate(
     declaring_arguments: &[Argument],
 ) -> Result<(), String> {
     let metadata = resolver.assembly(method.assembly)?.metadata();
-    let work = metadata
-        .generic_params
-        .len()
-        .checked_mul(
-            metadata
-                .generic_param_constraints
-                .len()
-                .checked_add(2)
-                .ok_or("Generic constraint validation work overflow")?,
-        )
-        .ok_or("Generic constraint validation work overflow")?;
-    charge(&resolver.generic_work, work)?;
     let owner_table = if method.token >> 24 == 2 {
         TableId::TypeDef
     } else {
         TableId::MethodDef
     };
+    charge(&resolver.generic_work, metadata.generic_params.len())?;
+    let parameters: Vec<_> = metadata
+        .generic_params
+        .iter()
+        .enumerate()
+        .filter(|(_, parameter)| {
+            parameter.owner.table == Some(owner_table)
+                && parameter.owner.row == method.token & 0xffffff
+        })
+        .collect();
+    let work = parameters
+        .len()
+        .checked_mul(
+            metadata
+                .generic_param_constraints
+                .len()
+                .checked_add(1)
+                .ok_or("Generic constraint validation work overflow")?,
+        )
+        .ok_or("Generic constraint validation work overflow")?;
+    charge(&resolver.generic_work, work)?;
     let (methods, types) = if owner_table == TableId::TypeDef {
         (&[][..], arguments)
     } else {
         (arguments, declaring_arguments)
     };
-    for (index, parameter) in metadata.generic_params.iter().enumerate() {
-        if parameter.owner.table != Some(owner_table)
-            || parameter.owner.row != method.token & 0xffffff
-        {
-            continue;
-        }
+    for (index, parameter) in parameters {
         if parameter.flags & !0x3c != 0 || parameter.flags & 0x0c == 0x0c {
             if owner_table == TableId::TypeDef {
                 if metadata.type_defs[(method.token & 0xffffff) as usize - 1].flags & 0x20 != 0
