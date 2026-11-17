@@ -13,8 +13,8 @@ PORT means retain the externally meaningful assertion and input in native accept
 REPLACE means retain the justified behavior/boundary while replacing private C# IR,
 allocation, byte-shape, helper or harness assertions. DELETE would mean removing a
 test with no independent requirement left; none is proposed here. No compiler-owned
-case is deferred to another migration. All paths below are **proposed future Rust
-test locations**, not implemented coverage. A PORT disposition does not require
+case is deferred to another migration. Unless explicitly marked complete, paths
+below are **proposed future Rust test locations**, not implemented coverage. A PORT disposition does not require
 the C# ABI to be copied.
 
 ## Independent requirements and ABI decisions
@@ -377,15 +377,17 @@ Proposed future location: `rust/koh-compiler/tests/rewrite_legality.rs` (not imp
 
 Classification: IR invariants and textual compatibility. Typed returns/calls and terminated blocks are prerequisites for sound lowering; the C# builder API is disposable.
 
-Proposed future location: `rust/koh-compiler/tests/ir_validation.rs` (not implemented).
+Complete native locations: `tests/ir/construction.rs`, `tests/sm83.rs` and shared
+`tests/support/sum_loop.rs` under `rust/koh-compile`; discoverable by nextest.
+See [quantified construction dispositions](ir-construction.md).
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `Builder_ProducesVerifiableModule` | Mixed | REPLACE | Exercise replacement construction/validation with the named valid or malformed input; no C# API compatibility. |
-| `Builder_RoundTripsThroughText` | Mixed | REPLACE | Exercise replacement construction/validation with the named valid or malformed input; no C# API compatibility. |
-| `Verifier_FlagsMissingTerminator` | Mixed | REPLACE | Exercise replacement construction/validation with the named valid or malformed input; no C# API compatibility. |
-| `Verifier_FlagsReturnTypeMismatch` | Mixed | REPLACE | Exercise replacement construction/validation with the named valid or malformed input; no C# API compatibility. |
-| `Verifier_FlagsCallArgTypeMismatch` | Mixed | REPLACE | Exercise replacement construction/validation with the named valid or malformed input; no C# API compatibility. |
+| `Builder_ProducesVerifiableModule` | Mixed | REPLACE, complete | Verify and execute a typed two-phi sum loop at16/32/64 bits before/after optimization. |
+| `Builder_RoundTripsThroughText` | Mixed | REPLACE, complete | Deterministic canonical ELF emission/round-trip plus native execution replaces private IR text stability. |
+| `Verifier_FlagsMissingTerminator` | Mixed | REPLACE, complete | Nonoptional Rust terminators prevent missing terminators; reject empty functions, invalid successors and missing return values before emission. |
+| `Verifier_FlagsReturnTypeMismatch` | Mixed | REPLACE, complete | Reject mismatched native16/I32 return signatures in verification and emission. |
+| `Verifier_FlagsCallArgTypeMismatch` | Mixed | REPLACE, complete | Reject native16 arguments to I32 parameters before emission. |
 
 ### Ir/IrLivenessTests.cs (4)
 

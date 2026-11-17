@@ -25,7 +25,9 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   [constrained calls](docs/rust-compiler/constrained-calls.md) now execute through
   the same native ABI. Broader constraints, constructed declaring layouts and
   boxing/runtime fallback remain unfinished; this is not full migration.
-  The current ledger has159/565 complete methods and406 partial/outstanding;
+  The current ledger has164/565 complete methods and401 partial/outstanding;
+  five [IR construction/verifier methods](docs/rust-compiler/ir-construction.md)
+  now have native validation, object round-trip and executed-loop replacements;
   binary32/binary64 [remainder](docs/rust-compiler/floating-remainder.md) now executes
   through an exact shared core with signed-zero/subnormal/special-value coverage.
   [Checked numeric casts](docs/rust-compiler/checked-casts.md) now validate all20

@@ -1,3 +1,5 @@
+#[path = "ir/construction.rs"]
+mod construction;
 #[path = "ir/range_guards.rs"]
 mod range_guards;
 use koh_compile::ir::*;

@@ -4,8 +4,28 @@ use rstest::fixture;
 use std::path::Path;
 #[path = "support/recursion.rs"]
 mod recursion_fixture;
+#[path = "support/sum_loop.rs"]
+mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case(Type::Native)]
+#[case(Type::I32)]
+#[case(Type::I64)]
+fn constructed_sum_loop_executes_before_and_after_optimization(host: &Host, #[case] ty: Type) {
+    let original = sum_loop::sum(ty);
+    let mut optimized = original.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    let mut cases = Vec::new();
+    for n in [0u64, 1, 2, 10, 257, 400] {
+        let expected = (n * n.saturating_sub(1) / 2) & (u64::MAX >> (64 - ty.bits()));
+        for function in [&original, &optimized] {
+            cases.push((function.clone(), vec![n], Ok(expected)));
+        }
+    }
+    run(host, &cases);
+}
 
 #[fixture]
 #[once]
