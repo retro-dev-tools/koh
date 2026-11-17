@@ -2161,3 +2161,9 @@ pass. Published predecessor509d6c7 CI44063160385 finished successfully1746/1746
 Rust, zero skipped; current uncommitted increment has not run hosted CI.
 Next: commit/push this unit, update PR55, then native SDK/game acceptance.
 No additional source dispositions;198/565 complete,367 outstanding.
+
+Post-commit product regression: all four real2048 SDK game cases passed in
+228.987s, exit0 (`/tmp/koh-closed-sdk-game.log`),24 other SDK cases excluded.
+Debug/Release × DMG/CGB builds execute real boot, title/Start, eight moves, exact
+board/score/spawn transitions, glyph/tile/pixel checks and mode3 safety. This is
+scene-based2048 acceptance, not every sample or arbitrary-PC debugger acceptance.

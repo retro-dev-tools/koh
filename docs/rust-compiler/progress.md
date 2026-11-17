@@ -1697,3 +1697,9 @@ The final selected library/closed-type/existing-generic run passes221/221 in83.6
 execution claim. New coverage includes41 ROM scenarios,29 rejected compilations
 and11 parameterized library cases. Workspace all-feature/all-target check and
 separate rustdoc pass. Ledger remains198/565,367 outstanding; no legacy removal.
+
+Post-commit product regression: all four real2048 SDK game cases passed in
+228.987s, exit0 (`/tmp/koh-closed-sdk-game.log`),24 other SDK cases excluded.
+Debug/Release × DMG/CGB builds execute real boot, title/Start, eight moves, exact
+board/score/spawn transitions, glyph/tile/pixel checks and mode3 safety. This is
+scene-based2048 acceptance, not every sample or arbitrary-PC debugger acceptance.
