@@ -48,6 +48,29 @@ fn floating_identity_conversion_preserves_raw_bits(#[case] float: Type, #[case] 
 }
 
 #[rstest]
+#[case(Type::F32)]
+#[case(Type::F64)]
+fn unsigned_float_conversion_rejects_floating_operands(#[case] float: Type) {
+    let mut il = vec![if float == Type::F64 { 0x23 } else { 0x22 }];
+    il.extend(vec![0; usize::from(float.bits() / 8)]);
+    il.extend([0x76, 0x2a]);
+    let error = lower(method(&il)).unwrap_err();
+    assert!(error.contains("requires an integer operand"), "{error}");
+}
+
+#[rstest]
+#[case(&[0x17, 0x76, 0x6c, 0x2a])]
+#[case(&[0x17, 0x76, 0x00, 0x6c, 0x2a])]
+#[case(&[0x17, 0x76, 0x2a])]
+fn unsigned_float_conversion_requires_explicit_precision(#[case] il: &[u8]) {
+    let error = lower(method(il)).unwrap_err();
+    assert!(
+        error.contains("conv.r.un") && error.contains("explicit conv.r4"),
+        "{error}"
+    );
+}
+
+#[rstest]
 #[case(0x16, 7)]
 #[case(0x17, 9)]
 fn cil_stack_join_becomes_typed_block_arguments(#[case] condition: u8, #[case] expected: u64) {

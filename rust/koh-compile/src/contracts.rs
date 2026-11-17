@@ -443,6 +443,8 @@ pub(crate) fn float_conversion(resolver: &Resolver<'_>, key: &str) -> Result<Def
         "u64.toF32" => (U8, U4, "uint(ulong)"),
         "f32.toI64" => (U4, I8, "long(uint)"),
         "f32.toU64" => (U4, U8, "ulong(uint)"),
+        "f32.toF64" => (U4, U8, "ulong(uint)"),
+        "f64.toF32" => (U8, U4, "uint(ulong)"),
         _ => return Err(format!("Unsupported runtime conversion {key}")),
     };
     let definition = runtime_method(resolver, key)?;

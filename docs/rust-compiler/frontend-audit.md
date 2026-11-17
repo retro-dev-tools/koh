@@ -97,16 +97,16 @@ Float operations, conversions and byrefs must preserve the declared target numer
 - **REPLACE COMPLETE** `F32_Neg_RoutesThroughRealSoftFloatFunction` — native full-bit negation results replace the required helper name; [rationale](float-lowering.md#source-test-dispositions).
 - **PORT COMPLETE** `F32_ToInt_MatchesHost` — all3 original inputs in both modes plus limits/special values, `driver/float_conversion.rs`; [matrix](float-conversions.md#evidence-and-disposition).
 - **PORT COMPLETE** `F32_FromInt_MatchesHost` — all5 original inputs in both modes plus unsigned/native cases, `driver/float_conversion.rs`; [matrix](float-conversions.md#evidence-and-disposition).
-- **PORT** `F32_ToF64_MatchesHost`.
-- **REPLACE** `F32_ToF64_RoutesThroughRealSoftFloatFunction` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
-- **PORT** `F64_ToF32_MatchesHost`.
-- **REPLACE** `F64_ToF32_RoutesThroughRealSoftFloatFunction` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
+- **PORT COMPLETE** `F32_ToF64_MatchesHost` — exact native results/guards in both modes and cartridges; [precision-cast/byref matrix](binary64.md#precision-casts).
+- **REPLACE COMPLETE** `F32_ToF64_RoutesThroughRealSoftFloatFunction` — metadata helper rename/missing-key/wrong-signature checks; [matrix](binary64.md#precision-casts).
+- **PORT COMPLETE** `F64_ToF32_MatchesHost` — exact native results/guards in both modes and cartridges; [precision-cast/byref matrix](binary64.md#precision-casts).
+- **REPLACE COMPLETE** `F64_ToF32_RoutesThroughRealSoftFloatFunction` — metadata helper rename/missing-key/wrong-signature checks; [matrix](binary64.md#precision-casts).
 - **PORT** `F64_ToInt_MatchesHost`.
 - **PORT** `F64_FromInt_MatchesHost`.
 - **PORT** `F64_FromUInt_MatchesHost`.
 - **PORT COMPLETE** `F64_Arithmetic_MatchesHost` — all4 original arithmetic rows in both modes with independent full-bit results/guards, `driver/float64.rs`; [multiplication](binary64.md#multiplication).
 - **PORT COMPLETE** `F64_Compare_MatchesHost` — all4 original rows in both modes plus NaN, signed-zero, negative and fused-branch coverage, `driver/float64.rs`; [matrix](binary64.md#native-tests-and-source-disposition).
-- **PORT** `F32_RefParameter_ReadsAndWritesThroughIndirection`.
+- **PORT COMPLETE** `F32_RefParameter_ReadsAndWritesThroughIndirection` — exact native results/guards in both modes and cartridges; [precision-cast/byref matrix](binary64.md#precision-casts).
 - **PORT COMPLETE** `F32_Rem_NoMatchingRuntimeKey_IsADiagnosticNotAMiscompile` — actual CIL5.5%2 rejects with `f32.rem` and member/IL context.
 - **PORT COMPLETE** `F32_Arithmetic_DebugAndReleaseProduceIdenticalObservableState` — independent exact0.1+0.2 bits, completion/guards in each mode; [matrix](softfloat-division.md#additional-source-dispositions).
 - **PORT COMPLETE** `F64_Arithmetic_DebugAndReleaseProduceIdenticalObservableState` — independent1/3 full-bit result, completion and guards in each mode, `driver/float64.rs`; [division](binary64.md#division).

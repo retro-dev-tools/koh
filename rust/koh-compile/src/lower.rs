@@ -701,6 +701,7 @@ impl Builder<'_, '_> {
     ) -> Result<(u32, Type), String> {
         value = match value.1 {
             Type::F32 => self.value(Type::I32, Op::Reinterpret(value.0))?,
+            Type::F64 => self.value(Type::I64, Op::Reinterpret(value.0))?,
             Type::Native => self.value(
                 Type::I32,
                 Op::Convert {
@@ -710,13 +711,13 @@ impl Builder<'_, '_> {
                 },
             )?,
             Type::I32 | Type::I64 => value,
-            _ => return Err("Unsupported float32 conversion operand".into()),
+            _ => return Err("Unsupported floating conversion operand".into()),
         };
         let resolver = self
             .resolver
-            .ok_or("float32 conversion requires runtime metadata")?;
+            .ok_or("Floating conversion requires runtime metadata")?;
         let target = crate::contracts::float_conversion(resolver, key)?;
-        let returns = if matches!(key, "f32.toI64" | "f32.toU64") {
+        let returns = if matches!(key, "f32.toI64" | "f32.toU64" | "f32.toF64") {
             Type::I64
         } else {
             Type::I32
@@ -3020,20 +3021,37 @@ fn translate(
         }
         0x6c => {
             let value = b.pop()?;
-            if value.1 != Type::F64 {
-                return Err("Binary64 numeric conversion is not implemented".into());
-            }
+            let value = match value.1 {
+                Type::F64 => value,
+                Type::F32 => {
+                    let bits = b.float_conversion("f32.toF64", value)?;
+                    b.value(Type::F64, Op::Reinterpret(bits.0))?
+                }
+                _ => return Err("Binary64 integer conversion is not implemented".into()),
+            };
             b.stack.push(value);
         }
         0x6b | 0x76 => {
             let value = b.pop()?;
+            if i.opcode == 0x76 && matches!(value.1, Type::I32 | Type::I64 | Type::Native) {
+                let consumer = method
+                    .il
+                    .get(i.offset as usize..)
+                    .and_then(|bytes| bytes.iter().skip(1).find(|&&byte| byte != 0));
+                if consumer != Some(&0x6b) {
+                    return Err("conv.r.un currently requires explicit conv.r4; unsigned-to-binary64 conversion is not implemented".into());
+                }
+            }
             let value = if value.1 == Type::F32 && i.opcode == 0x6b {
                 value
+            } else if value.1 == Type::F64 && i.opcode == 0x6b {
+                let bits = b.float_conversion("f64.toF32", value)?;
+                b.value(Type::F32, Op::Reinterpret(bits.0))?
             } else {
                 match value.1 {
                     Type::I32 | Type::I64 | Type::Native => {}
-                    Type::F64 => {
-                        return Err("Binary64 to binary32 conversion is not implemented".into());
+                    Type::F32 | Type::F64 => {
+                        return Err("conv.r.un requires an integer operand".into());
                     }
                     _ => {
                         return Err(

@@ -243,5 +243,7 @@ intermediate is introduced by those helpers.
 `F64` uses the same eight-byte storage/calling mechanism with distinct float IR
 identity. Metadata `f64.add`/`f64.sub`/`f64.mul`/`f64.div` helpers carry two raw unsigned64 values and
 return one; `f64.cmp` returns byte classification. Negation flips the sign bit.
-See [binary64 contract and limits](binary64.md); unsupported precision conversion
-never becomes an implicit truncating integer operation.
+Precision casts use `f32.toF64` (`ulong(uint)`) and `f64.toF32` (`uint(ulong)`);
+raw argument/result widths match the source/destination float widths. See
+[binary64 contract and limits](binary64.md); unsupported integer conversions
+never become implicit truncating integer operations.

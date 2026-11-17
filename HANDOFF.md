@@ -1584,3 +1584,51 @@ EXIT0(5.53s existingunusedcubeshelperwarning), separaterustdocEXIT0fourzero
 casecrates. Rustfmt/diff/CSharpierchecks pass. Noactivebuilds. Readylogical
 mulcommit, holdpushuntilpublished3a45685CI43999660970terminal. Ledger151/565
 complete414remaining; nolegacydefinitionsphysicallyretired.
+
+2026-11-17 DIRTYfloatwidthcasts afterpublishedbc06529. CI44003120165live.
+55710redEXIT100RawWidenTinyrealROMheap0vsnonzerosubnormal4.535s. ToF64now
+normalizesF32subnormals, preserveszero/inf, quietsNaNs; ToF32roundsonceat
+finalnormal/subnormalscale, shift29..53, smaller→signed0, overflow/NaNexplicit.
+Runtimekeysf32.toF64ulong(uint),f64.toF32uint(ulong)validated. Lowerfloat_conversion
+rawI32/F32orI64/F64asappropriate; F32conv.r8andF64conv.r4nowhelpercalls. Integer
+R8castsandremainderstillreject; conv.r.unpolicyuntouched, u64F32proofretained.
+11030LIVE/tmp/koh-float-width-first.log4nativecases,firstDebugDMGpass22.755s.
+83entries×4=332ROMs,104newwidthcases; missingkeys/wrongsignedreturnandrenamed
+helpers. Added2590managedwidthobservations(sourcependingnextrun)total11913.
+Proposed4sourceclosures(2PORT2REPLACE):ToF64/ToF32numericandhelpernames;
+ledger155/565complete410remaining, float18/22methods59originalcases392asserts.
+Parentownsfiles/builds. ReviewREADONLYagainstHEADbc06529; noedits/build/test/
+commit/spawn. Needterminalfirstthenfullregression/checks/docs/logicalcommit.
+
+11030TERMINALEXIT0 4/4pass90.133s369unselected. Current48908LIVE
+/tmp/koh-float-width-final.log688selectedallLib/IR/lowering,float/softwaremath,
+primitivearrays. Afterbuildonlypolishedinvalidconv.r.unfloatoperanddiagnostic
+(oldmessagefalselyclaimedF64→F32unsupported) andadded2handCILnegativecases;
+needfocusedloweringfollowupafterterminal. No semanticvalid-inputchanges.
+ReviewedF32RefParameteroriginal1.5+2.5→4existingFloat32Referencealreadycovers
+independentbyrefrequirementinall4modes; closesadditionalPORTwithoutnewcode.
+Finalproposedledger156/565complete409remaining; float19/22methods61cases400
+assertions(5closures,10originalcases58assertions). Reviewnoconfirmeddefect.
+
+48908TERMINALEXIT0 688/688pass417.433s292unselected; fullfloatwidthcases332
+ROMs11913managedobs. 70275handCILinvalidfloatoperand2/2pass0.011s,workspace
+checkEXIT0(5.73s existingunusedcubeshelperwarning),rustdocEXIT0fourzerocases.
+PRECOMMITAUDITCAUGHTnewlyreachableunsignedint→F32→F64loss: integerR8path
+previouslyrejected,butnewF32conv.r8wouldacceptRoslynconv.r.un→conv.r8.
+68052redEXIT10022.254s confirmedUnsupportedUnsigned32unexpectedlycompiles;
+no claimnativeexactunsignedresultwasobserved. Guardnowallowsconv.r.uninteger
+onlywhenfollowedbyexplicitconv.r4(skippingnops); otherwiseactionableprecision
+diagnostic. ThiskeepsC#uint→floatRNEdirectandpreventslossyuint→doubleuntil
+nextintegerunit. No permanentfeatureretirement; bareconv.r.unFexpressionsare
+explicittemporaryunsupportedshape. Addedactualuint32/uint64negativefixtures
+and3handCILprecisioncasesplus2floatoperandcases. 66054LIVE
+/tmp/koh-float-width-unsigned-final.log selects12nativeconversion/F64cases
+plus5handCILcases. Needterminal/checks/docs/reviewbeforecommit.
+
+66054TERMINALEXIT0 17/17pass146.528s426unselected afterprecisionguard. Covers
+4F64cases332ROMs+8integer/F32conversioncases+5handCILdiagnostics. Directu64F32
+roundingcounterexampleunchanged. Followupreviewnoconfirmedguardhole. 89418
+workspacecheck/rustdoccompleted(readterminaloutput); format/Rustfmt/diffpass.
+No semanticchangesafter17run. Readylogicalwidthcastcommit; currentCIpublished
+bc06529run44003120165stillinprogress, holdpushandbatchnextintegerunit.
+Ledger156/565complete409remaining; zero physicallyretired.

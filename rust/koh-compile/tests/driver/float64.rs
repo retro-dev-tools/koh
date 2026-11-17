@@ -22,6 +22,74 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
     for (entry, expected) in [
         ("RawTiny", 2u64),
+        ("Widen0", f64::from(f32::from_bits(0x3fc00000)).to_bits()),
+        ("Widen1", f64::from(f32::from_bits(0xc0200000)).to_bits()),
+        ("Widen2", f64::from(f32::from_bits(0x3dcccccd)).to_bits()),
+        ("Widen3", f64::from(f32::from_bits(0x00000001)).to_bits()),
+        ("Widen4", f64::from(f32::from_bits(0x007fffff)).to_bits()),
+        ("Widen5", f64::from(f32::from_bits(0x00800000)).to_bits()),
+        ("Widen6", f64::from(f32::from_bits(0x80000000)).to_bits()),
+        ("Widen7", f64::from(f32::from_bits(0x7f800000)).to_bits()),
+        ("Widen8", f64::from(f32::from_bits(0xff800000)).to_bits()),
+        (
+            "Narrow0",
+            u64::from((f64::from_bits(0x3ff8000000000000) as f32).to_bits()),
+        ),
+        (
+            "Narrow1",
+            u64::from((f64::from_bits(0xc004000000000000) as f32).to_bits()),
+        ),
+        (
+            "Narrow2",
+            u64::from((f64::from_bits(0x3fb999999999999a) as f32).to_bits()),
+        ),
+        (
+            "Narrow3",
+            u64::from((f64::from_bits(0x36a0000000000000) as f32).to_bits()),
+        ),
+        (
+            "Narrow4",
+            u64::from((f64::from_bits(0x3690000000000000) as f32).to_bits()),
+        ),
+        (
+            "Narrow5",
+            u64::from((f64::from_bits(0x3690000000000001) as f32).to_bits()),
+        ),
+        (
+            "Narrow6",
+            u64::from((f64::from_bits(0x36a8000000000000) as f32).to_bits()),
+        ),
+        (
+            "Narrow7",
+            u64::from((f64::from_bits(0x380fffffe0000000) as f32).to_bits()),
+        ),
+        (
+            "Narrow8",
+            u64::from((f64::from_bits(0x3ff0000010000000) as f32).to_bits()),
+        ),
+        (
+            "Narrow9",
+            u64::from((f64::from_bits(0x3ff0000010000001) as f32).to_bits()),
+        ),
+        (
+            "Narrow10",
+            u64::from((f64::from_bits(0x3ff0000030000000) as f32).to_bits()),
+        ),
+        (
+            "Narrow11",
+            u64::from((f64::from_bits(0x47effffff0000000) as f32).to_bits()),
+        ),
+        (
+            "Narrow12",
+            u64::from((f64::from_bits(0x8000000000000000) as f32).to_bits()),
+        ),
+        (
+            "Narrow13",
+            u64::from((f64::from_bits(0x7ff0000000000000) as f32).to_bits()),
+        ),
+        ("WidenNan", 0x7ff8000000000000),
+        ("NarrowNan", 0x7fc00000),
+        ("RawWidenTiny", (f64::from(f32::from_bits(1))).to_bits()),
         ("RawMultiplyTiny", 1),
         ("Multiplication", 6.5f64.to_bits()),
         ("MultiplyTiny", 1),
@@ -143,6 +211,8 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
     }
     for (entry, expected) in [
         ("UnsupportedConversion", "conversion"),
+        ("UnsupportedUnsigned32", "conv.r.un"),
+        ("UnsupportedUnsigned64", "conv.r.un"),
         ("UnsupportedRemainder", "f64.rem"),
         ("UnsupportedInteger", "conversion"),
     ] {
@@ -156,6 +226,8 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
         ("f64.cmp", "CompareNan"),
         ("f64.div", "Division"),
         ("f64.mul", "Multiplication"),
+        ("f32.toF64", "Widen0"),
+        ("f64.toF32", "Narrow0"),
     ] {
         let mut changed = images[1].clone();
         let offsets: Vec<_> = changed
@@ -201,4 +273,41 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
         error.contains("ulong(ulong,ulong)") && error.contains("IL_"),
         "{error}"
     );
+    for (name, entry, expected, returns) in [
+        ("ToF64", "Widen0", "ulong(uint)", 11u8),
+        ("ToF32", "Narrow0", "uint(ulong)", 9),
+    ] {
+        let mut changed = images[1].clone();
+        let name = format!("{name}\0");
+        let offsets: Vec<_> = changed
+            .windows(name.len())
+            .enumerate()
+            .filter(|(_, bytes)| *bytes == name.as_bytes())
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(offsets.len(), 1);
+        changed[offsets[0]] = b'Z';
+        let renamed = Resolver::new(&[&images[0], &changed]).unwrap();
+        compile::object(&renamed, Some(&format!("Float64::{entry}"))).unwrap();
+        let method = runtime
+            .metadata()
+            .method_defs
+            .iter()
+            .enumerate()
+            .find(|(i, _)| {
+                runtime
+                    .method_name(0x06000001 + *i as u32)
+                    .unwrap()
+                    .ends_with(name.trim_end_matches('\0'))
+            })
+            .unwrap()
+            .1;
+        let start = heap_offset(&images[1], "#Blob") + method.signature as usize;
+        assert_eq!(&images[1][start..start + 4], &[4, 0, 1, returns]);
+        let mut changed = images[1].clone();
+        changed[start + 3] = returns - 1;
+        let wrong = Resolver::new(&[&images[0], &changed]).unwrap();
+        let error = compile::object(&wrong, Some(&format!("Float64::{entry}"))).unwrap_err();
+        assert!(error.contains(expected) && error.contains("IL_"), "{error}");
+    }
 }

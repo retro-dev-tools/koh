@@ -31,9 +31,9 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: 151 legacy methods; zero physically retired.**
+**Native behavioral replacements: 156 legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 414 methods still have
+The remaining 409 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -59,12 +59,12 @@ assertions. The [conversion matrix](float-conversions.md#evidence-and-dispositio
 accounts for11 completed float methods,42 original parameter-expanded cases and
 275 expanded assertions. The [binary64 comparison replacement](binary64.md#native-tests-and-source-disposition)
 adds1 PORT method,4 original parameter rows and32 expanded assertions. The float
-group now accounts for14/22 methods,51 original cases and342 expanded assertions
-after the binary64 division `1/3` Debug/Release method and all four rows of the
-binary64 mixed-arithmetic method are ported; see
-[binary64 division](binary64.md#division).
+group now accounts for19/22 methods,61 original cases and400 expanded assertions
+after binary64 arithmetic, both precision casts and the previously covered
+binary32 byref case are fully traced; see the
+[precision-cast/byref matrix](binary64.md#precision-casts).
 Integer64/binary32 width coverage is also implemented without inventing legacy
-closures. Checked casts and remaining binary64 arithmetic/conversions remain open.
+closures. Checked casts and binary64 integer conversions remain open.
 
 ## Software runtime replacements
 

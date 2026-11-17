@@ -1009,49 +1009,67 @@ public static class SoftFloat
     [KohRuntime("f32.toF64")]
     public static ulong ToF64(uint a)
     {
-        ulong sign64 = (ulong)(a & 0x80000000) << 32;
-        int e = (int)((a >> 23) & 0xFF);
-        ulong mant = (ulong)(a & 0x7FFFFF) << 29; // 23-bit mantissa -> top of 52
-        if (e == 0)
-            return sign64; // zero (subnormal flushed)
-        if (e == 0xFF)
-            return sign64 | ((ulong)0x7FF << 52) | mant; // inf/nan
-        int exp = e - 127 + 1023;
-        return sign64 | ((ulong)exp << 52) | mant;
+        ulong sign = (ulong)(a & 0x80000000) << 32;
+        int exp = (int)((a >> 23) & 0xff);
+        uint mantissa = a & 0x7fffff;
+        if (exp == 255)
+        {
+            ulong payload = (ulong)mantissa << 29;
+            if (mantissa != 0)
+                payload |= 0x0008000000000000;
+            return sign | 0x7ff0000000000000 | payload;
+        }
+        if (exp == 0)
+        {
+            if (mantissa == 0)
+                return sign;
+            exp = 1;
+            while (mantissa < 0x800000)
+            {
+                mantissa <<= 1;
+                exp--;
+            }
+        }
+        return sign | ((ulong)(exp + 896) << 52) | ((ulong)(mantissa & 0x7fffff) << 29);
     }
 
     [KohRuntime("f64.toF32")]
     public static uint ToF32(ulong a)
     {
         uint sign = (uint)(a >> 32) & 0x80000000;
-        int e = (int)((a >> 52) & 0x7FF);
-        ulong m = a & 0xFFFFFFFFFFFFF;
-        if (e == 0)
-            return sign; // zero (subnormal flushed)
-        if (e == 0x7FF)
+        int exp = (int)((a >> 52) & 0x7ff);
+        ulong mantissa = a & 0xfffffffffffff;
+        if (exp == 2047)
         {
-            uint nan = (uint)(m >> 29);
-            if (m != 0 && nan == 0)
-                nan = 1;
-            return sign | ((uint)0xFF << 23) | nan;
+            if (mantissa == 0)
+                return sign | 0x7f800000;
+            return sign | 0x7fc00000 | (uint)(mantissa >> 29);
         }
-        int exp = e - 1023 + 127;
-        uint sig = (uint)(m >> 29); // 23-bit
-        ulong rem = m & 0x1FFFFFFF; // low 29 bits -> rounding
-        ulong half = 0x10000000;
-        if (rem > half || (rem == half && (sig & 1) != 0))
+        if (exp == 0)
+            return sign;
+        exp -= 896;
+        if (exp >= 255)
+            return sign | 0x7f800000;
+        mantissa |= 0x10000000000000;
+        int shift = 29;
+        if (exp <= 0)
+            shift += 1 - exp;
+        if (shift > 53)
+            return sign;
+        ulong sig = mantissa >> shift;
+        ulong remainder = mantissa & (((ulong)1 << shift) - 1);
+        ulong half = (ulong)1 << (shift - 1);
+        if (remainder > half || (remainder == half && (sig & 1) != 0))
+            sig++;
+        if (exp <= 0)
+            return sign | (uint)sig;
+        if (sig == 0x1000000)
         {
-            sig = sig + 1;
-            if (sig >= 0x800000)
-            {
-                sig = 0;
-                exp = exp + 1;
-            }
+            sig >>= 1;
+            exp++;
         }
         if (exp >= 255)
-            return sign | ((uint)0xFF << 23);
-        if (exp <= 0)
-            return sign;
-        return sign | ((uint)exp << 23) | (sig & 0x7FFFFF);
+            return sign | 0x7f800000;
+        return sign | ((uint)exp << 23) | ((uint)sig & 0x7fffff);
     }
 }

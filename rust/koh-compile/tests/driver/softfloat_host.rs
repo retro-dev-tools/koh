@@ -59,6 +59,18 @@ fn runtime() -> Host {
 #[case::f64_mul_sweep5("f64-mul-sweep-5", 256)]
 #[case::f64_mul_sweep6("f64-mul-sweep-6", 256)]
 #[case::f64_mul_sweep7("f64-mul-sweep-7", 256)]
+#[case::widen_boundaries("width-widen-boundaries", 12)]
+#[case::widen_sweep("width-widen-sweep", 256)]
+#[case::narrow_boundaries("width-narrow-boundaries", 18)]
+#[case::narrow_near("width-narrow-near", 256)]
+#[case::narrow_sweep0("width-narrow-sweep-0", 256)]
+#[case::narrow_sweep1("width-narrow-sweep-1", 256)]
+#[case::narrow_sweep2("width-narrow-sweep-2", 256)]
+#[case::narrow_sweep3("width-narrow-sweep-3", 256)]
+#[case::narrow_sweep4("width-narrow-sweep-4", 256)]
+#[case::narrow_sweep5("width-narrow-sweep-5", 256)]
+#[case::narrow_sweep6("width-narrow-sweep-6", 256)]
+#[case::narrow_sweep7("width-narrow-sweep-7", 256)]
 fn software_runtime_matches_independent_numeric_oracles(
     runtime: &Host,
     #[case] group: &str,
@@ -75,6 +87,81 @@ fn software_runtime_matches_independent_numeric_oracles(
         expected.push(result);
     };
     match group {
+        "width-widen-boundaries" => {
+            for bits in [
+                0u32, 0x80000000, 1, 0x7fffff, 0x800000, 0x3fc00000, 0xc0200000, 0x3dcccccd,
+                0x7f7fffff, 0x7f800000, 0x7f812345, 0x7fc12345,
+            ] {
+                add(
+                    "ToF64",
+                    &[u64::from(bits)],
+                    f64::from(f32::from_bits(bits)).to_bits(),
+                );
+            }
+        }
+        "width-widen-sweep" => {
+            let mut seed = 0x5a713cd9u32;
+            for exponent in 0..256 {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                let bits = (seed & 0x807fffff) | (exponent << 23);
+                add(
+                    "ToF64",
+                    &[u64::from(bits)],
+                    f64::from(f32::from_bits(bits)).to_bits(),
+                );
+            }
+        }
+        "width-narrow-boundaries" => {
+            for bits in [
+                0x3ff8000000000000u64,
+                0xc004000000000000,
+                0x3fb999999999999a,
+                0x36a0000000000000,
+                0x3690000000000000,
+                0x3690000000000001,
+                0x36a8000000000000,
+                0x380fffffe0000000,
+                0x3ff0000010000000,
+                0x3ff0000010000001,
+                0x3ff0000030000000,
+                0x47effffff0000000,
+                0x8000000000000000,
+                0x7ff0000000000000,
+                1,
+                0x7fefffffffffffff,
+                0xfff0000000000000,
+                0x7ff0123456789abc,
+            ] {
+                add(
+                    "ToF32",
+                    &[bits],
+                    u64::from((f64::from_bits(bits) as f32).to_bits()),
+                );
+            }
+        }
+        group if group.starts_with("width-narrow-") => {
+            let near = group == "width-narrow-near";
+            let start = if near {
+                0
+            } else {
+                group.rsplit('-').next().unwrap().parse::<u64>().unwrap() * 256
+            };
+            let mut seed = 0x2a7e91d68cb50143u64 ^ start;
+            for i in start..start + 256 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let exponent = if near { 872 + i * 280 / 255 } else { i };
+                let bits = (seed & 0x800fffffffffffff) | (exponent << 52);
+                add(
+                    "ToF32",
+                    &[bits],
+                    u64::from((f64::from_bits(bits) as f32).to_bits()),
+                );
+            }
+        }
         "f64-mul-boundaries" => {
             for (a, b) in [
                 (1u64, 0x3ff0000000000000),
@@ -655,7 +742,7 @@ fn software_runtime_matches_independent_numeric_oracles(
         .collect();
     assert_eq!(results.len(), expected.len());
     for ((query, result), expected) in queries.iter().zip(results).zip(expected) {
-        if matches!(
+        if (matches!(
             group,
             "f32-boundaries"
                 | "f32-sweep"
@@ -663,7 +750,10 @@ fn software_runtime_matches_independent_numeric_oracles(
                 | "f32-mul-sweep"
                 | "f32-div-boundaries"
                 | "f32-div-sweep"
-        ) && f32::from_bits(expected as u32).is_nan()
+                | "width-narrow-boundaries"
+                | "width-narrow-near"
+        ) || group.starts_with("width-narrow-sweep-"))
+            && f32::from_bits(expected as u32).is_nan()
         {
             assert!(
                 f32::from_bits(result as u32).is_nan() && result & 0x00400000 != 0,
@@ -674,7 +764,8 @@ fn software_runtime_matches_independent_numeric_oracles(
             || group == "f64-div-boundaries"
             || group.starts_with("f64-div-sweep-")
             || group == "f64-mul-boundaries"
-            || group.starts_with("f64-mul-sweep-"))
+            || group.starts_with("f64-mul-sweep-")
+            || group.starts_with("width-widen-"))
             && f64::from_bits(expected).is_nan()
         {
             assert!(

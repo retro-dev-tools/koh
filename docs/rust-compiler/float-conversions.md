@@ -34,13 +34,17 @@ conversion follows Koh's explicit16-bit target extension.
 
 The sixth-edition ECMA-335 definition of `conv.r.un` produces the internal `F`
 type; it does not impose the older documentation's fixed binary64 intermediate.
-The current supported expression domain uses binary32 precision. Binary64
-operations still reject; no successful binary64 conversion silently loses bits.
+Unsigned integer conversion currently uses binary32 precision; integer↔binary64
+casts still reject. `conv.r.un` currently requires explicit following `conv.r4`
+(intervening nops allowed); other internal-F shapes diagnose until integer
+binary64 conversion is complete. Binary64 arithmetic and binary32↔binary64
+precision casts are separately supported without routing integers through the
+wrong precision.
 Checked conversions remain explicitly unsupported pending overflow handling.
 Do not mistake integer/binary32 conversion support for complete floating-language
-support; binary64 numeric conversions and remainder execution remain unfinished.
+support; binary64 integer conversions and remainder execution remain unfinished.
 The [binary64 core](binary64.md) supports separate eight-byte arithmetic/storage
-without enabling unimplemented precision conversions.
+and [precision casts](binary64.md#precision-casts).
 
 ## Wide rounding and bounds
 

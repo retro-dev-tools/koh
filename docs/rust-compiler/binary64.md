@@ -1,7 +1,7 @@
 # Binary64 core
 
 Status: constants, bit transport, addition/subtraction, negation, comparisons and
-eight-byte storage/calls and multiplication/division are implemented. Numeric
+eight-byte storage/calls and multiplication/division are implemented. Integer
 conversions and remainder remain explicitly unsupported pending independently correct runtime
 lowering. This is not complete `double` or general .NET floating support.
 
@@ -22,12 +22,12 @@ production. Negation flips bit63. Value/fused-branch comparisons use the same
 ordered/unordered rule as binary32, including the NaN-sensitive inversion of
 `bge`/`ble`. The ABI and canonical ELF32/SM83 object format are unchanged.
 
-`conv.r8` on an existing `F64` is bit-preserving. Other numeric `conv.r8`,
-binary64→binary32/integer casts and mixed nominal precision currently diagnose.
-This prevents successful casts from silently going through the current binary32
-domain. Subsequent precision conversion work must preserve the direct unsigned64
-to binary32 halfway-above test; a binary64 intermediate can change that result.
-Those shapes are valid CIL but currently unsupported, not malformed metadata.
+`conv.r8` on an existing `F64` is bit-preserving; `F32`→`F64` and
+`F64`→`F32` numeric casts use checked runtime metadata. Integer↔binary64 casts
+and mixed nominal precision arithmetic currently diagnose. Subsequent integer
+conversion work must preserve direct unsigned64→binary32 rounding: a binary64
+intermediate can change the halfway-above result. Unsupported shapes can be
+valid CIL; they are not diagnosed as malformed metadata.
 
 ## Runtime correction
 
@@ -49,7 +49,7 @@ the significand/bounds argument are not exhaustive verification of every pair.
 
 ## Native tests and source disposition
 
-`driver/float64.rs` runs57 entries in Debug/Release × DMG/CGB (228 ROMs): actual
+`driver/float64.rs` runs83 entries in Debug/Release × DMG/CGB (332 ROMs): actual
 Roslyn R8 constants, arithmetic, both comparison positions, calls, joins,
 references, fields and arrays. The emulator checks all eight result bytes at
 WRAM DFF8, array payload bytes and every surrounding byte/bank/frame guard.
@@ -66,8 +66,8 @@ before and after optimization.
 All four original parameter rows and32 expanded assertions are retained through
 compile/IR verification, complete CPU return, all result bits and guards. One
 method closes; mixed binary64 arithmetic and conversion methods remain open.
-The float disposition group now covers14 of22 methods,51 original
-parameter-expanded cases and342 explicit expanded assertions. No legacy source
+The float disposition group now covers19 of22 methods,61 original
+parameter-expanded cases and400 explicit expanded assertions. No legacy source
 definition is physically retired by this increment.
 
 ## Verification
@@ -174,3 +174,64 @@ the selection. Workspace all-target/all-feature checking, separate rustdoc and
 formatting passed. Independent review found no confirmed defect and its extra
 carry vector is covered by the final run. These local results do not establish
 complete migration, exhaustive numeric proof or cross-platform acceptance.
+
+## Precision casts
+
+`conv.r8` from binary32 selects `f32.toF64`, requiring `ulong(uint)` raw bits.
+`conv.r4` from binary64 selects `f64.toF32`, requiring `uint(ulong)`. The same
+metadata validator rejects missing helpers and wrong raw width/signedness;
+renamed helpers compile successfully. No helper name is part of the compiler
+contract. Numeric casts are calls with independently verified raw integer
+signatures, followed by width-matched IR reinterpretation. Integer arithmetic
+and integer IR conversions on float values remain forbidden.
+
+Widening is exact for finite binary32 values, including all subnormals. The
+old helper returned zero for the smallest subnormal, reproduced by a native ROM.
+Normalization recovers the binary32 significand/exponent before rebiasing to
+binary64. Narrowing first chooses its final normal/subnormal output scale,
+then compares the exact discarded remainder with half and rounds once to
+nearest, ties to even. Its shifts are bounded29..53; smaller magnitudes round
+to signed zero. Rounding may promote a subnormal or overflow to infinity.
+Zero signs and infinities survive, and NaNs are quiet without freezing a host
+sign/payload. Binary64 subnormals are all far below half the minimum binary32
+subnormal, so they round to signed zero.
+
+Native fixtures add104 cast executions across Debug/Release × DMG/CGB, checking
+all eight result bytes (including zero upper bytes for narrowed results), heap,
+WRAM-bank and stack guards, plus source/PDB/ELF/KDBG provenance. Managed checks
+add12+256 widening observations and18+2048+256 narrowing observations, including
+all exponent fields and extra samples near binary32's representable range.
+
+| Source `CilFloatTests` method | Requirement and independent basis | Disposition / Rust coverage |
+| --- | --- | --- |
+| `F32_ToF64_MatchesHost` | Exact widening of1.5f,-2.5f,0.1f | PORT: `Widen0..2`, raw Rust binary64 expectations, both modes/cartridges |
+| `F32_ToF64_RoutesThroughRealSoftFloatFunction` | A real runtime implementation is selected; old private name is not a contract | REPLACE: renamed helper, missing key and wrong signature checks in `driver/float64.rs` |
+| `F64_ToF32_MatchesHost` | Correct narrowing of1.5,-2.5,0.1 | PORT: `Narrow0..2`, raw Rust binary32 expectations, both modes/cartridges |
+| `F64_ToF32_RoutesThroughRealSoftFloatFunction` | Runtime dispatch rather than a required method name | REPLACE: renamed helper, missing key and wrong signature checks |
+| `F32_RefParameter_ReadsAndWritesThroughIndirection` | A byref write changes the caller's float; CIL managed-pointer semantics | PORT: existing `Float32::Reference` / `driver/float32.rs`,1.5+2.5→4.0 in both modes/cartridges |
+
+These five source methods preserve all10 original parameter-expanded cases and
+58 expanded assertions. The byref case was already executed by the Rust suite;
+this audit closes its source traceability without inventing a new test. The
+float group is now19/22 methods,61 original cases and400 expanded assertions.
+Only the three binary64 integer-conversion methods remain open in this group.
+No legacy definitions are physically removed yet. Direct unsigned64→binary32
+rounding is unchanged; internal-F precision requests are restricted below.
+
+Until integer↔binary64 conversion is implemented, `conv.r.un` requires an
+explicit following `conv.r4` (intervening nops are allowed). Other internal-F
+shapes, including Roslyn's `conv.r.un;conv.r8`, diagnose rather than first
+rounding to binary32 and then widening. `uint`16777217 must never silently
+become double16777216. Native negative fixtures cover both32/64-bit unsigned
+inputs, and direct-CIL cases cover bare/nop-separated precision requests.
+This is an explicit temporary unsupported shape, not malformed metadata or a
+retired C# capability. Integer binary64 conversion remains unfinished.
+
+Verification:688/688 selected compiler cases passed in417.433s (292 unselected),
+including332 binary64 ROMs and11913 managed numeric observations. After adding
+the unsigned-precision guard,17/17 affected native-conversion and direct-CIL
+cases passed in146.528s (426 unselected). The follow-up preserves the direct
+unsigned64→binary32 counterexample and checks both32/64-bit unsigned-to-double
+diagnostics. Workspace all-target/all-feature checking, separate rustdoc and
+formatting passed. Independent reviews found no confirmed defect in the casts
+or precision guard. Full migration and cross-platform acceptance remain open.

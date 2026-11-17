@@ -13,24 +13,25 @@ float constants/calls/joins/byrefs/fields/arrays and metadata-selected software
 addition/subtraction/multiplication/division, direct sign-bit negation and ordered/unordered comparisons.
 Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
 covered. Other float operations remain unfinished and reject explicitly; this
-does not close the full legacy floating test group. Fourteen float methods now have
-native replacements (51 original parameter-expanded cases,342 explicit expanded
-assertions): the current ledger is151/565 complete,414 outstanding.
+does not close the full legacy floating test group. Nineteen float methods now have
+native replacements (61 original parameter-expanded cases,400 explicit expanded
+assertions): the current ledger is156/565 complete,409 outstanding.
 See [float lowering contract and evidence](float-lowering.md).
 The [multiplication correction](softfloat-multiplication.md) replaces inherited
 subnormal flushing and missing special-value handling before enabling CIL `mul`.
 It adds26 boundary and256 exponent-stratified numeric observations plus56 native
 multiplication executions. Subsequent [division work](softfloat-division.md) adds
 another26+256 numeric observations and64 division ROMs, closes the mixed arithmetic
-rows and preserves the unsupported-remainder diagnostic. Conversions/binary64
-remain unfinished; no floating feature has been retired. [32-bit conversions](float-conversions.md)
+rows and preserves the unsupported-remainder diagnostic. Checked and binary64
+integer conversions remain unfinished; no floating feature has been retired. [32-bit conversions](float-conversions.md)
 now cover signed/unsigned32/64-bit and16-bit-native inputs, with explicit
 clamping/NaN choices and narrower integer truncation. Wide conversion rounds
 once without binary64 intermediates and verifies all eight returned bytes in
-WRAM. Checked casts remain open; the148-method ledger is unchanged by this
-additional width coverage. The [binary64 core](binary64.md) now adds distinct typed
+WRAM. At that checkpoint, additional integer-width coverage did not change the
+148-method ledger; checked casts remain open. The [binary64 core](binary64.md) now adds distinct typed
 64-bit float constants/storage/calls, corrected software addition/subtraction,
-negation and ordered/unordered comparisons. Numeric conversions still reject explicitly. Multiplication now uses exact
+negation and ordered/unordered comparisons. Integer↔binary64 conversions still reject explicitly. Binary32↔binary64 casts
+now preserve subnormals and round once at the final storage scale. Multiplication now uses exact
 two-limb products with final-scale rounding. Division now uses bounded64-bit long
 division with one rounding step at the final normal/subnormal scale.
 Final comparison regression passes606/606 selected tests156.717s, exit0;

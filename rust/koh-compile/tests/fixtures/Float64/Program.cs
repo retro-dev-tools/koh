@@ -17,6 +17,14 @@ public static class Float64
         return 42;
     }
 
+    static unsafe float From32(uint bits) => *(float*)&bits;
+
+    static unsafe uint Bits32(float value) => *(uint*)&value;
+
+    static double Widen(float value) => value;
+
+    static float Narrow(double value) => (float)value;
+
     static double Add(double a, double b) => a + b;
 
     static double Subtract(double a, double b) => a - b;
@@ -30,6 +38,10 @@ public static class Float64
     static double Remainder(double a, double b) => a % b;
 
     static double Convert(long value) => value;
+
+    static double ConvertUnsigned(uint value) => value;
+
+    static double ConvertUnsignedWide(ulong value) => value;
 
     static int ConvertInt(double value) => (int)value;
 
@@ -154,6 +166,11 @@ public static class Float64
 
     public static int UnsupportedConversion() => Store(Bits(Convert(16777217)));
 
+    public static int UnsupportedUnsigned32() => Store(Bits(ConvertUnsigned(16777217)));
+
+    public static int UnsupportedUnsigned64() =>
+        Store(Bits(ConvertUnsignedWide(0x8000008000000001)));
+
     public static int UnsupportedRemainder() => Store(Bits(Remainder(5.5, 2.0)));
 
     public static int UnsupportedInteger() => ConvertInt(1.5);
@@ -163,6 +180,8 @@ public static class Float64
     static void Step(ref double value, double increment) => value += increment;
 
     public static int RawTiny() => Store(Koh.GameBoy.SoftFloat.AddF64(1, 1));
+
+    public static int RawWidenTiny() => Store(Koh.GameBoy.SoftFloat.ToF64(1));
 
     public static int RawMultiplyTiny() =>
         Store(Koh.GameBoy.SoftFloat.MulF64(1, 0x3ff0000000000000));
@@ -216,4 +235,54 @@ public static class Float64
         values[1] = 2.5;
         return Store(Bits(Add(values[0], values[1])));
     }
+
+    public static int Widen0() => Store(Bits(Widen(From32(0x3fc00000))));
+
+    public static int Widen1() => Store(Bits(Widen(From32(0xc0200000))));
+
+    public static int Widen2() => Store(Bits(Widen(From32(0x3dcccccd))));
+
+    public static int Widen3() => Store(Bits(Widen(From32(0x00000001))));
+
+    public static int Widen4() => Store(Bits(Widen(From32(0x007fffff))));
+
+    public static int Widen5() => Store(Bits(Widen(From32(0x00800000))));
+
+    public static int Widen6() => Store(Bits(Widen(From32(0x80000000))));
+
+    public static int Widen7() => Store(Bits(Widen(From32(0x7f800000))));
+
+    public static int Widen8() => Store(Bits(Widen(From32(0xff800000))));
+
+    public static int Narrow0() => Store(Bits32(Narrow(From(0x3ff8000000000000))));
+
+    public static int Narrow1() => Store(Bits32(Narrow(From(0xc004000000000000))));
+
+    public static int Narrow2() => Store(Bits32(Narrow(From(0x3fb999999999999a))));
+
+    public static int Narrow3() => Store(Bits32(Narrow(From(0x36a0000000000000))));
+
+    public static int Narrow4() => Store(Bits32(Narrow(From(0x3690000000000000))));
+
+    public static int Narrow5() => Store(Bits32(Narrow(From(0x3690000000000001))));
+
+    public static int Narrow6() => Store(Bits32(Narrow(From(0x36a8000000000000))));
+
+    public static int Narrow7() => Store(Bits32(Narrow(From(0x380fffffe0000000))));
+
+    public static int Narrow8() => Store(Bits32(Narrow(From(0x3ff0000010000000))));
+
+    public static int Narrow9() => Store(Bits32(Narrow(From(0x3ff0000010000001))));
+
+    public static int Narrow10() => Store(Bits32(Narrow(From(0x3ff0000030000000))));
+
+    public static int Narrow11() => Store(Bits32(Narrow(From(0x47effffff0000000))));
+
+    public static int Narrow12() => Store(Bits32(Narrow(From(0x8000000000000000))));
+
+    public static int Narrow13() => Store(Bits32(Narrow(From(0x7ff0000000000000))));
+
+    public static int WidenNan() => Store(Bits(Widen(From32(0x7f812345))) & 0x7ff8000000000000);
+
+    public static int NarrowNan() => Store(Bits32(Narrow(From(0x7ff0123456789abc))) & 0x7fc00000);
 }
