@@ -483,29 +483,31 @@ Proposed future location: `rust/koh-compiler/tests/optimization_semantics.rs` (n
 
 Classification: Integer-width preservation and private rewrite structure. Low-bit add/sub/mul/bitwise observations can permit narrowing; signed comparisons, division and shifts require separate proofs. Wide escaping uses forbid truncating their value.
 
-Proposed future location: `rust/koh-compiler/tests/narrowing.rs` (not implemented).
+All19 methods are REPLACE complete in `sm83::narrowing_preserves_comparisons_and_every_escaping_width`
+and `sm83::byte_counter_backedges_preserve_wrapping_without_narrowing_the_trip_count`.
+See the [73-site source matrix and independent execution oracles](narrowing.md).
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `Add_DemotesWhenOperandsAreExtensionsAndResultIsTruncated` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Add_DemotesToI16WhenOperandsAreExtensionsFromI16` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Add_DemotesWithMixedZextAndSextOperands` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Add_DemotesWithConstantOperand` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Chain_DemotesEveryLinkWhenOnlyTheOuterResultEscapesViaTrunc` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Chain_DoesNotDemoteWhenAnInnerLinkAlsoEscapesAtWideWidth` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Add_DoesNotDemoteWhenResultAlsoObservedAtWideWidth` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Add_DoesNotDemoteWhenTruncatedToTwoDifferentWidths` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Shl_IsNeverDemotedEvenWhenOperandsAndConsumerLookEligible` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `UDiv_IsNeverDemotedEvenWhenOperandsAndConsumerLookEligible` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Compare_SltWithZextOperandsRemapsToUltAndFoldsToTheCorrectValue` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Compare_SltWithSextOperandsStaysSltAndFoldsToTheCorrectValue` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Compare_SgeWithZextI16OperandsRemapsToUgeAndFoldsToTheCorrectValue` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Compare_UnsignedPredicateStaysUnchangedForEitherExtensionKind` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Compare_EqDemotesForMatchingExtensionKind` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Compare_DoesNotDemoteMixedExtensionKinds` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Compare_DoesNotDemoteWhenConstantDoesNotFitTheNarrowRange` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `NarrowPass_NarrowsAByteLoopCounterCompareAndIncrement` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Optimize_WiresNarrowPassIntoTheDefaultPipeline` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Add_DemotesWhenOperandsAreExtensionsAndResultIsTruncated` | Mixed | REPLACE, complete | [sum](narrowing.md#source-test-disposition). |
+| `Add_DemotesToI16WhenOperandsAreExtensionsFromI16` | Mixed | REPLACE, complete | [16-bit sum](narrowing.md#source-test-disposition). |
+| `Add_DemotesWithMixedZextAndSextOperands` | Mixed | REPLACE, complete | [mixed](narrowing.md#source-test-disposition). |
+| `Add_DemotesWithConstantOperand` | Mixed | REPLACE, complete | [constant300](narrowing.md#source-test-disposition). |
+| `Chain_DemotesEveryLinkWhenOnlyTheOuterResultEscapesViaTrunc` | Mixed | REPLACE, complete | [chain](narrowing.md#source-test-disposition). |
+| `Chain_DoesNotDemoteWhenAnInnerLinkAlsoEscapesAtWideWidth` | Mixed | REPLACE, complete | [wide-chain](narrowing.md#source-test-disposition). |
+| `Add_DoesNotDemoteWhenResultAlsoObservedAtWideWidth` | Mixed | REPLACE, complete | [wide-sum](narrowing.md#source-test-disposition). |
+| `Add_DoesNotDemoteWhenTruncatedToTwoDifferentWidths` | Mixed | REPLACE, complete | [two-widths without a wide sink](narrowing.md#source-test-disposition). |
+| `Shl_IsNeverDemotedEvenWhenOperandsAndConsumerLookEligible` | Mixed | REPLACE, complete | [int32 shift masking](narrowing.md#source-test-disposition). |
+| `UDiv_IsNeverDemotedEvenWhenOperandsAndConsumerLookEligible` | Mixed | REPLACE, complete | [unsigned division and zero faults](narrowing.md#source-test-disposition). |
+| `Compare_SltWithZextOperandsRemapsToUltAndFoldsToTheCorrectValue` | Mixed | REPLACE, complete | [zlt200/50=0](narrowing.md#source-test-disposition). |
+| `Compare_SltWithSextOperandsStaysSltAndFoldsToTheCorrectValue` | Mixed | REPLACE, complete | [slt200/50=1](narrowing.md#source-test-disposition). |
+| `Compare_SgeWithZextI16OperandsRemapsToUgeAndFoldsToTheCorrectValue` | Mixed | REPLACE, complete | [zge40000/1000=1](narrowing.md#source-test-disposition). |
+| `Compare_UnsignedPredicateStaysUnchangedForEitherExtensionKind` | Mixed | REPLACE, complete | [zult and sult](narrowing.md#source-test-disposition). |
+| `Compare_EqDemotesForMatchingExtensionKind` | Mixed | REPLACE, complete | [zeq and seq](narrowing.md#source-test-disposition). |
+| `Compare_DoesNotDemoteMixedExtensionKinds` | Mixed | REPLACE, complete | [mixed-eq](narrowing.md#source-test-disposition). |
+| `Compare_DoesNotDemoteWhenConstantDoesNotFitTheNarrowRange` | Mixed | REPLACE, complete | [constant-lt300](narrowing.md#source-test-disposition). |
+| `NarrowPass_NarrowsAByteLoopCounterCompareAndIncrement` | Mixed | REPLACE, complete | [direct byte counter and full trip count](narrowing.md#source-test-disposition). |
+| `Optimize_WiresNarrowPassIntoTheDefaultPipeline` | Mixed | REPLACE, complete | [production optimizer with executed output](narrowing.md#source-test-disposition). |
 
 ### Ir/OptimizationTests.cs (36)
 

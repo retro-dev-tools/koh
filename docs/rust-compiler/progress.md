@@ -10,6 +10,30 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Narrowing contract migration
+
+All19 `NarrowPassTests` methods and73 assertion sites now have
+[native replacements](narrowing.md). Five rstest cases execute3224 ROMs with
+runtime/constant inputs before/after optimization. Full-width packed observations
+retain inner sums, both byte/word sinks and actual loop trip counts; signedness,
+comparison constants, shift masks and division faults have independent Rust oracles.
+The ledger is335/565 complete (334 native replacements, one DELETE),230 outstanding.
+No compiler behavior or coverage is deferred. Named-pass/IR-width assumptions are
+replaced; the separately inventoried C# narrowing cost benchmark remains open.
+
+The expanded selection passed299/299 in24.238s, exit0
+(`/tmp/koh-narrowing-acceptance.log`). Final shape/count guards passed5/5 in16.028s,
+exit0 (`/tmp/koh-narrowing-final.log`). Source accounting:
+`/tmp/koh-narrowing-source-assertions.log`.
+Discovery finds1874 workspace cases,1697 compiler cases, zero ignored
+(`/tmp/koh-narrowing-discovery.json`); rustfmt and diff checks passed.
+
+The preceding full CI on113eaf2 completed1856/1856 native tests in1785.687s,
+zero skipped, with separate rustdoc and .NET fast checks successful. Primary log:
+`/tmp/koh-ci-113eaf2-completed.log`. The literal commit75951e2 is now published;
+its CI44177800888 is running. Neither that run nor this new test batch has a
+completed full workspace pass yet. No controlled compilation/suite speedup is claimed.
+
 ### Array and UTF-8 literal acceptance
 
 The [literal matrix](literals.md) closes the remaining four `CilLiteralTests`
@@ -175,7 +199,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-316/565 dispositions complete (315 native replacements, one DELETE),249 outstanding,
+335/565 dispositions complete (334 native replacements, one DELETE),230 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

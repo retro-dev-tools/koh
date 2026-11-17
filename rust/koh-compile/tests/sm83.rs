@@ -10,6 +10,8 @@ mod compare_branch;
 mod control_flow_scalars;
 #[path = "support/liveness.rs"]
 mod liveness;
+#[path = "support/narrowing.rs"]
+mod narrowing;
 #[path = "support/optimizer_contracts.rs"]
 mod optimizer_contracts;
 #[path = "support/parallel_phis.rs"]
@@ -20,6 +22,119 @@ mod recursion_fixture;
 mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case(8, false)]
+#[case(16, false)]
+#[case(8, true)]
+#[case(16, true)]
+fn narrowing_preserves_comparisons_and_every_escaping_width(
+    host: &Host,
+    #[case] bits: u8,
+    #[case] comparisons: bool,
+) {
+    let shapes: &[&str] = if comparisons {
+        &[
+            "zlt",
+            "zult",
+            "slt",
+            "zge",
+            "sult",
+            "zeq",
+            "seq",
+            "mixed-eq",
+            "constant-lt",
+        ]
+    } else {
+        &[
+            "sum",
+            "mixed",
+            "constant",
+            "chain",
+            "wide-sum",
+            "wide-chain",
+            "two-widths",
+            "shift",
+            "divide",
+        ]
+    };
+    let mut cases = Vec::new();
+    for &shape in shapes {
+        let original = narrowing::expression(bits, shape);
+        for &arguments in narrowing::INPUTS {
+            let expected = narrowing::expected(bits, shape, arguments);
+            for (function, args) in [
+                (original.clone(), arguments.to_vec()),
+                (
+                    control_flow_scalars::constant_inputs(original.clone(), &arguments),
+                    vec![],
+                ),
+            ] {
+                let mut optimized = function.clone();
+                koh_compile::optimize::simplify(&mut optimized).unwrap();
+                for function in [function, optimized] {
+                    verify(&function).unwrap();
+                    cases.push((function, args.clone(), expected));
+                }
+            }
+        }
+    }
+    assert_eq!(cases.len(), 9 * 22 * 4);
+    for cases in cases.chunks(32) {
+        run(host, cases);
+    }
+}
+
+#[rstest::rstest]
+fn byte_counter_backedges_preserve_wrapping_without_narrowing_the_trip_count(host: &Host) {
+    let mut cases = Vec::new();
+    for (direct, inputs) in [
+        (
+            false,
+            &[
+                (0, 10, 10, 10),
+                (250, 10, 4, 10),
+                (1, 0, 1, 0),
+                (127, 1, 128, 1),
+                (255, 1, 0, 1),
+                (255, 256, 255, 256),
+                (0, 260, 4, 260),
+                (0xff0000, 257, 1, 257),
+            ][..],
+        ),
+        (
+            true,
+            &[
+                (0, 10, 10, 10),
+                (250, 255, 255, 5),
+                (255, 255, 255, 0),
+                (1, 0, 1, 0),
+                (250, 10, 250, 0),
+                (127, 129, 129, 2),
+            ][..],
+        ),
+    ] {
+        let original = narrowing::counter(direct);
+        for &(start, count, expected, iterations) in inputs {
+            let expected = (iterations << 32) | expected;
+            for (function, arguments) in [
+                (original.clone(), vec![start, count]),
+                (
+                    control_flow_scalars::constant_inputs(original.clone(), &[start, count]),
+                    vec![],
+                ),
+            ] {
+                let mut optimized = function.clone();
+                koh_compile::optimize::simplify(&mut optimized).unwrap();
+                for function in [function, optimized] {
+                    cases.push((function, arguments.clone(), Ok(expected)));
+                }
+            }
+        }
+    }
+    assert_eq!(cases.len(), 56);
+    run(host, &cases);
+}
 
 #[rstest::rstest]
 #[case(8)]
