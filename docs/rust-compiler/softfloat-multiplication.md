@@ -37,11 +37,11 @@ algorithm independently of sampled differential results.
   every expected result and assertion.
 - `driver/float32.rs`:13 actual typed CIL multiplication entries plus one raw
   helper entry, each in Debug/Release × DMG/CGB (56 multiplication ROMs).
-  The full Float32 group now executes116 ROMs. These assert full-width results,
+  At this increment the full Float32 group executes116 ROMs. These assert full-width results,
   canonical ELF/linking, banked helpers, source metadata and stack guards.
-- The remaining CIL division/conversion/binary64 features remain unfinished;
-  enabling multiplication does not close `F32_Arithmetic_MatchesHost`, whose
-  division rows are still outstanding. The142/565 disposition ledger is unchanged.
+- At this increment division/conversion/binary64 remained unfinished and the
+  disposition ledger stayed142/565. Subsequent [division work](softfloat-division.md)
+  completes the mixed arithmetic rows; conversions and binary64 remain open.
 
 This is sampled numeric and execution coverage, not exhaustive proof over every
 pair of binary32 bit patterns or a general .NET floating-point compatibility claim.

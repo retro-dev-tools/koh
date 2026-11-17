@@ -64,6 +64,7 @@ fn roslyn_float_arithmetic_calls_joins_and_references_execute(
     .unwrap();
     koh_compile::ir::verify(&direct).unwrap();
     for (entry, expected) in [
+        ("RawQuotient", "00000001"),
         ("RawProduct", "00000001"),
         ("Main", "40800000"),
         ("Negative", "BFE00000"),
@@ -93,6 +94,24 @@ fn roslyn_float_arithmetic_calls_joins_and_references_execute(
         ("UnderflowProduct", "00400000"),
         ("InvalidProduct", "7FC00000"),
         ("TieProduct", "3F802002"),
+        ("Quotient", "40600000"),
+        ("RepeatingQuotient", "3EAAAAAB"),
+        ("NegativeQuotient", "C0100000"),
+        ("TinyQuotient", "00000002"),
+        ("SubnormalQuotient", "00400000"),
+        ("TransitionQuotient", "00800000"),
+        ("DeepQuotient", "00000000"),
+        ("OverflowQuotient", "7F800000"),
+        ("ZeroQuotient", "80000000"),
+        ("ZeroDivisor", "7F800000"),
+        ("InvalidQuotient", "7FC00000"),
+        ("InfiniteQuotient", "7FC00000"),
+        ("FiniteOverInfinity", "80000000"),
+        ("InfinityOverFinite", "FF800000"),
+        ("NanQuotient", "7FC00000"),
+        ("RoundedSum", "3E99999A"),
+        ("PositiveDifference", "40100000"),
+        ("OriginalDifference", "C0400000"),
     ] {
         let name = format!("Program::{entry}");
         let mut object = compile::object_with_debug(&resolver, Some(&name), &[Some(&pdb), None])
@@ -134,7 +153,10 @@ fn roslyn_float_arithmetic_calls_joins_and_references_execute(
     let error = compile::object(&resolver, Some("Program::Unsupported"))
         .err()
         .expect("unimplemented float operation must reject");
-    assert!(error.contains("IL_") && error.contains("float"), "{error}");
+    assert!(
+        error.contains("IL_") && error.contains("f32.rem"),
+        "{error}"
+    );
     for (before, after, entry, expected) in [
         ("f32.add", "f32.zzz", "Main", "Missing KohRuntime f32.add"),
         (

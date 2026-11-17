@@ -224,33 +224,69 @@ public static class SoftFloat
         int eb = (int)((b >> 23) & 0xFF);
         uint ma = a & 0x7FFFFF;
         uint mb = b & 0x7FFFFF;
+        if (ea == 255 && ma != 0)
+            return a | 0x00400000;
+        if (eb == 255 && mb != 0)
+            return b | 0x00400000;
+        if (ea == 255)
+            return eb == 255 ? 0x7fc00000 : sign | 0x7f800000;
+        if (eb == 255)
+            return sign;
+        if (eb == 0 && mb == 0)
+            return ea == 0 && ma == 0 ? 0x7fc00000 : sign | 0x7f800000;
+        if (ea == 0 && ma == 0)
+            return sign;
         if (ea == 0)
-            return sign; // 0 / x = 0 (subnormals flushed)
-        if (eb == 0)
-            return sign | ((uint)0xFF << 23); // x / 0 = inf
-        uint siga = ma | 0x800000;
-        uint sigb = mb | 0x800000;
-        int exp = ea - eb + 127;
-        ulong num = (ulong)siga << 25;
-        uint q = (uint)(num / (ulong)sigb);
-        uint r = (uint)(num % (ulong)sigb);
-        if (q >= ((uint)1 << 25)) { } // leading already at bit 25 (no-op)
+        {
+            ea = 1;
+            while (ma < 0x800000)
+            {
+                ma <<= 1;
+                ea--;
+            }
+        }
         else
         {
-            q = q << 1;
-            exp = exp - 1;
-        } // normalize leading to bit 25
-        uint sig = q >> 2; // 24-bit significand
-        uint low = q & 3; // guard + round
-        uint sticky = (r != 0) ? (uint)1 : (uint)0;
-        bool up;
-        if ((low & 2) == 0)
-            up = false;
-        else if (low == 2 && sticky == 0)
-            up = (sig & 1) != 0;
+            ma |= 0x800000;
+        }
+        if (eb == 0)
+        {
+            eb = 1;
+            while (mb < 0x800000)
+            {
+                mb <<= 1;
+                eb--;
+            }
+        }
         else
-            up = true;
-        if (up)
+        {
+            mb |= 0x800000;
+        }
+        int exp = ea - eb + 127;
+        if (ma < mb)
+        {
+            ma <<= 1;
+            exp--;
+        }
+        if (exp >= 255)
+            return sign | 0x7f800000;
+        int shift = 23;
+        if (exp <= 0)
+        {
+            shift += exp - 1;
+            exp = 0;
+        }
+        if (shift < -1)
+            return sign;
+        ulong num = ma;
+        ulong den = mb;
+        if (shift < 0)
+            den <<= 1;
+        else
+            num <<= shift;
+        uint sig = (uint)(num / den);
+        ulong rem = (num % den) << 1;
+        if (rem > den || (rem == den && (sig & 1) != 0))
         {
             sig = sig + 1;
             if (sig >= ((uint)1 << 24))
@@ -261,8 +297,8 @@ public static class SoftFloat
         }
         if (exp >= 255)
             return sign | ((uint)0xFF << 23);
-        if (exp <= 0)
-            return sign;
+        if (exp == 0 && sig >= 0x800000)
+            exp = 1;
         return sign | ((uint)exp << 23) | (sig & 0x7FFFFF);
     }
 

@@ -1379,3 +1379,30 @@ provesmul. Checks43537finishing logs /tmp/koh-float-mul-check.log and
 /tmp/koh-float-mul-doc.log; readterminalbeforecommit. CI43984479501stilllive.
 43537TERMINALworkspacealltargets/allfeaturescheckEXIT0(5.24s, existingunused
 cubeshelperwarning), separaterustdocEXIT0zerocases. Rustfmt/diffcheckpass.
+
+2026-11-17 dirtydivisionunitafterlocal73ed932(notpushed): raw1/1.0 oldDivF32
+returns0BOTHROM+CLR,36262redEXIT1003/3fail8.305s. CorrectedruntimewithoutAPIchange:
+NaN/inf/zerofirst,normalize operands, exactquotient/remainder atfinalunderflow
+scale, oneRNEround; normalizedratio[1,2) permits signedzeroearlyifscale<-1,
+scale-1 doublesdenominator. Numerator<=48bits/denominator<=25bits, no masked
+negativeshift. 49039EXIT1002pass1fail12.280s: rawROMfixedand26+256hostoraclepairs
+pass; typedCILdivstillunsupported. ThenDivideSignedF32→metadataf32.div checkedraw
+signature. RemainderSignedexplicitf32.rem diagnostic; unsupportedfixtureisnow
+actualparameterized5.5%2. Integerdivisionunchanged. No CILremfeatureclaim.
+69441EXIT0 first22/22pass96.704s. Float32now48entries192ROMs incl15typeddiv+1raw
+(64divROMs) and3exactoldroundedAdd/Sub inputs; allold9arithrowscoveredD/RDMGCGB.
+Newdocsoftfloat-division.mdindependentproof+sourceassertionmatrix:4moremethods
+3PORT1REPLACEclose42expandedassertions;9Floatmethodstotal34originalparameter
+cases211expandedAssert.Thatchecks. Localledger146/565complete419outstanding;
+nolegacydefinitionsremovedandnofeatureretirement. Conversion/binary64remainopen.
+Current89673live /tmp/koh-float-div-final.log selected610 allLib/IR/lowering +
+float32/comparison/runtime/primitivearraycases. Atlast209pass, nofail. Finish
+terminal/checkworkspacealltargets/rustdoc/fmt, logicalcommitlocally; holdpushwhile
+f8ca6c6CI43984479501stillconfirmedin_progress. DoNOTrestartCIorconcurrentbuild.
+89673TERMINALEXIT0 610/610pass184.595s292unselected. All192Float32ROMs(64div),
+284comparisonROMs,80rawAddROMs,979managednumericobservations andall4CLIarray
+configspass. 32937TERMINALworkspacealltargets/allfeaturescheckEXIT0(5.25s,
+existingunusedcubeshelperwarning), separaterustdocEXIT0zerocases. Fmt/diffpass.
+Readylogicaldivisioncommitlocally; holdpushuntil f8ca6c6CI43984479501terminal.
+Noactivelocalbuilds. Neednextconversionalgorithmaudit, remainderimplementation
+andbinary64; notfinishedIEEE/fullmigration. Parentownsfiles, no newagents.

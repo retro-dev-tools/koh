@@ -20,6 +20,8 @@ fn runtime() -> Host {
 #[case("f32-sweep", 256)]
 #[case::f32_mul_boundaries("f32-mul-boundaries", 26)]
 #[case::f32_mul_sweep("f32-mul-sweep", 256)]
+#[case::f32_div_boundaries("f32-div-boundaries", 26)]
+#[case::f32_div_sweep("f32-div-sweep", 256)]
 fn software_runtime_matches_independent_numeric_oracles(
     runtime: &Host,
     #[case] group: &str,
@@ -36,6 +38,64 @@ fn software_runtime_matches_independent_numeric_oracles(
         expected.push(result);
     };
     match group {
+        "f32-div-boundaries" => {
+            for (a, b) in [
+                (1, 0x3f800000),
+                (1, 0x40000000),
+                (3, 0x40000000),
+                (5, 0x40000000),
+                (0x00800000, 0x40000000),
+                (0x007fffff, 0x00800000),
+                (0x00800000, 0x007fffff),
+                (1, 1),
+                (1, 0x7f7fffff),
+                (0x7f7fffff, 1),
+                (0x80000000, 0x3f800000),
+                (0x80000000, 0xbf800000),
+                (0x3f800000, 0),
+                (0x3f800000, 0x80000000),
+                (0, 0),
+                (0x7f800000, 0x7f800000),
+                (0xbf800000, 0x7f800000),
+                (0x7f800000, 0xbf800000),
+                (0x7fc12345, 0x3f800000),
+                (0x3f800000, 0x7fa12345),
+                (0x00ffffff, 0x40000000),
+                (0x3f800000, 0x40400000),
+                (0x40e00000, 0x40000000),
+                (0xc1100000, 0x40800000),
+                (0x7f7fffff, 0x3f7fffff),
+                (0x007fffff, 0x3f7fffff),
+            ] {
+                add(
+                    "DivF32",
+                    &[u64::from(a), u64::from(b)],
+                    u64::from((f32::from_bits(a) / f32::from_bits(b)).to_bits()),
+                );
+            }
+        }
+        "f32-div-sweep" => {
+            let mut seed = 0x91e10da5u32;
+            for exponent in 0..256u32 {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                let a = (seed & 0x807fffff) | (exponent << 23);
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                let b = if exponent % 4 == 0 {
+                    0x3f800000 | (seed & 0x807fffff)
+                } else {
+                    seed
+                };
+                add(
+                    "DivF32",
+                    &[u64::from(a), u64::from(b)],
+                    u64::from((f32::from_bits(a) / f32::from_bits(b)).to_bits()),
+                );
+            }
+        }
         "f32-mul-boundaries" => {
             for (a, b) in [
                 (1, 1),
@@ -330,7 +390,12 @@ fn software_runtime_matches_independent_numeric_oracles(
     for ((query, result), expected) in queries.iter().zip(results).zip(expected) {
         if matches!(
             group,
-            "f32-boundaries" | "f32-sweep" | "f32-mul-boundaries" | "f32-mul-sweep"
+            "f32-boundaries"
+                | "f32-sweep"
+                | "f32-mul-boundaries"
+                | "f32-mul-sweep"
+                | "f32-div-boundaries"
+                | "f32-div-sweep"
         ) && f32::from_bits(expected as u32).is_nan()
         {
             assert!(

@@ -88,8 +88,8 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilFloatTests.cs`. Future R
 
 Float operations, conversions and byrefs must preserve the declared target numeric contract and diagnose unsupported operations. Keep runtime-attribute extensibility; exact helper names and call instruction shapes are not numeric semantics.
 
-- **PORT** `F32_Arithmetic_MatchesHost`.
-- **REPLACE** `F32_Add_RoutesThroughRealSoftFloatFunction` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
+- **PORT COMPLETE** `F32_Arithmetic_MatchesHost` — all9 arithmetic rows in both modes/cartridges; [assertion matrix](softfloat-division.md#additional-source-dispositions).
+- **REPLACE COMPLETE** `F32_Add_RoutesThroughRealSoftFloatFunction` — exact native addition and metadata-selected helper renaming replace the private helper name; [matrix](softfloat-division.md#additional-source-dispositions).
 - **PORT COMPLETE** `F32_Compare_MatchesHost` — all original pairs and predicates plus special values, `driver/float_compare.rs`; [traceability](float-lowering.md#ordered-and-unordered-comparisons).
 - **PORT COMPLETE** `F32_CompareInBranchPosition_MatchesHost` — all original rows plus every short/long relational branch encoding, `driver/float_compare.rs`.
 - **PORT COMPLETE** `F32_TernaryMin_MatchesHost` — all three original pairs with subsequent float addition and exact bit results, `driver/float_compare.rs`.
@@ -107,8 +107,8 @@ Float operations, conversions and byrefs must preserve the declared target numer
 - **PORT** `F64_Arithmetic_MatchesHost`.
 - **PORT** `F64_Compare_MatchesHost`.
 - **PORT** `F32_RefParameter_ReadsAndWritesThroughIndirection`.
-- **PORT** `F32_Rem_NoMatchingRuntimeKey_IsADiagnosticNotAMiscompile`.
-- **PORT** `F32_Arithmetic_DebugAndReleaseProduceIdenticalObservableState`.
+- **PORT COMPLETE** `F32_Rem_NoMatchingRuntimeKey_IsADiagnosticNotAMiscompile` — actual CIL5.5%2 rejects with `f32.rem` and member/IL context.
+- **PORT COMPLETE** `F32_Arithmetic_DebugAndReleaseProduceIdenticalObservableState` — independent exact0.1+0.2 bits, completion/guards in each mode; [matrix](softfloat-division.md#additional-source-dispositions).
 - **PORT** `F64_Arithmetic_DebugAndReleaseProduceIdenticalObservableState`.
 
 ### CilFontTextTests.cs

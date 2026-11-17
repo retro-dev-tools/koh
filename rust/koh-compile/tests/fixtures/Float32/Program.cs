@@ -19,6 +19,49 @@ public static class Program
 
     static float Multiply(float left, float right) => left * right;
 
+    static float Divide(float left, float right) => left / right;
+
+    static float Remainder(float left, float right) => left % right;
+
+    public static int RawQuotient() => unchecked((int)Koh.GameBoy.SoftFloat.DivF32(1, 0x3f800000));
+
+    public static int Quotient() => Bits(Divide(7.0f, 2.0f));
+
+    public static int RepeatingQuotient() => Bits(Divide(1.0f, 3.0f));
+
+    public static int NegativeQuotient() => Bits(Divide(-9.0f, 4.0f));
+
+    public static int TinyQuotient() => Bits(Divide(FromBits(3), 2.0f));
+
+    public static int SubnormalQuotient() => Bits(Divide(FromBits(0x00800000), 2.0f));
+
+    public static int TransitionQuotient() => Bits(Divide(FromBits(0x00ffffff), 2.0f));
+
+    public static int DeepQuotient() => Bits(Divide(FromBits(1), FromBits(0x7f7fffff)));
+
+    public static int OverflowQuotient() => Bits(Divide(FromBits(0x7f7fffff), FromBits(1)));
+
+    public static int ZeroQuotient() => Bits(Divide(FromBits(unchecked((int)0x80000000)), 1.0f));
+
+    public static int ZeroDivisor() => Bits(Divide(1.0f, FromBits(0)));
+
+    public static int InvalidQuotient() => Bits(Divide(FromBits(0), FromBits(0))) & 0x7fc00000;
+
+    public static int InfiniteQuotient() =>
+        Bits(Divide(FromBits(0x7f800000), FromBits(0x7f800000))) & 0x7fc00000;
+
+    public static int FiniteOverInfinity() => Bits(Divide(-1.0f, FromBits(0x7f800000)));
+
+    public static int InfinityOverFinite() => Bits(Divide(FromBits(0x7f800000), -1.0f));
+
+    public static int NanQuotient() => Bits(Divide(1.0f, FromBits(0x7fa12345))) & 0x7fc00000;
+
+    public static int RoundedSum() => Bits(Add(0.1f, 0.2f));
+
+    public static int PositiveDifference() => Bits(Subtract(3.5f, 1.25f));
+
+    public static int OriginalDifference() => Bits(Subtract(1.0f, 4.0f));
+
     public static int RawProduct() => unchecked((int)Koh.GameBoy.SoftFloat.MulF32(1, 0x3f800000));
 
     public static int Product() => Bits(Multiply(2.0f, 3.0f));
@@ -85,7 +128,7 @@ public static class Program
         return Bits(value);
     }
 
-    public static int Unsupported() => Bits(1.5f / Choose(false, 2.5f, 3.5f));
+    public static int Unsupported() => Bits(Remainder(5.5f, 2.0f));
 
     public static int Field()
     {

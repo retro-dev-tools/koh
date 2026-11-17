@@ -31,9 +31,9 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: 142 legacy methods; zero physically retired.**
+**Native behavioral replacements: 146 legacy methods; zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 423 methods still have
+The remaining 419 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -49,7 +49,11 @@ Three more comparison/branch/float-join methods have PORT replacements preservin
 all36 expanded original numeric checks. Eighteen operand pairs, all five value
 opcodes and every short/long relational branch encoding add NaN, signed-zero,
 infinity and negative-ordering coverage; see the [comparison matrix](float-lowering.md#ordered-and-unordered-comparisons).
-Mixed arithmetic and conversion groups remain outstanding.
+Four additional arithmetic/addition-routing/Debug-Release/remainder-diagnostic
+methods now have replacements (3PORT/1REPLACE), preserving all9 arithmetic rows
+and42 expanded original assertions. The [division matrix](softfloat-division.md#additional-source-dispositions)
+also accounts for the9 completed float methods as34 original parameter-expanded
+cases and211 explicit expanded assertions. Conversion/binary64 groups remain open.
 
 ## Software runtime replacements
 

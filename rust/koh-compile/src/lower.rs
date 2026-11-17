@@ -693,6 +693,10 @@ impl Builder<'_, '_> {
                 Binary::Add => "f32.add",
                 Binary::Subtract => "f32.sub",
                 Binary::Multiply => "f32.mul",
+                Binary::DivideSigned => "f32.div",
+                Binary::RemainderSigned => {
+                    return Err("Unsupported float32 operation f32.rem".into());
+                }
                 _ => return Err("Unsupported float32 binary operation".into()),
             };
             let bits = self.float_call(key, left.0, right.0)?;
