@@ -10,11 +10,19 @@ baseline; authoring needs and hardware constraints determine the new contract.
 
 Current compiler increment adds distinct binary32 IR, explicit bit transport,
 float constants/calls/joins/byrefs/fields/arrays and metadata-selected software
-addition/subtraction and direct sign-bit negation. Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
+addition/subtraction, direct sign-bit negation and ordered/unordered comparisons.
+Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
 covered. Other float operations remain unfinished and reject explicitly; this
-does not close the full legacy floating test group. Two negation methods now
-have native replacements: the current ledger is139/565 complete,426 outstanding.
+does not close the full legacy floating test group. Two negation and three
+comparison/branch/join methods now have native replacements: the current ledger
+is142/565 complete,423 outstanding.
 See [float lowering contract and evidence](float-lowering.md).
+Final comparison regression passes606/606 selected tests156.717s, exit0;
+workspace all-target/all-feature check and separate rustdoc pass. Hosted
+cceba4c run43981727648 stopped after1073 passes on an obsolete `FloatArray`
+rejection expectation; the replacement now checks real allocation, payload,
+heap/bank isolation and frame guards in all four configurations. Updated
+commits still require a fresh complete hosted run.
 
 Current runtime correction fixes inherited AddF32 subnormal/special-value errors
 observed in both managed execution and a Rust-compiled ROM. Raw1+raw1 now returns

@@ -662,6 +662,26 @@ impl Builder<'_, '_> {
             .ok_or("CIL evaluation stack underflow".into())
     }
 
+    fn float_call(&mut self, key: &str, left: u32, right: u32) -> Result<(u32, Type), String> {
+        let resolver = self
+            .resolver
+            .ok_or("float32 operation requires runtime metadata")?;
+        let target = crate::contracts::float_binary(resolver, key)?;
+        let left = self.value(Type::I32, Op::Reinterpret(left))?;
+        let right = self.value(Type::I32, Op::Reinterpret(right))?;
+        self.value(
+            Type::I32,
+            Op::Call {
+                target,
+                signature: Signature {
+                    parameters: vec![Type::I32, Type::I32],
+                    returns: Some(Type::I32),
+                },
+                arguments: vec![left.0, right.0],
+            },
+        )
+    }
+
     fn binary(&mut self, op: Binary) -> Result<(), String> {
         let mut right = self.pop()?;
         let mut left = self.pop()?;
@@ -674,23 +694,7 @@ impl Builder<'_, '_> {
                 Binary::Subtract => "f32.sub",
                 _ => return Err("Unsupported float32 binary operation".into()),
             };
-            let resolver = self
-                .resolver
-                .ok_or("float32 arithmetic requires runtime metadata")?;
-            let target = crate::contracts::float_binary(resolver, key)?;
-            let left = self.value(Type::I32, Op::Reinterpret(left.0))?;
-            let right = self.value(Type::I32, Op::Reinterpret(right.0))?;
-            let bits = self.value(
-                Type::I32,
-                Op::Call {
-                    target,
-                    signature: Signature {
-                        parameters: vec![Type::I32, Type::I32],
-                        returns: Some(Type::I32),
-                    },
-                    arguments: vec![left.0, right.0],
-                },
-            )?;
+            let bits = self.float_call(key, left.0, right.0)?;
             let value = self.value(Type::F32, Op::Reinterpret(bits.0))?;
             self.stack.push(value);
             return Ok(());
@@ -759,6 +763,46 @@ impl Builder<'_, '_> {
     fn compare(&mut self, op: Comparison) -> Result<(u32, Type), String> {
         let mut right = self.pop()?;
         let mut left = self.pop()?;
+        if left.1 == Type::F32 || right.1 == Type::F32 {
+            if left.1 != Type::F32 || right.1 != Type::F32 {
+                return Err("CIL float32 comparison operand type mismatch".into());
+            }
+            let code = self.float_call("f32.cmp", left.0, right.0)?;
+            let expected = match op {
+                Comparison::Equal => 0,
+                Comparison::LessSigned | Comparison::LessUnsigned => 1,
+                Comparison::GreaterSigned | Comparison::GreaterUnsigned => 2,
+            };
+            let expected = self.value(Type::I32, Op::Constant(expected))?;
+            let ordered = self.value(
+                Type::I32,
+                Op::Compare {
+                    op: Comparison::Equal,
+                    left: code.0,
+                    right: expected.0,
+                },
+            )?;
+            if matches!(op, Comparison::LessUnsigned | Comparison::GreaterUnsigned) {
+                let nan = self.value(Type::I32, Op::Constant(3))?;
+                let unordered = self.value(
+                    Type::I32,
+                    Op::Compare {
+                        op: Comparison::Equal,
+                        left: code.0,
+                        right: nan.0,
+                    },
+                )?;
+                return self.value(
+                    Type::I32,
+                    Op::Binary {
+                        op: Binary::Or,
+                        left: ordered.0,
+                        right: unordered.0,
+                    },
+                );
+            }
+            return Ok(ordered);
+        }
         if let (Type::Object(a), Type::Object(b)) = (left.1, right.1) {
             let class = common_class(
                 self.resolver.ok_or("Object comparison requires metadata")?,
@@ -2454,7 +2498,7 @@ fn translate(
                     code == 0x2d,
                 )
             } else {
-                let (op, invert) = match code {
+                let (mut op, invert) = match code {
                     0x2e => (Comparison::Equal, false),
                     0x2f => (Comparison::LessSigned, true),
                     0x30 => (Comparison::GreaterSigned, false),
@@ -2467,6 +2511,15 @@ fn translate(
                     0x37 => (Comparison::LessUnsigned, false),
                     _ => return Err("Invalid conditional branch".into()),
                 };
+                if invert && b.stack.last().is_some_and(|value| value.1 == Type::F32) {
+                    op = match op {
+                        Comparison::LessSigned => Comparison::LessUnsigned,
+                        Comparison::LessUnsigned => Comparison::LessSigned,
+                        Comparison::GreaterSigned => Comparison::GreaterUnsigned,
+                        Comparison::GreaterUnsigned => Comparison::GreaterSigned,
+                        Comparison::Equal => Comparison::Equal,
+                    };
+                }
                 (b.compare(op)?, invert)
             };
             let (yes, no) = if invert {

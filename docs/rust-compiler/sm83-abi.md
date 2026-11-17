@@ -225,5 +225,7 @@ frames. Other recursion retains this checked ABI and its capacity limits.
 return convention. Explicit `I32`/`F32` reinterpretation copies bits without a
 numeric conversion. Addition/subtraction call metadata-selected `f32.add`/`f32.sub`
 managed CIL helpers with raw `uint(uint, uint)` arguments/results. Negation flips
-the sign bit without a call. See [float lowering](float-lowering.md)
+the sign bit without a call. Comparisons call `f32.cmp`, with raw
+`byte(uint,uint)` signature and equal/less/greater/unordered codes0/1/2/3;
+the caller applies the CIL ordered/unordered predicate. See [float lowering](float-lowering.md)
 for the currently implemented operations and remaining limitations.

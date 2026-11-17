@@ -1325,3 +1325,33 @@ thencommitlocally; holdpushwhilecceba4c CI43981727648in_progress. Parentownsfile
 softwaremathcases pass. 12378TERMINALworkspacealltargets/allfeaturescheckEXIT0
 5.48s(existingunusedcubeshelperwarning), separaterustdocEXIT0zerocases;
 rustfmt/diffchecksEXIT0. Readylogicalcommit, no fullworkspace-test/hostclaim.
+
+2026-11-17 Floatcomparisonsunitdirty: staticf32.cmp metadata contract byte(uint,uint),
+classification0equal/1less/2greater/3unordered, typedintegerclasscomparison only.
+CILclt/cgt.unincludesNaN; invertedF32bge/ble swapsordered/unordered predicate;
+integerbranchloweringunchanged. Red65442 EXIT100 actualRoslynfloatcomparison
+unsupported. First52929 EXIT0 4/4pass32.903s. Expanded82998 EXIT0 6/6pass59.315s:
+84RoslynROMs(value/branch/minjoin) +200validCILshort/longall10branchencodings,
+NaNleft/right/negativeordering/signedzero, DebugDMG/ReleaseCGB. Missingcmpkey/
+wrongbyte-signaturediagnostics included. NewILcoverageassert firstwronglyassumed
+Debugfusedbranch;9755 EXIT100199pass1fail. ActualDebughasbooleanbranches,
+Releasefused: nowchecksconditionalboth/fusedRelease +all5valueopcodes. No numeric
+assertionsweakened; directvalidCILprobescoverallencodingsindependently.
+CI cceba4c43981727648 TERMINALFAIL:1073pass1fail337unrun717.941s, .NETfastgreen;
+primary/tmp/koh-ci-cceba4c-completed.log GH_EXIT0. Root: primitivearraysteststill
+expectedFloatArrayrejectafterF32support. Changedtoactualnativeexecution length2,
+zeroed8bytepayload, fullheap/bank/frameguards; nested/rank3diagnosticsretained.
+No productionbugprovenbythisfailure. Nextlocal30520active selected606tests
+/tmp/koh-float-compare-final.log: all lib/IR/lowering +Float32/comparison/runtime/
+primitivearrays. Finishterminalcheck,workspacecheck/rustdoc/format,commitroot
+arrayacceptancefixseparatelythencomparisonfeature;push4286856+thesecommitsONEbatch
+(nowbaselineCIfinished). Ledger142/565after3newcomparisonmethodsclose36original
+expandednumericchecks; nolegacydeletion/featureretirement. Parentownsfiles/builds.
+30520TERMINALEXIT0 606/606pass156.717s292unselected. Includesalllibrary/IR/
+lowering +Float32/compare/runtime +all4CLIarraycases. 51825TERMINALworkspace
+alltargets/allfeaturescheckEXIT0(6.24s, existingunusedcubeshelperwarning),
+separaterustdocEXIT0zerocases; rustfmt/diffpass. Rootarrayacceptancefixcommitted
+separatelyeed0a91(3files), notyetpushed. Currentcomparisonfeature readycommit;
+thenpush4286856+eed0a91+featureONEbatch. NewfullCIrequired, cceba4cCIisFAILED,
+notgreen. No localprocessesremain. Nextfloatruntimealgorithms/conversionsneed
+independentedgevalidationbeforelowering; nofullIEEE/overallmigrationclaim.

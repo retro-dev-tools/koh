@@ -2,7 +2,7 @@ use super::{Host, execute, gameboy_images, host};
 use koh_compile::{compile, resolve::Resolver};
 use rstest::rstest;
 
-fn heap_offset(bytes: &[u8], name: &str) -> usize {
+pub(super) fn heap_offset(bytes: &[u8], name: &str) -> usize {
     let file = object::read::pe::PeFile32::parse(bytes).unwrap();
     let sections = file.section_table();
     let cli = file

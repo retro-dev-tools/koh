@@ -1,6 +1,6 @@
 # Native floating CIL lowering increment
 
-Status: binary32 addition/subtraction/negation/storage implemented; full floating-language support remains incomplete.
+Status: binary32 addition/subtraction/negation/comparisons/storage implemented; full floating-language support remains incomplete.
 
 Float values need distinct IR types; treating them as integer stack values would
 accept invalid mixed CIL and permit integer optimizations to change float
@@ -51,7 +51,7 @@ payload bits without a call. Requiring the old `NegF32` helper would add a stack
 frame to a bit operation without improving semantics. The game library helper
 remains available for raw-bit callers; its historical use is not an ABI rule.
 
-Multiplication, division, comparisons, numeric float
+Multiplication, division, numeric float
 conversions and binary64 lowering remain unfinished and explicitly reject.
 This increment does not retire those requirements or claim general .NET float
 compatibility. The separate addition arithmetic tests cover subnormals, rounding,
@@ -94,3 +94,57 @@ passed in 71.684s, exit0 (296 unselected). This includes all compiler library/IR
 tests, the 60 Float32 ROM executions and existing software runtime tests.
 Workspace all-target/all-feature check and separate rustdoc pass, exit0; rustdoc
 currently contains no cases. This is local evidence, not cross-platform proof.
+
+## Ordered and unordered comparisons
+
+`ceq`, `clt`, `cgt`, `clt.un`, `cgt.un` and both encodings of the ten
+relational branches lower through metadata-selected `f32.cmp`. Its required raw
+signature is `byte(uint,uint)`, returning 0/equal, 1/less, 2/greater or 3/unordered.
+The supplied ordinary CIL helper detects NaNs before ordering sign/magnitude and
+compares both signed zeros equal. Existing IR integer comparisons inspect the
+classification; float bits never enter an integer ordering operation directly.
+
+For floats, `.un` includes unordered results. Inverting a branch must account for
+that: ordered `bge` means `!clt.un`, whereas `bge.un` means `!clt`; `ble` has the
+corresponding `cgt` rule. Simply reusing integer inversions would take the wrong
+branch for NaNs. `bne.un` is inverted equality, naturally true for unordered
+operands. Numeric comparisons return false for NaNs except inequality; no
+floating exceptions are introduced. This follows ECMA-335 I.12.1.3 and
+III.3.5–3.14/3.21–3.26, not the legacy compiler's branch mapping.
+
+`tests/driver/float_compare.rs` checks eighteen independently evaluated operand
+pairs, every C# comparison in value and fused-branch positions, and three
+minimum-plus-addition stack joins in Debug/Release × DMG/CGB (84 ROM executions).
+The twelve-bit return packet preserves each of the six value and six branch
+predicates separately. The fixture must contain all five value opcodes and
+conditional branches; Release must additionally contain fused branches. Roslyn
+Debug may instead spill comparison booleans and branch on those. These checks
+prevent folded constants from standing in for CIL coverage without treating an
+old compiler comment about Debug shapes as a language rule. Missing/wrong-signature
+runtime helpers produce member/IL diagnostics.
+
+An additional two native cases replace a Roslyn fixture method body with each
+valid short/long CIL branch encoding and assert five independent relations:
+left/right NaN, negative less/greater and opposite signed zeros. The method header
+code size is updated without moving metadata or executing the assembly. These
+200 ROM executions cover encodings Roslyn does not necessarily choose. These
+mutated fixtures have no source-debug provenance claim.
+
+| Additional source method in `Frontends/CilFloatTests.cs` | Independent requirement | Disposition |
+| --- | --- | --- |
+| `F32_Compare_MatchesHost` (8 rows × 2 configurations) | All six numeric comparisons, finite negatives and opposite signed zeros | PORT: all original pairs/predicates plus NaNs, infinities and subnormals in `driver/float_compare.rs` |
+| `F32_CompareInBranchPosition_MatchesHost` (7 rows × 2 configurations) | Fused branch behavior, negative ordering and equality | PORT: all original pairs/predicates plus every short/long branch encoding |
+| `F32_TernaryMin_MatchesHost` (3 rows × 2 configurations) | Float identity survives a control-flow join and subsequent addition | PORT: the original three operand pairs with exact return bits |
+
+These three methods preserve all 36 expanded numeric checks and add independent
+NaN/encoding coverage. All six new cases are discoverable by cargo-nextest.
+No floating feature is retired; arithmetic/conversion and binary64 tests remain
+outstanding.
+
+Final local comparison regression: `/tmp/koh-float-compare-final.log`,
+606/606 selected tests passed in156.717s, exit0 (292 unselected). This includes
+all library/IR/lowering targets, both float execution groups, existing software
+runtime tests and all four CLI primitive-array configurations. The array tests
+now assert supported float allocation rather than the obsolete rejection that
+failed hosted run43981727648. Workspace all-target/all-feature check and separate
+rustdoc pass, exit0; no documentation cases currently exist.

@@ -9,6 +9,8 @@ mod default_interfaces;
 mod delegates;
 #[path = "driver/float32.rs"]
 mod float32;
+#[path = "driver/float_compare.rs"]
+mod float_compare;
 #[path = "driver/generics.rs"]
 mod generics;
 #[path = "driver/interfaces.rs"]

@@ -90,9 +90,9 @@ Float operations, conversions and byrefs must preserve the declared target numer
 
 - **PORT** `F32_Arithmetic_MatchesHost`.
 - **REPLACE** `F32_Add_RoutesThroughRealSoftFloatFunction` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
-- **PORT** `F32_Compare_MatchesHost`.
-- **PORT** `F32_CompareInBranchPosition_MatchesHost`.
-- **PORT** `F32_TernaryMin_MatchesHost`.
+- **PORT COMPLETE** `F32_Compare_MatchesHost` — all original pairs and predicates plus special values, `driver/float_compare.rs`; [traceability](float-lowering.md#ordered-and-unordered-comparisons).
+- **PORT COMPLETE** `F32_CompareInBranchPosition_MatchesHost` — all original rows plus every short/long relational branch encoding, `driver/float_compare.rs`.
+- **PORT COMPLETE** `F32_TernaryMin_MatchesHost` — all three original pairs with subsequent float addition and exact bit results, `driver/float_compare.rs`.
 - **PORT COMPLETE** `F32_Neg_MatchesHost` — all finite rows in both modes plus special values, `driver/float32.rs`; [traceability](float-lowering.md#source-test-dispositions).
 - **REPLACE COMPLETE** `F32_Neg_RoutesThroughRealSoftFloatFunction` — native full-bit negation results replace the required helper name; [rationale](float-lowering.md#source-test-dispositions).
 - **PORT** `F32_ToInt_MatchesHost`.

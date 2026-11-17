@@ -406,9 +406,14 @@ pub(crate) fn float_binary(resolver: &Resolver<'_>, key: &str) -> Result<Definit
             .map_err(|e| e.to_string())?,
     )?;
     let raw = TypeSig::Primitive(clrmeta::ElementType::U4);
-    if signature.params != [raw.clone(), raw.clone()] || signature.return_type != raw {
+    let (returns, name) = if key == "f32.cmp" {
+        (TypeSig::Primitive(clrmeta::ElementType::U1), "byte")
+    } else {
+        (raw.clone(), "uint")
+    };
+    if signature.params != [raw.clone(), raw] || signature.return_type != returns {
         return Err(format!(
-            "KohRuntime {key} {definition:?} requires uint(uint,uint) raw-bit signature"
+            "KohRuntime {key} {definition:?} requires {name}(uint,uint) raw-bit signature"
         ));
     }
     Ok(definition)
