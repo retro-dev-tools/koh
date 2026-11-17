@@ -10,6 +10,29 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Hosted source-debugger path correction
+
+Full run44187413725 on e412837 completed: Linux native1880/1880 passed; macOS
+1876/1880 passed (four source-debugger failures); Windows1872/1878 passed (those
+four plus two2048 SDK source-debugger failures). Primary logs are
+`/tmp/koh-full-e412837-{linux,macos,windows}-native.log`. Both .NET jobs also
+failed114 legacy compiler cases each. Full validation is therefore not green.
+
+A controlled local source-directory alias reproduced all four basic debugger
+failures, with PDB physical paths differing from the requested alias. The Rust
+tests now independently require the same physical source file and exact line,
+then use the recorded document spelling for DAP requests and caller comparisons.
+Unix tests always exercise an actual private symlink. No basename fallback,
+provenance rewrite, compiler algorithm or debugger rewrite is introduced.
+The initial alias/symbol-free selection passed6/6 in21.399s, exit0;
+[source-debug evidence](source-debugging.md#source-document-identity-across-hosts)
+records the red cases and remaining hosted revalidation requirement.
+The final selection, including both real2048 SDK debugger cases, passed8/8
+in125.882s, exit0 (`/tmp/koh-debug-source-identity-final.log`), with488 explicitly
+unselected cases. Rustfmt/diff checks passed. Hosted Windows/macOS proof remains
+outstanding; the local alias reproduction establishes the corrected fixture
+identity assumption without changing the production mapping contract.
+
 ### General optimizer contract migration
 
 All36 `OptimizationTests` methods now have [native replacements](optimization-semantics.md)

@@ -249,3 +249,35 @@ These are debugger-owned tests; all new compiler-origin assertions above are Rus
 tests discoverable by nextest. Workspace all-target/all-feature check passes7.56s
 with the existing unused cube-helper warning; separate workspace rustdoc passes
 with zero doctests. Rustfmt passes. No new full-workspace or hosted result is claimed.
+
+## Source document identity across hosts
+
+Full run44187413725 on e412837 passed all1880 native tests on Linux, but macOS
+failed four source-debugger cases (1876/1880 passed), and Windows failed those
+four plus two real2048 SDK debugger cases (1872/1878 passed). All failures were
+at source path/breakpoint identity assertions. The two Windows discovery
+exclusions are documented in [CI validation](../ci-validation.md).
+
+A controlled local Unix temporary-directory alias reproduced all four failures.
+The diagnostic recorded the requested `alias/.../Program.cs` path and the correct
+PDB-derived `real/.../Program.cs` path at the expected line. The test now checks
+physical file identity and exact line against emitted mappings, then uses that
+document's recorded path for DAP requests and frame comparisons. This also avoids
+requiring a Rust-constructed path string to have Roslyn's separator/canonical
+spelling. It never matches only a basename or alters PDB/ELF/KDBG provenance.
+
+The Unix debugger cases always create an actual private symlink, so this boundary
+is a committed regression rather than a one-off environment experiment. Windows
+runs the same physical-identity check without requiring symlink privileges.
+PC/bank, source line, caller frames, recursive inspection, stack state, registers,
+function breakpoints and disassembly assertions remain. Production debugger and
+compiler mapping implementations are unchanged. The four-case alias fixture
+passed0/4 before correction; the initial alias plus symbol-free selection passed
+6/6 in21.399s, exit0 (`/tmp/koh-debug-source-alias-green.log`). Hosted macOS and
+Windows revalidation remains required.
+
+The final physical-identity selection, including both real2048 SDK debugger
+cases and symbol-free builds, passed8/8 in125.882s, exit0
+(`/tmp/koh-debug-source-identity-final.log`);488 cases were explicitly unselected.
+Rustfmt and diff checks passed. This local Linux result does not substitute for
+the next hosted macOS/Windows run.

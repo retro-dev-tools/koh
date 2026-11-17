@@ -30,4 +30,6 @@ Before merging or claiming migration acceptance, run full validation on the curr
 
 The seven existing protected checks retain their names and requirements. The two routine PR checks do not replace that merge gate. Passing results for an older commit do not validate a newer head.
 
+Windows discovery has two fewer assembler tests: `include_provenance_preserves_the_logical_symlink_path` and `physical_include_keys_preserve_native_path_separators` are Unix-specific filesystem cases. They are compile-time platform exclusions, not ignored failures or omitted compiler targets. Source-debugger cases run on every platform; Unix cases additionally create an actual temporary-directory symlink to exercise physical PDB source identity.
+
 The fast command passed1274/1274 locally in111.792s, exit0 (`/tmp/koh-ci-fast-cached.log`). Its three excluded targets contain604 cases on that checkpoint; full validation includes them. The [metadata fixture setup](rust-compiler/fixture-images.md) change reuses immutable Roslyn images within a serialized run; no test timeout, retry or assertion was relaxed. This measures regression setup, not compiler performance. YAML/event/matrix checks and the repository's seven required check names were verified before changing the workflow; branch protection itself was not modified.

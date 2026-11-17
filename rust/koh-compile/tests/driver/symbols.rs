@@ -8,6 +8,23 @@ fn debugger() -> Host {
     super::support::build_fixture_host("DebuggerHost")
 }
 
+fn source_document<'a>(lines: &'a [koh_link::LinkedLine], source: &Path, line: usize) -> &'a Path {
+    let physical = source.canonicalize().unwrap();
+    let document = lines
+        .iter()
+        .find(|point| {
+            point.line as usize == line
+                && Path::new(&point.file).canonicalize().ok().as_ref() == Some(&physical)
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "Missing source document {}:{line}; emitted lines: {lines:?}",
+                source.display()
+            )
+        });
+    Path::new(&document.file)
+}
+
 fn debugger_replies(debugger: &Host, requests: &[String]) -> Vec<serde_json::Value> {
     use std::{io::Write, process::Stdio};
     let mut child = super::dotnet()
@@ -52,6 +69,19 @@ fn debugger_stops_on_native_csharp_source_and_inspects_machine_state(
     use koh_compile::{compile, resolve::Resolver};
     use serde_json::json;
 
+    #[cfg(unix)]
+    let alias_root = tempfile::tempdir_in(host.directory.path()).unwrap();
+    #[cfg(unix)]
+    let alias_host = {
+        let alias = alias_root.path().join("source alias");
+        std::os::unix::fs::symlink(host.directory.path(), &alias).unwrap();
+        Host {
+            directory: tempfile::tempdir_in(alias).unwrap(),
+            dll: host.dll.clone(),
+        }
+    };
+    #[cfg(unix)]
+    let host = &alias_host;
     let (directory, images) = gameboy_images(host, configuration, "SourceDebug");
     let source = directory.path().join("Program.cs");
     let line = std::fs::read_to_string(&source)
@@ -100,11 +130,18 @@ fn debugger_stops_on_native_csharp_source_and_inspects_machine_state(
         },
     )
     .unwrap();
+    let source = source_document(&linked.lines, &source, line);
     let breakpoint = linked
         .lines
         .iter()
         .find(|p| p.file == source.to_str().unwrap() && p.line == line as u32)
-        .unwrap();
+        .unwrap_or_else(|| {
+            panic!(
+                "Missing source breakpoint {}:{line}; emitted lines: {:?}",
+                source.display(),
+                linked.lines
+            )
+        });
     let rom = directory.path().join("debug game.gb");
     let kdbg = directory.path().join("debug game.kdbg");
     std::fs::write(&rom, &linked.rom).unwrap();
@@ -565,6 +602,9 @@ fn sdk_2048_source_debugger_recovers_framework_callers(
         .position(|s| s.contains("static void Main()"))
         .unwrap()
         + 1;
+    let source = source_document(&linked.lines, &source, line);
+    let framework = source_document(&linked.lines, &framework, framework_line);
+    let main = source_document(&linked.lines, &main, main_line);
     let update = linked
         .symbols
         .iter()
