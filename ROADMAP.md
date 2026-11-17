@@ -27,8 +27,10 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   [constrained calls](docs/rust-compiler/constrained-calls.md) now execute through
   the same native ABI. [Closed declaring layouts and static storage](docs/rust-compiler/closed-types.md)
   now specialize with separate method/type argument scopes and per-instance initialization.
-  Broader constraints, constructed declaring inheritance/dispatch and
-  boxing/runtime fallback remain unfinished; this is not full migration.
+  [Generic reference methods](docs/rust-compiler/closed-types.md#generic-methods-on-closed-reference-receivers)
+  retain separate declaring/method scopes through overrides, default/explicit
+  interface bodies, captured callbacks and inherited MethodImpl bodies.
+  Variance and boxing/runtime fallback remain unfinished; this is not full migration.
   [Bounded interrupt handlers](docs/rust-compiler/irq-calls.md) now execute all five
   vectors with saved registers, a reserved stack budget and bank-preserving ROM0
   bodies and shared scalar helper calls; allocation/nested IRQ enabling remain

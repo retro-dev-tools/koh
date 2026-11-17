@@ -135,3 +135,26 @@ public class RemoteInterfaceCell<T> : IRemoteValue<T>
         return Value;
     }
 }
+
+public interface IRemoteGenericRead<T>
+{
+    T Read<U>(U value);
+}
+
+public class RemoteGenericReference<T> : IRemoteGenericRead<T>
+{
+    public T Value = default!;
+    public int Calls;
+
+    public virtual U Forward<U>(U value)
+    {
+        Calls += 7;
+        return value;
+    }
+
+    public virtual T Read<U>(U value)
+    {
+        Calls += 11;
+        return Value;
+    }
+}

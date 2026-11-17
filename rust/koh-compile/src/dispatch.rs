@@ -134,13 +134,11 @@ impl<'r, 'a> Binder<'r, 'a> {
                 assembly: raw.assembly,
                 token: 0x06000000 | row,
             };
-            methods.push(
-                if raw != owner && self.signature(method)?.generic_param_count == 0 {
-                    self.resolver.specialize_on(method, vec![], Some(owner))?
-                } else {
-                    method
-                },
-            );
+            methods.push(if raw != owner {
+                self.resolver.declare_method_on(method, Some(owner))?
+            } else {
+                method
+            });
         }
         Ok(methods)
     }
@@ -251,11 +249,14 @@ impl<'r, 'a> Binder<'r, 'a> {
                     || !resolved.type_arguments.is_empty()
                     || !resolved.method_arguments.is_empty();
                 targets.push(if bound {
-                    if self.signature(resolved.definition)?.generic_param_count != 0 {
-                        return Err("Generic MethodImpl methods on constructed reference types are unfinished".into());
-                    }
-                    self.resolver.instantiate_in(&resolved, &[], &type_arguments, Some(declaring.unwrap_or(owner)))?
-                } else { resolved.definition });
+                    self.resolver.declare_method_in(
+                        &resolved,
+                        &type_arguments,
+                        Some(declaring.unwrap_or(owner)),
+                    )?
+                } else {
+                    resolved.definition
+                });
             }
             let (declaration, body) = (targets[0], targets[1]);
             let declared_owner = lower::owner_type(self.resolver, declaration)?;
@@ -527,16 +528,21 @@ impl<'r, 'a> Binder<'r, 'a> {
         class: ClassType,
     ) -> Result<Option<Definition>, String> {
         if let Some(instance) = self.resolver.instance(method)? {
-            if instance.declaring.is_none() {
-                return self
-                    .implementation(instance.method, class)?
-                    .map(|target| self.resolver.specialize(target, instance.arguments))
-                    .transpose();
-            }
             if !instance.arguments.is_empty() {
-                return Err(
-                    "Generic methods on constructed reference dispatch are unfinished".into(),
-                );
+                let declaration = self
+                    .resolver
+                    .declare_method_on(instance.method, instance.declaring)?;
+                return self
+                    .implementation(declaration, class)?
+                    .map(|target| {
+                        let body = self.resolver.instance(target)?;
+                        self.resolver.specialize_on(
+                            body.as_ref().map_or(target, |body| body.method),
+                            instance.arguments,
+                            body.and_then(|body| body.declaring),
+                        )
+                    })
+                    .transpose();
             }
         }
         if self.active.len() >= 64 || !self.active.insert((method, class)) {
@@ -662,12 +668,13 @@ impl<'r, 'a> Binder<'r, 'a> {
         method: Definition,
         classes: &[ClassType],
     ) -> Result<Function, String> {
-        self.slot(
+        let declaration = if let Some(instance) = self.resolver.instance(method)? {
             self.resolver
-                .instance(method)?
-                .filter(|instance| instance.declaring.is_none())
-                .map_or(method, |instance| instance.method),
-        )?;
+                .declare_method_on(instance.method, instance.declaring)?
+        } else {
+            method
+        };
+        self.slot(declaration)?;
         let signature = self.typed_signature(method)?;
         let mut cases = Vec::new();
         for &class in classes {

@@ -309,6 +309,24 @@ mod tests {
     use clrmeta::ElementType;
     use rstest::rstest;
 
+    #[test]
+    fn open_method_declarations_cannot_produce_typed_signatures() {
+        let resolver = Resolver::new(&[]).unwrap();
+        let signature = crate::signature::method(&[0x30, 1, 0, 1]).unwrap();
+        let error = method_types(
+            &resolver,
+            Definition {
+                assembly: 0,
+                token: 0x06000001,
+            },
+            &signature,
+            &[],
+        )
+        .err()
+        .expect("Open method declaration must remain outside typed IR");
+        assert_eq!(error, "Generic method requires its closed argument list");
+    }
+
     fn substitute(ty: &TypeSig, arguments: &[TypeSig]) -> Result<TypeSig, String> {
         let arguments = arguments
             .iter()
@@ -479,13 +497,13 @@ impl Resolver<'_> {
         Ok(Some(instance))
     }
 
-    pub(crate) fn instantiate_in(
+    fn method_owner_in(
         &self,
         target: &ResolvedMethod,
         caller: &[Argument],
         caller_types: &[Argument],
         caller_owner: Option<Definition>,
-    ) -> Result<Definition, String> {
+    ) -> Result<Option<Definition>, String> {
         let owner = crate::lower::owner_type(self, target.definition)?;
         let declaring = if let Some(owner) = target.declaring {
             Some(owner)
@@ -502,6 +520,56 @@ impl Resolver<'_> {
         } else {
             None
         };
+        Ok(declaring)
+    }
+
+    pub(crate) fn declare_method_in(
+        &self,
+        target: &ResolvedMethod,
+        caller_types: &[Argument],
+        caller_owner: Option<Definition>,
+    ) -> Result<Definition, String> {
+        if !target.method_arguments.is_empty() {
+            return Err("Method declaration cannot name a method instantiation".into());
+        }
+        let owner = self.method_owner_in(target, &[], caller_types, caller_owner)?;
+        self.declare_method_on(target.definition, owner)
+    }
+
+    pub(crate) fn declare_method_on(
+        &self,
+        method: Definition,
+        declaring: Option<Definition>,
+    ) -> Result<Definition, String> {
+        let arity = self
+            .assembly(method.assembly)?
+            .method_signature(method.token)?
+            .generic_param_count as usize;
+        self.check_arity(method, arity)?;
+        let Some(owner) = declaring else {
+            return Ok(method);
+        };
+        if self.type_definition(owner)? != crate::lower::owner_type(self, method)? {
+            return Err("Closed method declaring type mismatch".into());
+        }
+        self.intern_method(
+            Instance {
+                method,
+                arguments: vec![],
+                declaring,
+            },
+            0,
+        )
+    }
+
+    pub(crate) fn instantiate_in(
+        &self,
+        target: &ResolvedMethod,
+        caller: &[Argument],
+        caller_types: &[Argument],
+        caller_owner: Option<Definition>,
+    ) -> Result<Definition, String> {
+        let declaring = self.method_owner_in(target, caller, caller_types, caller_owner)?;
         if target.method_arguments.is_empty() && target.type_arguments.is_empty() {
             if declaring.is_none() {
                 return Ok(target.definition);
@@ -529,14 +597,6 @@ impl Resolver<'_> {
         self.specialize_on(target.definition, arguments, declaring)
     }
 
-    pub(crate) fn specialize(
-        &self,
-        method: Definition,
-        arguments: Vec<Argument>,
-    ) -> Result<Definition, String> {
-        self.specialize_on(method, arguments, None)
-    }
-
     pub(crate) fn specialize_on(
         &self,
         method: Definition,
@@ -545,6 +605,7 @@ impl Resolver<'_> {
     ) -> Result<Definition, String> {
         let image = self.assembly(method.assembly)?;
         let signature = image.method_signature(method.token)?;
+        self.check_arity(method, signature.generic_param_count as usize)?;
         if signature.generic_param_count as usize != arguments.len() {
             return Err("Generic method arity mismatch".into());
         }
@@ -597,6 +658,15 @@ impl Resolver<'_> {
             arguments,
             declaring,
         };
+        self.intern_method(instance, nodes)
+    }
+
+    fn intern_method(&self, instance: Instance, nodes: usize) -> Result<Definition, String> {
+        charge(
+            &self.generic_work,
+            self.generic_instances.borrow().len() + 1,
+        )?;
+        let assembly = instance.method.assembly;
         let mut instances = self.generic_instances.borrow_mut();
         let index = if let Some(index) = instances.iter().position(|value| value == &instance) {
             index
@@ -609,7 +679,7 @@ impl Resolver<'_> {
             instances.len() - 1
         };
         Ok(Definition {
-            assembly: method.assembly,
+            assembly,
             token: 0xfb000001 + index as u32,
         })
     }

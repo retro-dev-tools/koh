@@ -1,5 +1,50 @@
 # Native compiler migration handoff
 
+## Active generic-reference method unit
+
+Published headcd41567929926f28a0bf17af65853ef38c01fa8b, draft PR55/master;
+CI44128918287 completed success:1812/1812 passed,0skipped,1677.891s, with
+separate rustdoc and .NET fast checks passing. Primary completed log
+/tmp/koh-ci-cd41567-completed-plain.log,GH_EXIT0. Current generic-reference
+unit is ready to commit/publish; no local builds live. Initial entry failed4/4
+at the explicit unfinished guard,20.730s,exit100,
+/tmp/koh-generic-reference-red.log. Basic virtual overrides then passed4/4
+in25.883s. Expanded implicit/explicit generic interfaces, default generic body
+and captured virtual callback passed4/4 in26.623s using a local delegate.
+The initial System.Func fixture lacked System.Runtime input and correctly
+diagnosed the missing assembly; final fixture reuses existing PairHandler<Payload>,
+not a new delegate or a claim of full BCL support. New definitions append at end.
+
+Resolver now separates a scoped method declaration from applying method arguments
+using the existing method identity interning. A generic declaration retains its
+closed owner with an empty method-argument list; method_types still rejects that
+open declaration at the typed-IR boundary (new unit test). specialize_on still
+checks actual arity/constraints. Shared method_owner_in binds declaring context;
+binder uses declarations for slots/mappings, then applies actual arguments to the
+selected body's exact owner. Interning remains count/work bounded. Removed the
+now-unused specialize wrapper. No new runtime ABI or IR operation.
+
+Session14322 finished133/133 pass409.320s,exit0,
+/tmp/koh-generic-reference-regression.log. Fixture-only foreign and inherited
+generic MethodImpl additions then8/8 pass39.404s,exit0,
+/tmp/koh-generic-reference-scopes.log. Generic owner/nongeneric leaf inherit
+virtual generic ancestor bodies, overrides still select; unrelated bodies reject.
+
+Review found selected override signature/GenericParam arity could disagree and
+still compile. Two metadata mutations reproduced success where rejection was
+required. Declaration binding and actual specialization now check metadata arity.
+Final all-library/reference-resolution plus targeted generic consumers248/248
+pass192.823s,exit0 (/tmp/koh-generic-reference-arity-regression.log); this follows
+the133/8 checkpoints and is not a claim they were rerun after the guard fix.
+Final fmt/CSharpier/workspace-all-feature rustdoc pass (4crates/0cases).
+Discovery1819,all7newcasesunignored. Logs /tmp/koh-generic-reference-owned-*.log,
+fixture hashes /tmp/koh-generic-reference-owned-fixtures.sha256. Commit unit,
+push (previous CI terminal), verify remote/new CI, refresh PR55 checklist.
+Ledger229/565 unchanged; full goal incomplete. Next prioritize the remaining
+source-test disposition audit and explicit subset decisions; no boxing/variance
+frontend test cases were found in the initial repository search, not a completed
+feature audit. Retain the direct constrained own-method owner review.
+
 ## Active instantiated-interface unit
 
 Local commitbe80033 independently improves regression setup: run-scoped reuse of

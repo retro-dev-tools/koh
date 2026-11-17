@@ -6,6 +6,12 @@ additional interrupt-safe pointer publication; SP-relative frames avoid that sha
 state. The first allocator spills SSA values into deterministic frame slots.
 Register residency and lifetime-based slot reuse are optimizations, not semantics.
 
+[Closed generic reference methods](closed-types.md#generic-methods-on-closed-reference-receivers)
+use the ordinary specialized call ABI. Declaring and method arguments are bound
+at compilation; no hidden runtime type arguments or generic dictionaries are
+passed. Runtime class dispatch selects among fully typed bodies with the same
+specialized signature. Open method declarations cannot enter typed IR.
+
 [Native unwind records](native-unwind.md) describe exact source-breakpoint and
 call-resume states through existing ELF/KDBG symbols, without runtime frame changes.
 

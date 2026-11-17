@@ -2,6 +2,14 @@ using System.Runtime.InteropServices;
 
 public static class Program
 {
+    public static int GenericOverrideArity()
+    {
+        var value = new GenericVirtualOverride<byte> { Value = 245 };
+        GenericVirtualReference<byte> call = value;
+        int result = call.Forward(42);
+        return result == 42 && value.Calls == 2 && value.Value == 245 ? 42 : 0;
+    }
+
     public static int InstantiatedInterfaces()
     {
         var small = new TypedCell<byte> { Value = 245 };
@@ -49,8 +57,101 @@ public static class Program
             : 0;
     }
 
-    public static int UnsupportedGenericReferenceMethod() =>
-        new GenericVirtualReference<byte>().Forward(42);
+    public static int GenericReferenceMethods()
+    {
+        var small = new GenericVirtualOverride<byte> { Value = 245 };
+        GenericVirtualReference<byte> left = small;
+        var wide = new GenericVirtualReference<ulong> { Value = 0xFEDCBA9876543210UL };
+        int a = left.Forward(42);
+        ulong b = wide.Forward(0x123456789ABCDEF0UL);
+        Payload copy = left.Forward(new Payload { Tag = 17, Value = 60000 });
+        PairHandler<Payload> callback = left.Forward<Payload>;
+        Payload captured = callback(new Payload { Tag = 22, Value = 55000 });
+        var normal = new GenericInterfaceReference<Payload>
+        {
+            Value = new Payload { Tag = 19, Value = 50000 },
+        };
+        var explicitCell = new ExplicitGenericReference<Payload>
+        {
+            Value = new Payload { Tag = 23, Value = 45000 },
+        };
+        IGenericForward<Payload> normalCall = normal;
+        IGenericForward<Payload> explicitCall = explicitCell;
+        Payload c = normalCall.Read(0xFEDCBA9876543210UL);
+        Payload d = explicitCall.Read((byte)245);
+        var defaultCell = new DefaultGenericReference<ulong> { Value = 0x123456789ABCDEF0UL };
+        IGenericForward<ulong> defaultCall = defaultCell;
+        ulong e = defaultCall.Read(copy);
+        var remote = new RemoteGenericReference<Payload>
+        {
+            Value = new Payload { Tag = 29, Value = 40000 },
+        };
+        IRemoteGenericRead<Payload> remoteCall = remote;
+        Payload f = remoteCall.Read(0xFEDCBA9876543210UL);
+        Payload g = remote.Forward(new Payload { Tag = 31, Value = 35000 });
+        PairHandler<Payload> remoteCallback = remote.Forward<Payload>;
+        Payload h = remoteCallback(new Payload { Tag = 37, Value = 30000 });
+        f.Tag = 99;
+        return
+            a == 42
+            && b == 0x123456789ABCDEF0UL
+            && copy.Tag == 17
+            && copy.Value == 60000
+            && small.Calls == 6
+            && wide.Calls == 1
+            && small.Value == 245
+            && wide.Value == 0xFEDCBA9876543210UL
+            && captured.Tag == 22
+            && captured.Value == 55000
+            && c.Tag == 19
+            && c.Value == 50000
+            && normal.Calls == 3
+            && d.Tag == 23
+            && d.Value == 45000
+            && explicitCell.Calls == 5
+            && e == 0x123456789ABCDEF0UL
+            && defaultCell.Calls == 1
+            && remote.Calls == 25
+            && remote.Value.Tag == 29
+            && remote.Value.Value == 40000
+            && f.Tag == 99
+            && f.Value == 40000
+            && g.Tag == 31
+            && g.Value == 35000
+            && h.Tag == 37
+            && h.Value == 30000
+            ? 42
+            : 0;
+    }
+
+    public static int InheritedGenericBody()
+    {
+        var small = new GenericMappedReference<byte> { Value = 245 };
+        var wide = new GenericMappedReference<ulong> { Value = 0xFEDCBA9876543210UL };
+        var leaf = new FixedGenericMappedReference { Value = 0x123456789ABCDEF0UL };
+        IGenericEcho left = small;
+        IGenericEcho right = wide;
+        IGenericEcho last = leaf;
+        int a = left.Forward(42);
+        Payload b = left.Forward(new Payload { Tag = 17, Value = 60000 });
+        ulong c = right.Forward(0x123456789ABCDEF0UL);
+        Payload d = last.Forward(new Payload { Tag = 23, Value = 55000 });
+        return
+            a == 42
+            && b.Tag == 17
+            && b.Value == 60000
+            && c == 0x123456789ABCDEF0UL
+            && d.Tag == 23
+            && d.Value == 55000
+            && small.Calls == 4
+            && wide.Calls == 2
+            && leaf.Calls == 2
+            && small.Value == 245
+            && wide.Value == 0xFEDCBA9876543210UL
+            && leaf.Value == 0x123456789ABCDEF0UL
+            ? 42
+            : 0;
+    }
 
     public static int InheritedClosedBody()
     {
@@ -690,7 +791,14 @@ public sealed class FixedMappedCell : OverrideCell<ulong>, IClosedRead
 
 public class GenericVirtualReference<T>
 {
-    public virtual U Forward<U>(U value) => value;
+    public T Value;
+    public int Calls;
+
+    public virtual U Forward<U>(U value)
+    {
+        Calls++;
+        return value;
+    }
 }
 
 public interface IClosedDefault
@@ -858,4 +966,91 @@ public sealed class DualValueCell : IValue<byte>, IValue<ulong>, IValue<sbyte>
         WideCalls++;
         return 0x123456789ABCDEF0UL;
     }
+}
+
+public class GenericVirtualOverride<T> : GenericVirtualReference<T>
+{
+    public override U Forward<U>(U value)
+    {
+        Calls += 2;
+        return value;
+    }
+}
+
+public interface IGenericForward<T>
+{
+    T Read<U>(U value);
+}
+
+public class GenericInterfaceReference<T> : IGenericForward<T>
+{
+    public T Value;
+    public int Calls;
+
+    public virtual T Read<U>(U value)
+    {
+        Calls += 3;
+        return Value;
+    }
+}
+
+public class ExplicitGenericReference<T> : IGenericForward<T>
+{
+    public T Value;
+    public int Calls;
+
+    public T Read<U>(U value) => default;
+
+    T IGenericForward<T>.Read<U>(U value)
+    {
+        Calls += 5;
+        return Value;
+    }
+}
+
+public interface IGenericDefault<T> : IGenericForward<T>
+{
+    T Get();
+
+    T IGenericForward<T>.Read<U>(U value) => Get();
+}
+
+public class DefaultGenericReference<T> : IGenericDefault<T>
+{
+    public T Value;
+    public int Calls;
+
+    public T Get()
+    {
+        Calls++;
+        return Value;
+    }
+}
+
+public interface IGenericEcho
+{
+    U Forward<U>(U value);
+}
+
+public class GenericMappedReference<T> : GenericVirtualOverride<T>, IGenericEcho
+{
+    U IGenericEcho.Forward<U>(U value)
+    {
+        Calls += 99;
+        return value;
+    }
+}
+
+public class FixedGenericMappedReference : GenericVirtualOverride<ulong>, IGenericEcho
+{
+    U IGenericEcho.Forward<U>(U value)
+    {
+        Calls += 99;
+        return value;
+    }
+}
+
+public class GenericOtherReference<T>
+{
+    public virtual U Forward<U>(U value) => value;
 }

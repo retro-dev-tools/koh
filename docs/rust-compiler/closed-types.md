@@ -129,8 +129,8 @@ current full-workspace pass.
 
 ## Remaining work
 
-Method-generic dispatch on constructed reference owners, variance-aware
-assignability and boxing-dependent fallback remain unfinished.
+Variance-aware assignability and boxing-dependent fallback remain unfinished.
+Method-generic reference dispatch is covered [below](#generic-methods-on-closed-reference-receivers).
 
 Closed generic value receivers now execute through the existing
 [constrained call contract](constrained-calls.md#closed-generic-value-receivers),
@@ -250,9 +250,9 @@ Four new rstest cases in
 `driver::generic_types::closed_methodimpl_bodies_keep_the_inherited_declaring_scope`
 edit real Roslyn MethodImpl rows. Closed generic owners and nongeneric leaves use
 an inherited generic-base body, execute independently expected counter values and
-reject an unrelated body with IL context. A method with its own generic arguments
-on a constructed reference owner still diagnoses unfinished support; instantiated
-interface contracts were unfinished at that checkpoint (see below), and variance
+reject an unrelated body with IL context. Methods with their own generic arguments
+and instantiated interface contracts were unfinished at that checkpoint; subsequent
+sections document their execution coverage. Variance
 remains unfinished. No feature retirement
 or additional legacy disposition closure is claimed.
 
@@ -321,8 +321,8 @@ The prior128-case regression found a dropped layout scan charge and two stale
 generic-interface rejection assertions. The original scan charge is restored;
 both interface-budget cases pass. GenericInterface now joins the actual ROM
 execution cases; BoxedInterface retains its explicit diagnostic expectation.
-Variance, boxing/default-interface value fallback and method-generic reference
-dispatch remain unfinished. No feature retirement or additional legacy
+Variance and boxing/default-interface value fallback remain unfinished.
+No feature retirement or additional legacy
 disposition closure is claimed.
 
 Final selected library/driver regression passes132/132 in407.720s, exit0,
@@ -336,3 +336,68 @@ Workspace nextest discovery lists1,812 cases; all four new constrained-interface
 cases are unignored. CSharpier checks all three changed C# fixtures. Fixture
 hashes remain unchanged through final verification. The existing unused cubes
 host warning is unchanged.
+
+## Generic methods on closed reference receivers
+
+Slot binding retains a raw MethodDef, its closed declaring owner and its formal
+method signature. Applying method arguments happens after selecting the body;
+the selected body's own declaring scope remains attached. This distinguishes
+class arguments from method arguments and avoids comparing overloads only after
+their substitutions happen to coincide. The existing method-identity interner
+stores these scoped declarations; no second dispatch model or runtime dictionary
+is introduced. Empty method arguments on a positive-arity declaration are valid
+only during binding. `method_types` requires the complete argument list before
+producing typed IR; the new unit test checks that boundary. Actual specialization
+still validates arity and constraints. Declaration lookup shares the existing
+count/work budgets. The unused owner-free specialization wrapper is removed.
+
+The ClosedTypes `GenericReferenceMethods` entry executes generic virtual
+overrides, implicit and explicit generic interface methods, a generic default
+interface body and a captured generic virtual callback. Scalar and packed
+arguments/results retain full widths. Counter effects distinguish bodies and
+retained receivers. A reference-assembly class implements a reference-assembly
+interface while its class/method arguments include game-local packed values;
+ordinary calls and callbacks preserve their assembly scopes and copy semantics.
+The existing four-mode driver keeps resolver-history byte determinism, banked
+ELF round-trip, PDB/KDBG and heap/frame checks.
+
+Four new rstest cases in
+`generic_methodimpl_bodies_keep_the_closed_ancestor` edit real Roslyn MethodImpl
+rows. Generic owners and a nongeneric leaf borrow a virtual generic ancestor
+body; normal override selection must still produce the independently expected
+counter effects and scalar/aggregate returns. An unrelated generic body rejects
+with member/IL context. The ancestor-body ownership rule is ECMA-335 II.22.27;
+runtime acceptance is not the oracle for that valid metadata shape.
+
+Initial execution fails4/4 at the unfinished guard (20.730s), then basic override
+execution passes4/4 (25.883s). Expanded local cases pass4/4 (26.623s). The final
+delegate uses the fixture's existing PairHandler, requiring no framework delegate
+assembly. An initial System.Func experiment correctly diagnosed its missing
+System.Runtime input; these tests do not claim full BCL compatibility.
+
+Selected library/driver regression passes133/133 in409.320s, exit0,551 outside
+the selection (`/tmp/koh-generic-reference-regression.log`). After fixture-only
+foreign-body and inherited-MethodImpl additions, final consumers pass8/8 in39.404s,
+exit0 (`/tmp/koh-generic-reference-scopes.log`). Production Rust did not change
+between these runs. No additional legacy source-test disposition is claimed;
+variance, boxing/default-interface value fallback and the broader migration
+acceptance gates remain unfinished.
+
+Review exposed a separate correctness bug: a selected override could have a
+signature arity that disagreed with its own GenericParam rows. The base call's
+reference validation did not validate the selected body. Two new Debug/Release
+metadata mutations reproduce successful compilation of that inconsistent shape.
+Declaration binding and actual specialization now check the selected MethodDef's
+arity against metadata. The unchanged typed-IR arity gate remains in place.
+After this fix, all library/reference-resolution tests plus the selected closed
+reference, inherited MethodImpl, ordinary/constrained generic and rejection
+cases pass248/248 in192.823s, exit0,452 outside the selection
+(`/tmp/koh-generic-reference-arity-regression.log`). The original two failures
+are `/tmp/koh-generic-arity-red.log`. This final production fix follows the
+earlier133-case and8-consumer checkpoints; those are not claimed as reruns of
+the arity fix.
+
+Final Rustfmt, CSharpier and separate workspace/all-feature rustdoc pass
+(four crates, zero doc cases). Discovery lists1,819 tests, including all seven
+new unignored cases: one typed-IR guard, four inherited-body cases and two
+override-arity rejection cases. The existing unused cubes-host warning remains.

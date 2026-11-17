@@ -54,10 +54,17 @@ their declaring-type requirement. [Closed reference dispatch](closed-types.md#cl
 now supports nongeneric virtual/interface methods, overrides and retained virtual
 callbacks. [Instantiated invariant interface contracts](closed-types.md#instantiated-invariant-interface-contracts)
 now preserve declaring scopes for reference and constrained value calls, including
-explicit/generic value methods and foreign aggregate returns. Method-generic
-dispatch on closed reference owners remains open; this does not close another
-legacy disposition. The selected interface/generic/virtual regression passes132/132
-in407.720s; final consumers pass14/14 in82.948s. These are scoped results.
+explicit/generic value methods and foreign aggregate returns. [Generic methods on
+closed reference receivers](closed-types.md#generic-methods-on-closed-reference-receivers)
+now retain declaring scopes through overrides, explicit/default bodies, callbacks
+and inherited MethodImpl selection. The selected interface/generic/virtual
+regression passes133/133 in409.320s; final consumers pass8/8 in39.404s.
+These are scoped results and do not close another legacy disposition.
+Review also corrected selected-body generic arity validation; the final
+library/reference/closed-generic selection passes248/248 in192.823s.
+Discovery lists1,819 cases; seven new cases are unignored. Published
+CI44128918287 on the preceding cd41567 passes1,812/1,812 with zero skipped,
+plus separate rustdoc and .NET fast checks. It does not validate this newer unit.
 Closed generic value receivers now support [constrained calls](constrained-calls.md#closed-generic-value-receivers)
 to nongeneric interface contracts, preserving caller mutation and explicit/generic
 method selection. Variance and boxing/default-interface value fallback remain unfinished.
