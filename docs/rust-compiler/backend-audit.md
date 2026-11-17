@@ -359,14 +359,13 @@ Proposed future location: `rust/koh-compiler/tests/loops.rs` (not implemented).
 
 Classification: ISA arithmetic helper facts and private normalization. ADC/SBC carry propagation, sign extension and predicate reversal follow integer/ISA semantics; helper names do not.
 
-Two methods complete in [allocation-independent acceptance](allocation-contracts.md).
-The128-bit method stays pending: the legacy frontend really supports Int128/UInt128,
-so its six assertions cannot be retired as a private-only helper convention.
+All three methods complete: two in [allocation-independent acceptance](allocation-contracts.md)
+and the128-bit helper in [full-width numeric acceptance](int128.md#source-test-disposition).
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
 | `AluOpcodes_UseCarryFormForHighBytes` | Requirement | REPLACE complete | [Native carry/borrow and bitwise values](allocation-contracts.md). |
-| `ByteOf_SignExtendsBeyond64Bits` | Requirement | REPLACE pending | [Real128-bit behavior remains outstanding](allocation-contracts.md#deliberately-outstanding128-bit-behavior). Current64-bit packing is partial evidence only. |
+| `ByteOf_SignExtendsBeyond64Bits` | Requirement | REPLACE complete | [Positive/negative values with all16 bytes checked](int128.md#source-test-disposition); all six original numeric assertions retained. |
 | `Normalize_SwapsAndSignsPredicates` | Requirement | REPLACE complete | [Unsigned greater, signed less-or-equal and equality](allocation-contracts.md). |
 
 ### Backends/Sm83PeepholeTests.cs (38)

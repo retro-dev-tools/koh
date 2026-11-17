@@ -16,8 +16,8 @@ baseline; authoring needs and hardware constraints determine the new contract.
 operations with 16-byte slots, arguments and return buffers. The initial real C#
 fixture exposed and corrected framework value-type bases encoded as TypeDefs,
 then exercised full-width arithmetic, comparisons, recursion and static storage.
-The source-test ledger remains309/565: broader 128-bit acceptance and its source
-test audit remain open. No full-migration completion is claimed.
+At682bd2e the source-test ledger remained309/565. The subsequent storage/fault
+acceptance below closes three source methods; no full-migration completion is claimed.
 
 Focused acceptance passed233/233 cases in90.913s, exit0, including all220 compiler
 unit cases,64 new128-bit ROM executions, eight unsupported-operation diagnostics,
@@ -27,6 +27,20 @@ After C# formatting the four new cases passed again in20.126s, exit0
 (`/tmp/koh-int128-formatted.log`). Workspace discovery finds1856 cases, including
 1679 compiler cases, zero ignored (`/tmp/koh-int128-discovery.json`). Rustfmt and
 diff checks passed.
+
+The next128-bit acceptance batch fixes typed token classification for `ldobj`,
+`stobj` and array operations, and shares the numeric classification with aggregate
+layout. References, 16-byte array elements and independent struct copies now have
+native execution coverage. Full-width positive/negative constants, narrowing,
+high-bit divisors, signed minimum, zero/overflow faults and the real managed host
+oracle complete [three source dispositions](int128.md#source-test-disposition).
+The ledger is312/565 complete (311 native replacements, one DELETE),253 outstanding.
+No useful assertion is deleted or deferred. The batch runs120 ROMs plus16 managed
+invocations. Focused units/aggregate neighbors passed228/228 in40.837s; the final
+four expanded cases, including missing-reference diagnostics, passed in32.867s.
+Actual exit codes0; logs `/tmp/koh-int128-boundaries-acceptance.log` and
+`/tmp/koh-int128-boundaries-final.log`. Broad metadata mutation and checked128-bit/
+float-conversion policy remain open; this is not full compiler acceptance.
 
 Published head0413235 completed hosted CI44162995161 successfully:
 1852/1852 native tests, zero skipped,1444.708s; separate Rust documentation tests
@@ -136,15 +150,14 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-309/565 dispositions complete (308 native replacements, one DELETE),256 outstanding,
+312/565 dispositions complete (311 native replacements, one DELETE),253 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,
 pressure, caller/callee, backedge and source-map contracts. Nine new cases run460
 ROMs; the focused selection including malformed-IR guards passed40/40 in14.775s,
 exit0 (`/tmp/koh-allocation-contracts-acceptance.log`). The separate128-bit helper
-stays pending: legacy Int128/UInt128 frontend/operator support is real and needs
-native acceptance or an explicit product decision, not accidental retirement.
+and both frontend arithmetic methods now have [full-width replacements](int128.md#source-test-disposition).
 Completed [CI44153557742](https://github.com/retro-dev-tools/koh/actions/runs/44153557742)
 on preceding1acc333 passed1,835/1,835 in1409.395s, zero skipped, plus separate
 rustdoc and .NET fast checks. This predates the two metadata/owner fixes and this

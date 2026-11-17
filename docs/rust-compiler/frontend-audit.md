@@ -215,7 +215,7 @@ Where/Select/Sum and direct-array Max must compute correct reductions and reject
 
 ### CilLiteralTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilLiteralTests.cs`. Future Rust test group: `cil_literal`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilLiteralTests.cs`. The two128-bit methods are complete in `driver::int128`; the remaining literal group is pending. See [assertion mapping](int128.md#source-test-disposition).
 
 Array and UTF-8 literals retain exact bytes; Int128 arithmetic retains integer behavior. ROM deduplication/startup elimination is an optimization requiring a mutability proof, not C# array semantics.
 
@@ -223,8 +223,8 @@ Array and UTF-8 literals retain exact bytes; Int128 arithmetic retains integer b
 - **PORT** `LocalArrayLiteral_DebugAndReleaseProduceIdenticalObservableState`.
 - **REPLACE** `U8Literal_LandsInRomWithInitialBytesNotRebuiltAtStartup` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
 - **PORT** `U8Literal_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `Int128Arithmetic_RoundTripsThroughRealArithmeticOnTheHost`.
-- **PORT** `Int128Arithmetic_DebugAndReleaseProduceIdenticalObservableState`.
+- **PORT, complete** `Int128Arithmetic_RoundTripsThroughRealArithmeticOnTheHost` — full128-bit packet and managed host oracle.
+- **PORT, complete** `Int128Arithmetic_DebugAndReleaseProduceIdenticalObservableState` — each mode agrees with independent numeric expectations.
 
 ### CilLoweringTests.cs
 

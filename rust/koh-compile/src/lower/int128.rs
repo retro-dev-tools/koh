@@ -1,22 +1,6 @@
 use super::*;
 use crate::resolve::Resolver;
 
-pub(super) fn scalar(
-    resolver: &Resolver<'_>,
-    assembly: usize,
-    ty: &clrmeta::TypeSig,
-) -> Result<Option<Scalar>, String> {
-    let clrmeta::TypeSig::ValueType(encoded) = ty else {
-        return Ok(None);
-    };
-    let definition = resolver.signature_type(assembly, *encoded)?;
-    Ok(match resolver.framework_definition(definition)? {
-        Some(("System", "Int128")) => Some(Scalar::I128),
-        Some(("System", "UInt128")) => Some(Scalar::U128),
-        _ => None,
-    })
-}
-
 pub(super) fn call(
     resolver: &Resolver<'_>,
     target: Definition,
@@ -97,11 +81,13 @@ pub(super) fn call(
         }
         let raw = image.method_signature(target.token)?;
         let input = &raw.params[0];
-        let source_signed = scalar(resolver, target.assembly, input)?
+        let source_signed = resolver
+            .int128_scalar(target.assembly, input)?
             .or_else(|| super::scalar(input).ok())
             .is_some_and(Scalar::signed);
         let output = &raw.return_type;
-        let output_scalar = scalar(resolver, target.assembly, output)?
+        let output_scalar = resolver
+            .int128_scalar(target.assembly, output)?
             .or_else(|| super::scalar(output).ok())
             .ok_or("Invalid 128-bit conversion result")?;
         b.value(

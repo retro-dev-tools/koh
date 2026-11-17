@@ -99,7 +99,7 @@ pub(crate) fn storage_type(
     ty: &clrmeta::TypeSig,
 ) -> Result<clrmeta::TypeSig, String> {
     use clrmeta::TypeSig;
-    if int128::scalar(resolver, assembly, ty)?.is_some() {
+    if resolver.int128_scalar(assembly, ty)?.is_some() {
         return Ok(ty.clone());
     }
     Ok(match ty {
@@ -226,11 +226,11 @@ pub(crate) fn bound_type(
     assembly: usize,
     ty: &clrmeta::TypeSig,
 ) -> Result<Type, String> {
-    if let Some(scalar) = int128::scalar(resolver, assembly, ty)? {
+    if let Some(scalar) = resolver.int128_scalar(assembly, ty)? {
         return Ok(scalar.stack_type());
     }
     if let clrmeta::TypeSig::ByRef(inner) = ty {
-        if let Some(scalar) = int128::scalar(resolver, assembly, inner)? {
+        if let Some(scalar) = resolver.int128_scalar(assembly, inner)? {
             return Ok(Type::ByRef(scalar));
         }
     }
@@ -303,7 +303,7 @@ fn bound_storage(
     assembly: usize,
     signature: &clrmeta::TypeSig,
 ) -> Result<Storage, String> {
-    if let Some(scalar) = int128::scalar(resolver, assembly, signature)? {
+    if let Some(scalar) = resolver.int128_scalar(assembly, signature)? {
         return Ok(Storage::Scalar(scalar));
     }
     let signature = storage_type(resolver, assembly, signature)?;

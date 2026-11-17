@@ -21,6 +21,10 @@ public static class Program
 
     public static int SignExtend() => Save(unchecked((UInt128)(Int128)(-42L)));
 
+    public static int NegativeOne() => Save(unchecked((UInt128)(Int128)(-1L)));
+
+    public static int PositiveExtend() => Save((UInt128)0x0102030405060708L);
+
     public static int Multiply() => Save(Wide(0x12345678, 0xfedcba9876543210) * 1000);
 
     public static int Divide() => Save(Wide(0x12345678, 0xfedcba9876543210) / 1000);
@@ -73,6 +77,97 @@ public static class Program
     {
         Stored = Wide(0x12345678, 0xfedcba9876543210);
         return Save(Stored);
+    }
+
+    private static void Increment(ref UInt128 value) => value += 42;
+
+    public static int ByReference()
+    {
+        UInt128 value = Wide(0x12345678, 0xfedcba9876543210);
+        Increment(ref value);
+        return Save(value);
+    }
+
+    private struct Packet
+    {
+        public byte Before;
+        public UInt128 Value;
+        public byte After;
+    }
+
+    private static Packet Change(Packet packet)
+    {
+        packet.Value += packet.Before + (UInt128)packet.After;
+        return packet;
+    }
+
+    public static int Aggregate()
+    {
+        Packet packet = new Packet
+        {
+            Before = 2,
+            Value = Wide(0x12345678, 0xfedcba9876543210),
+            After = 3,
+        };
+        Packet changed = Change(packet);
+        if (
+            packet.Value != Wide(0x12345678, 0xfedcba9876543210)
+            || changed.Before != 2
+            || changed.After != 3
+        )
+            return 0;
+        return Save(changed.Value);
+    }
+
+    public static int Array()
+    {
+        UInt128[] values = new UInt128[3];
+        values[0] = Wide(0xabcdef0123456789, 0x76543210fedcba98);
+        values[1] = Wide(0x12345678, 0xfedcba9876543210);
+        Increment(ref values[1]);
+        return Save(values[1]);
+    }
+
+    private static UInt128 DivideBy(UInt128 value, UInt128 divisor) => value / divisor;
+
+    private static Int128 SignedDivideBy(Int128 value, Int128 divisor) => value / divisor;
+
+    private static Int128 SignedRemainderBy(Int128 value, Int128 divisor) => value % divisor;
+
+    public static int ZeroDivisor() => Save(DivideBy(Wide(1, 0), 0));
+
+    public static int SignedOverflow() =>
+        Save(unchecked((UInt128)SignedDivideBy((Int128)Wide(0x8000000000000000, 0), -1)));
+
+    public static int RemainderOverflow() =>
+        Save(unchecked((UInt128)SignedRemainderBy((Int128)Wide(0x8000000000000000, 0), -1)));
+
+    public static int HugeDivide() =>
+        Save(DivideBy(Wide(ulong.MaxValue, ulong.MaxValue), Wide(0x8000000000000000, 1)));
+
+    public static int HugeRemainder() =>
+        Save(Wide(ulong.MaxValue, ulong.MaxValue) % Wide(0x8000000000000000, 1));
+
+    public static int SignedMinimum() =>
+        Save(unchecked((UInt128)SignedDivideBy((Int128)Wide(0x8000000000000000, 0), 1)));
+
+    public static int LogicalSignedShift() =>
+        Save(unchecked((UInt128)((Int128)Wide(0x8000000000000000, 0) >>> 127)));
+
+    public static int NarrowSigned() =>
+        Save(unchecked((UInt128)(Int128)(long)Wide(0x12345678, 0xfedcba9876543210)));
+
+    public static int MixedBits() =>
+        Save(
+            (Wide(0x12345678, 0xfedcba9876543210) & Wide(0x76543210, 0x123456789abcdef0))
+                ^ Wide(0xabcdef01, 0xabcdef0123456789)
+        );
+
+    public static string Oracle()
+    {
+        if (LegacyRoundTrip() != 42)
+            return "BAD";
+        return Convert.ToHexString(Result);
     }
 
     public static int LegacyRoundTrip()

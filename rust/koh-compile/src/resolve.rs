@@ -373,13 +373,7 @@ impl<'a> Resolver<'a> {
                 _ => return Err("Expected primitive or value-type token".into()),
             };
             let identity = self.resolve_type(assembly, token)?;
-            let metadata = self.assembly(identity.assembly)?.metadata();
-            let definition = row(&metadata.type_defs, identity.token, 2)?;
-            let value = definition.extends.table == Some(TableId::TypeRef)
-                && matches!(
-                    framework_type(metadata, coded(definition.extends)?)?,
-                    Some(("System", "ValueType" | "Enum"))
-                );
+            let value = matches!(self.type_argument(identity)?.ty, TypeSig::ValueType(_));
             return Ok(if value {
                 TypeSig::ValueType(encoded)
             } else {
@@ -403,6 +397,14 @@ impl<'a> Resolver<'a> {
             "UIntPtr" => ElementType::UIntPtr,
             "Object" => ElementType::Object,
             "String" => ElementType::String,
+            "Int128" | "UInt128" => {
+                let encoded = match token >> 24 {
+                    1 => ((token & 0xffffff) << 2) | 1,
+                    2 => (token & 0xffffff) << 2,
+                    _ => return Err("Expected 128-bit type definition or reference".into()),
+                };
+                return Ok(TypeSig::ValueType(encoded));
+            }
             _ if self.delegate_type(assembly, token)?.is_some() => {
                 return Ok(TypeSig::Class(((token & 0xffffff) << 2) | 1));
             }

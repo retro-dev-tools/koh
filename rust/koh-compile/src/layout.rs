@@ -74,6 +74,9 @@ impl Build<'_, '_> {
     }
 
     fn shape(&mut self, assembly: usize, ty: &TypeSig) -> Result<(u32, u32, bool, u8), String> {
+        if self.resolver.int128_scalar(assembly, ty)?.is_some() {
+            return Ok((16, 16, false, 0));
+        }
         if self
             .resolver
             .delegate_signature_type(assembly, ty)?

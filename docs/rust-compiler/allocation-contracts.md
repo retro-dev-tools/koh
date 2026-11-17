@@ -2,9 +2,10 @@
 
 This batch closes23 source methods: all20 in `Sm83BackendTests`, the one
 `Sm83EmitterTests` method, and two of three `Sm83OpsTests` methods. Their53
-assertion sites are reviewed below:7 methods PORT,16 REPLACE. The remaining
-128-bit helper method and its six assertions stay pending. Nothing is physically
-retired or deferred.
+assertion sites are reviewed below:7 methods PORT,16 REPLACE. The separate
+[128-bit acceptance matrix](int128.md#source-test-disposition) now closes the
+remaining helper method and all six assertions. Nothing is physically retired
+or deferred.
 
 ## Decisions and independent expectations
 
@@ -75,16 +76,18 @@ Signed less-or-equal is represented coherently as not-greater in the new IR.
 Total new executions:460 ROMs in nine rstest/test cases. Existing liveness,
 comparison, signed-widening and real-PDB cases are reused and rerun.
 
-## Deliberately outstanding128-bit behavior
+## 128-bit behavior
 
-`Sm83OpsTests.ByteOf_SignExtendsBeyond64Bits` is **not deleted or complete**.
+`Sm83OpsTests.ByteOf_SignExtendsBeyond64Bits` is now **REPLACE complete**.
 The source audit found real legacy Int128/UInt128 mappings and operator lowering
 in `CilMethodLowerer.cs`, plus real C# cases in `CilLiteralTests.cs`. Consequently
-its six assertions require native128-bit behavior or an explicit, justified
-product decision; calling them private-only would hide a useful capability.
+its six assertions required native128-bit behavior; calling them private-only
+would have hidden a useful capability. `PositiveExtend` and `NegativeOne` now
+check all16 bytes through real C# and executed ROMs, including all six original
+observations. See the [source matrix](int128.md#source-test-disposition).
 The UInt128 mention in `Koh.GameBoy/SoftFloat.cs` is only a stale comment, not
-evidence of current usage. Current64-bit constant/widening acceptance is partial
-evidence only and does not replace the128-bit requirement.
+evidence of current usage. The native128-bit implementation replaces this
+requirement without treating64-bit coverage as sufficient proof.
 
 ## Verification
 

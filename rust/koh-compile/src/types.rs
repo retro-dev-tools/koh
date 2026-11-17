@@ -131,6 +131,22 @@ impl Resolver<'_> {
         })
     }
 
+    pub(crate) fn int128_scalar(
+        &self,
+        assembly: usize,
+        ty: &TypeSig,
+    ) -> Result<Option<crate::ir::Scalar>, String> {
+        let TypeSig::ValueType(encoded) = ty else {
+            return Ok(None);
+        };
+        let definition = self.signature_type(assembly, *encoded)?;
+        Ok(match self.framework_definition(definition)? {
+            Some(("System", "Int128")) => Some(crate::ir::Scalar::I128),
+            Some(("System", "UInt128")) => Some(crate::ir::Scalar::U128),
+            _ => None,
+        })
+    }
+
     pub(crate) fn close_type(
         &self,
         definition: Definition,
