@@ -10,12 +10,41 @@ mod control_flow_scalars;
 mod liveness;
 #[path = "support/optimizer_contracts.rs"]
 mod optimizer_contracts;
+#[path = "support/parallel_phis.rs"]
+mod parallel_phis;
 #[path = "support/recursion.rs"]
 mod recursion_fixture;
 #[path = "support/sum_loop.rs"]
 mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case(Type::Native, 1, 2)]
+#[case(Type::I32, 0x01020304, 0xf1020304)]
+#[case(Type::I64, 0x0102030405060708, 0x1102030405060708)]
+fn parallel_loop_parameters_preserve_mixed_width_cycles(
+    host: &Host,
+    #[case] ty: Type,
+    #[case] a: u64,
+    #[case] b: u64,
+) {
+    let original = parallel_phis::swap(ty);
+    let mut optimized = original.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    let mut cases = Vec::new();
+    for swaps in 0..=3 {
+        for f in [&original, &optimized] {
+            verify(f).unwrap();
+            cases.push((
+                f.clone(),
+                vec![a, b, swaps],
+                Ok(if swaps % 2 == 0 { a } else { b }),
+            ));
+        }
+    }
+    run(host, &cases);
+}
 
 #[rstest::rstest]
 #[case(8)]

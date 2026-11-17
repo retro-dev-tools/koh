@@ -13,6 +13,8 @@ use rstest::rstest;
 use std::path::{Path, PathBuf};
 #[path = "driver/cil_basics.rs"]
 mod cil_basics;
+#[path = "driver/control_flow_memory.rs"]
+mod control_flow_memory;
 #[path = "driver/default_interfaces.rs"]
 mod default_interfaces;
 #[path = "driver/delegates.rs"]

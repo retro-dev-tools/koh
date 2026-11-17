@@ -113,11 +113,22 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-266/565 dispositions complete (265 native replacements, one DELETE),299 outstanding,
+286/565 dispositions complete (285 native replacements, one DELETE),279 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The34 [scalar control-flow contracts](control-flow-scalars.md) now retain all37
 original numeric assertions and strengthen carry/borrow/sign boundaries through
-188 native executions. The20 remaining methods in that source file stay pending.
+188 native executions. The remaining20
+[memory/call/boot/phi contracts](control-flow-memory.md) now account for30 assertion
+sites, closing the54-method source file. Four real-C# cases execute84 ROMs;
+three explicit phi cases execute24 ROMs, with existing sum/switch coverage reused.
+The final formatted-input selection passed11/11 in18.752s, exit0; discovery lists
+1,835 workspace cases, including1,658 compiler cases with zero ignored. Logs:
+`/tmp/koh-control-flow-memory-formatted.log` and
+`/tmp/koh-control-flow-memory-discovery.json`.
+Completed [CI44147614067](https://github.com/retro-dev-tools/koh/actions/runs/44147614067)
+on preceding378e4f2 passed1,826/1,826 in1395.579s, zero skipped, plus separate
+rustdoc and .NET fast checks. This predates the fixture-reuse and current control-flow
+increments; full validation of those changes remains required.
 The remaining five [CGB HAL methods](cgb-hal.md) now check actual referenced
 code, both VRAM banks, all palette bytes and CGB-only CPU writes.
 See [float lowering contract and evidence](float-lowering.md).

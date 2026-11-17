@@ -5,8 +5,8 @@ assertion sites. All34 are PORT complete in
 `sm83::scalar_width_contracts_execute_before_and_after_optimization`, using
 `tests/support/control_flow_scalars.rs`. These are public numeric requirements;
 the old IR constructors, static argument slots and A/HL/DE return conventions
-are private implementation details. The remaining20 methods in that source
-file retain pending dispositions for calls, memory, boot and phi behavior.
+are private implementation details. The remaining20 methods now have complete
+[memory/call/boot/phi dispositions](control-flow-memory.md).
 
 | Source method | Preserved independent expectation |
 | --- | --- |

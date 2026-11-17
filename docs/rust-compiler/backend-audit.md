@@ -236,10 +236,12 @@ SM83 cases excluded. Workspace discovery lists1792 tests; all four new cases are
 
 Classification: Language, memory, call, and cartridge contracts. Arithmetic, pointer scaling, parallel phi assignments and calls have observable values independently of the C# emitter.
 
-Implemented scalar coverage: `rust/koh-compile/tests/sm83.rs` and
-`tests/support/control_flow_scalars.rs`. First34 methods (37 assertion sites) are
-PORT complete; the remaining20 methods stay pending. See the
-[per-method scalar matrix and execution evidence](control-flow-scalars.md).
+All54 methods now have native replacements: the first34 retain37 numeric
+assertion sites in [scalar coverage](control-flow-scalars.md); the remaining20
+account for30 assertion sites in [memory/call/boot/phi coverage](control-flow-memory.md).
+See those per-method matrices for independent requirements, ABI replacements
+and actual native execution evidence. Source definitions remain until final
+legacy compiler/test deletion.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
@@ -277,26 +279,26 @@ PORT complete; the remaining20 methods stay pending. See the
 | `ZExt_I8_To_I16` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
 | `SExt_I8_To_I16_SignExtendsHighByte` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
 | `Trunc_I16_To_I8_KeepsLowByte` | Requirement | PORT complete | [Preserved vectors and native execution](control-flow-scalars.md); parameter/constant inputs before/after optimization. |
-| `Alloca_Store_Load_RoundTrips` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Gep_IndexesArrayElements` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Call_PassesArgs_ReturnsI8` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Call_ReturnsI16_InHL` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Call_Nested_ChainOfFrames` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Recursion_IsSupported` | Requirement | REPLACE | Run terminating direct and mutual recursion with arguments and live locals; nonempty sections prove only emission. |
-| `Switch_SelectsCaseOrDefault` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Header_IsBootableCartridge` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Boots_FromEntryVector` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Mmio_StoreReachesHardwareRegister` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Global_RomTable_IndexedRead` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Global_RomI16Constant` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Global_WramState_MutatedAcrossCalls` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Gep_DynamicIndex_I8Array` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Gep_DynamicIndex_I16Array_ScalesBySize` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Pointer_Parameter_Dereferences` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Store_ThroughDynamicPointer_RoundTrips` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `PhiSwap_RealizedInParallel` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `SumLoop_RunsToCompletion` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `PhiCopyCycle_MixedWidth_DoesNotCorruptWiderValue` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Alloca_Store_Load_RoundTrips` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): aliased byte43. |
+| `Gep_IndexesArrayElements` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): distinct stack bytes10+20=30. |
+| `Call_PassesArgs_ReturnsI8` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): three arguments return42. |
+| `Call_ReturnsI16_InHL` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): full return550 through the new ABI. |
+| `Call_Nested_ChainOfFrames` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): nested increments return42. |
+| `Recursion_IsSupported` | Requirement | REPLACE complete | [Native memory/call matrix](control-flow-memory.md): actual terminating direct/mutual recursion, live addends and seed. |
+| `Switch_SelectsCaseOrDefault` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): 11/22/99, plus actual raw-CIL switch execution. |
+| `Header_IsBootableCartridge` | Requirement | REPLACE complete | [Native memory/call matrix](control-flow-memory.md): relocated startup, full logo, MBC5 and independent checksums. |
+| `Boots_FromEntryVector` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): PC0100 reaches return42 with balanced SP. |
+| `Mmio_StoreReachesHardwareRegister` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): actual SCY store/read0x37. |
+| `Global_RomTable_IndexedRead` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): direct read15 from linked ROM bytes. |
+| `Global_RomI16Constant` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): direct little-endian ROM read1000. |
+| `Global_WramState_MutatedAcrossCalls` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): two calls update shared counter to2. |
+| `Gep_DynamicIndex_I8Array` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): runtime byte index2 returns30. |
+| `Gep_DynamicIndex_I16Array_ScalesBySize` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): runtime word index1 returns200. |
+| `Pointer_Parameter_Dereferences` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): callee reads caller's byte77. |
+| `Store_ThroughDynamicPointer_RoundTrips` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): store/read99 plus adjacent-element preservation. |
+| `PhiSwap_RealizedInParallel` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): explicit block-parameter cycle, two swaps return1. |
+| `SumLoop_RunsToCompletion` | Requirement | PORT complete | [Native memory/call matrix](control-flow-memory.md): existing sum graph explicitly executes10=45 at three widths. |
+| `PhiCopyCycle_MixedWidth_DoesNotCorruptWiderValue` | Requirement | REPLACE complete | [Native memory/call matrix](control-flow-memory.md): full64-bit parallel cycles beside I32 parameters, not private allocator slot overlap. |
 
 ### Backends/Sm83EmitterTests.cs (1)
 
@@ -690,7 +692,7 @@ All three dispositions are complete; [source-by-source rationale and native evid
 
 ## Coverage accounting and acceptance boundary
 
-Disposition totals: **PORT 104, REPLACE 185, DELETE 1**;
+Disposition totals: **PORT 102, REPLACE 187, DELETE 1**;
 total **290**, matching the source [Test] attribute count. No DEFER entries.
 Rows explicitly marked complete cite executed native acceptance; remaining native
 paths are proposed destinations. The old suite mixes direct IR construction,
