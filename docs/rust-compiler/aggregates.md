@@ -64,7 +64,9 @@ value without invoking a user constructor; `new T()` invokes an explicit
 parameterless constructor when Roslyn emits that call.
 
 The newobj target must be an instance, nongeneric, void `.ctor` marked with both
-SpecialName and RTSpecialName. Class and generic construction diagnose explicitly.
+SpecialName and RTSpecialName. Class and generic construction now use the
+[closed-type construction contract](closed-types.md); the constructor tests retain
+the value, frame and untouched-heap checks alongside invalid metadata diagnostics.
 The lowering evaluates and retains explicit argument values, zeroes a private
 frame slot, calls the constructor with its typed `this` followed by those
 arguments, then snapshots the completed value. One slot is reused per reachable

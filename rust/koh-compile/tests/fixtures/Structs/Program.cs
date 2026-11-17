@@ -49,7 +49,7 @@ public static unsafe class Program
 
     static readonly Constructed Cached = new Constructed(8);
 
-    public static int UnsupportedGeneric() => new GenericConstructed<int>(1).Value;
+    public static int GenericConstructor() => new GenericConstructed<int>(1).Value;
 
     public static int ReferenceConstructor() => new ReferenceConstructed(1).Value;
 

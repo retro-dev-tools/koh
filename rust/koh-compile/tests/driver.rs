@@ -3367,16 +3367,19 @@ fn value_constructor_metadata_and_private_storage_diagnose(
             "{kind}: {checked}"
         );
     }
-    for (entry, expected) in [(
-        "Program::UnsupportedGeneric",
-        "Generic declaring types require instantiated storage",
-    )] {
-        let error = compile::object(&resolver, Some(entry)).unwrap_err();
-        assert!(
-            error.contains(expected) && error.contains(entry) && error.contains("IL_"),
-            "{error}"
-        );
-    }
+    let generic = compile::object(&resolver, Some("Program::GenericConstructor")).unwrap();
+    let generic = koh_objects::read_elf(&koh_objects::write_elf(&generic).unwrap()).unwrap();
+    let generic = koh_link::link(&[generic], &Default::default()).unwrap();
+    let report = execute_mode(
+        host,
+        directory.path(),
+        &generic,
+        "__koh_exit",
+        "--native-heap",
+    );
+    let fields: Vec<_> = report.split_whitespace().collect();
+    assert_eq!(&fields[..4], &["00", "00000001", "D000", "OK"]);
+    assert_heap_snapshot(fields[4], &[0x5a; 4096], "GenericConstructor");
     let object = compile::object(&resolver, Some("Program::ReferenceConstructor")).unwrap();
     let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
     let linked = koh_link::link(&[object], &Default::default()).unwrap();
