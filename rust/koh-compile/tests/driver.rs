@@ -2336,6 +2336,54 @@ fn actual_tileset_load_copies_vram_and_preserves_banks(
     }
 }
 
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn fixture_build_reuse_preserves_symbols_and_private_files(
+    host: &Host,
+    #[case] configuration: &str,
+) {
+    let fixture = "DelegateCalls";
+    let (first, original) = gameboy_images(host, configuration, fixture);
+    let relative = format!("bin/{configuration}/net10.0");
+    let pdb_name = format!("{fixture}.pdb");
+    let dll_name = format!("{fixture}.dll");
+    let references = format!("obj/{configuration}/net10.0/reference-paths.txt");
+    let manifest = std::fs::read(first.path().join(&references)).unwrap();
+    let pdb = std::fs::read(first.path().join(&relative).join(&pdb_name)).unwrap();
+    std::fs::write(first.path().join(&relative).join(&dll_name), b"changed").unwrap();
+    std::fs::write(first.path().join(&relative).join(&pdb_name), b"changed").unwrap();
+    std::fs::write(first.path().join(&references), b"changed").unwrap();
+    std::fs::write(first.path().join("Program.cs"), "changed").unwrap();
+    let (second, images) = gameboy_images(host, configuration, fixture);
+    assert_ne!(first.path(), second.path());
+    assert_eq!(
+        std::fs::read(second.path().join(&relative).join(&dll_name)).unwrap(),
+        images[0]
+    );
+    assert_eq!(
+        std::fs::read(second.path().join(references)).unwrap(),
+        manifest
+    );
+    let second_pdb = std::fs::read(second.path().join(&relative).join(pdb_name)).unwrap();
+    if std::env::var("NEXTEST_TEST_GROUP").as_deref() == Ok("roslyn")
+        && std::env::var_os("NEXTEST_RUN_ID").is_some()
+    {
+        assert!(images == original, "reuse the same Roslyn compilation");
+        assert!(second_pdb == pdb, "reuse the matching Portable PDB");
+    }
+    let assembly = koh_compile::assembly::Assembly::parse(&images[0]).unwrap();
+    let symbols = koh_compile::pdb::PortablePdb::for_assembly(&second_pdb, &assembly).unwrap();
+    let source = symbols
+        .documents
+        .iter()
+        .find(|p| p.ends_with("Program.cs"))
+        .unwrap();
+    let expected = std::fs::read(second.path().join("Program.cs")).unwrap();
+    assert_ne!(expected, b"changed");
+    assert_eq!(std::fs::read(source).unwrap(), expected);
+}
+
 fn gameboy_images(
     host: &Host,
     configuration: &str,
@@ -2357,25 +2405,77 @@ fn gameboy_images(
     for name in [project.as_str(), "Program.cs"] {
         std::fs::copy(source.join(name), directory.path().join(name)).unwrap();
     }
-    let result = dotnet()
-        .arg("build")
-        .arg(directory.path().join(project))
-        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
-        .arg(format!("-p:KohRoot={}", root.display()))
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}{}",
-        String::from_utf8_lossy(&result.stdout),
-        String::from_utf8_lossy(&result.stderr)
-    );
+    let run = std::env::var("NEXTEST_RUN_ID").ok().filter(|_| {
+        fixture != "SourceDebug" && std::env::var("NEXTEST_TEST_GROUP").as_deref() == Ok("roslyn")
+    });
+    let cache = source.join("obj/koh-nextest-fixture").join(configuration);
+    let build = if run.is_some() {
+        cache.as_path()
+    } else {
+        directory.path()
+    };
+    let stamp = build.join("koh-nextest-run");
+    let reuse = run.as_ref().is_some_and(|run| {
+        std::fs::read_to_string(&stamp).ok().as_ref() == Some(run)
+            && build
+                .join(format!("bin/{configuration}/net10.0/{fixture}.dll"))
+                .is_file()
+    });
+    if !reuse {
+        if run.is_some() {
+            if build.exists() {
+                std::fs::remove_dir_all(build).unwrap();
+            }
+            std::fs::create_dir_all(build).unwrap();
+            for name in ["Directory.Build.props", "Directory.Build.targets"] {
+                std::fs::write(build.join(name), "<Project />").unwrap();
+            }
+            for name in [project.as_str(), "Program.cs"] {
+                std::fs::copy(source.join(name), build.join(name)).unwrap();
+            }
+        }
+        eprintln!("Build game fixture {fixture} {configuration}");
+        let result = dotnet()
+            .arg("build")
+            .arg(build.join(project))
+            .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+            .arg(format!("-p:KohRoot={}", root.display()))
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+        if let Some(run) = run {
+            std::fs::write(stamp, run).unwrap();
+        }
+    }
+    if build != directory.path() {
+        for name in ["bin", "obj"] {
+            copy_fixture_output(&build.join(name), &directory.path().join(name));
+        }
+    }
     let output = directory
         .path()
         .join(format!("bin/{configuration}/net10.0"));
     let images = [format!("{fixture}.dll"), "Koh.GameBoy.dll".into()]
         .map(|name| std::fs::read(output.join(name)).unwrap());
     (directory, images)
+}
+
+fn copy_fixture_output(source: &Path, destination: &Path) {
+    std::fs::create_dir_all(destination).unwrap();
+    for entry in std::fs::read_dir(source).unwrap() {
+        let entry = entry.unwrap();
+        let target = destination.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_fixture_output(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
 }
 
 #[rstest]

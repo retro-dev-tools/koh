@@ -31,6 +31,37 @@ Another run passed8/8 generic execution and source-breakpoint/machine-inspection
 cases in53.513s (`/tmp/koh-host-speed-consumers.log`), rebuilding EmulatorHost
 and DebuggerHost once each for that new run. Rustfmt check passed.
 
+Game fixtures now also reuse one successful Roslyn build per fixture,
+configuration and serialized nextest run. Each case copies the complete `bin`
+and `obj` trees and source files into its own temporary directory. DLL/PDB,
+source and reference-manifest mutations cannot affect later cases. Cached
+sources remain readable for Portable PDB provenance. `SourceDebug` retains
+private builds because its debugger contracts require exact temporary source
+paths. Empty local Directory.Build files preserve the former isolated fixture
+settings; referenced repository projects keep their own settings. New runs and
+runs outside the serialized group rebuild, and failed builds publish no stamp.
+Only one generated build per fixture/configuration is retained on disk.
+
+The same12 CGB HAL, aggregate-return and source-debugger cases passed in48.501s
+before and37.344s after (about23% faster), using warmed local build outputs.
+Fixture builds fell from12 to8; all four debugger cases still build privately.
+The earlier cold baseline was61.033s and is not used for the comparison.
+No case, assertion, timeout or concurrency limit was removed. The broader
+memory-copy/fill, delegate, PDB and isolation selection passed86/86 in70.861s;
+both isolation cases also passed outside nextest in13.03s. The initial broader
+run exposed the missing reference manifest; copying `obj` fixed the cause and
+the isolation cases now mutate that manifest as well. Logs:
+`/tmp/koh-fixture-reuse-before-warm.log`,
+`/tmp/koh-fixture-reuse-after-final.log`,
+`/tmp/koh-fixture-reuse-consumers-final.log`, and
+`/tmp/koh-fixture-reuse-outside-nextest.log`.
+This is a scoped regression speed measurement, not compiler performance or a
+whole-suite/platform speed claim. Reproduce the compared selection with:
+
+```sh
+cargo +stable nextest run -p koh-compile --test driver --locked --success-output final -E 'test(cgb_hal::) | test(struct_returns::) | test(debugger_stops_on_native_csharp_source)'
+```
+
 ### Field-signature budget before binding
 
 Completed CI44117991696 on3d44c0b ran1,808 cases:1,807 passed, one failed,
