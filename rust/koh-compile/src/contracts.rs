@@ -381,7 +381,7 @@ fn discover_runtime(resolver: &Resolver<'_>) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn float_binary(resolver: &Resolver<'_>, key: &str) -> Result<Definition, String> {
+fn runtime_method(resolver: &Resolver<'_>, key: &str) -> Result<Definition, String> {
     discover_runtime(resolver)?;
     let definition = resolver
         .runtime_methods
@@ -399,6 +399,13 @@ pub(crate) fn float_binary(resolver: &Resolver<'_>, key: &str) -> Result<Definit
             "KohRuntime {key} {definition:?} has no CIL body; supply its implementation assembly"
         ));
     }
+    Ok(definition)
+}
+
+pub(crate) fn float_binary(resolver: &Resolver<'_>, key: &str) -> Result<Definition, String> {
+    let definition = runtime_method(resolver, key)?;
+    let metadata = resolver.assembly(definition.assembly)?.metadata();
+    let method = row(&metadata.method_defs, definition.token & 0xffffff)?;
     let signature = crate::signature::method(
         metadata
             .blobs
@@ -414,6 +421,34 @@ pub(crate) fn float_binary(resolver: &Resolver<'_>, key: &str) -> Result<Definit
     if signature.params != [raw.clone(), raw] || signature.return_type != returns {
         return Err(format!(
             "KohRuntime {key} {definition:?} requires {name}(uint,uint) raw-bit signature"
+        ));
+    }
+    Ok(definition)
+}
+
+pub(crate) fn float_conversion(resolver: &Resolver<'_>, key: &str) -> Result<Definition, String> {
+    use clrmeta::ElementType::{I4, U4};
+    let (parameter, returns, expected) = match key {
+        "i32.toF32" => (I4, U4, "uint(int)"),
+        "u32.toF32" => (U4, U4, "uint(uint)"),
+        "f32.toI32" => (U4, I4, "int(uint)"),
+        "f32.toU32" => (U4, U4, "uint(uint)"),
+        _ => return Err(format!("Unsupported runtime conversion {key}")),
+    };
+    let definition = runtime_method(resolver, key)?;
+    let metadata = resolver.assembly(definition.assembly)?.metadata();
+    let method = row(&metadata.method_defs, definition.token & 0xffffff)?;
+    let signature = crate::signature::method(
+        metadata
+            .blobs
+            .get(method.signature)
+            .map_err(|e| e.to_string())?,
+    )?;
+    if signature.params != [TypeSig::Primitive(parameter)]
+        || signature.return_type != TypeSig::Primitive(returns)
+    {
+        return Err(format!(
+            "KohRuntime {key} {definition:?} requires {expected} raw-bit signature"
         ));
     }
     Ok(definition)

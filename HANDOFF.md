@@ -1406,3 +1406,42 @@ existingunusedcubeshelperwarning), separaterustdocEXIT0zerocases. Fmt/diffpass.
 Readylogicaldivisioncommitlocally; holdpushuntil f8ca6c6CI43984479501terminal.
 Noactivelocalbuilds. Neednextconversionalgorithmaudit, remainderimplementation
 andbinary64; notfinishedIEEE/fullmigration. Parentownsfiles, no newagents.
+
+2026-11-17 dirty32-bitF32conversionunitafterlocal2cc8e98: conv.r4/conv.r.un from
+I32/Native16 via checkedmetadatai32.toF32/u32.toF32, F32conv.r4identity; F32→I32/U32
+usesf32.toI32/f32.toU32 thenexistingnarrow/nativeintegerconversion. Shared
+runtime_methodchecks selectedCILbody, conversionrawsignaturescheckedexactly.
+Kohuncheckedpolicy: truncateinrange, clamp32overflow,NaN0; narrower8/16/native
+thenlowbittruncate/signextend. ECMA335sixthIII.3.27leavesfloatingoverflow/NaN
+unspecified; no cross-runtimeclaim. NaNToU32helperguardchangeschosenpolicy,
+wronghostcastcommentremoved.64-bit andcheckedshapesexplicitlyunsupportedpending.
+PrimaryECMA6conv.r.unreturnsF, notoldMSdocsmandatory64intermediate; current
+expressiondomainbinary32, R8stillrejects. Newfloat-conversions.mddoc/matrix.
+32971redEXIT1003fail3pass17.025s(actualconv.r4unsupported,NaNpolicyfails);
+70472firstEXIT0 9/9pass34.416s (96ROMs +43boundary+1024sweepobservations).
+AddedhelperrenameFromI32→CastI32, missingkeys/wrongsignature diagnostics. First
+60273 broadEXIT100203pass1fail: newWideOutputUnsupportedwasinvalidlongentry,
+earlyentryvalidatorfailedbeforeoperation. Fixturecorrectedintentrycallinglong
+conversion, same64-bit+ILdiagnosticassertionretained. 4408EXIT0 4/4pass24.329s.
+CURRENT broadfinalhandle24133; /tmp/koh-float-conversion-final.log
+alllib/IR/lowering +float32/comparison/conversions/runtime/primitivearrays619cases.
+No concurrentbuild. Needfinish/checkworkspace/rustdoc/fmt,logicalcommitthenpush
+73ed932+2cc8e98+conversionONEbatch: baselinef8ca6c6CI43984479501TERMINALSUCCESS!
+Completedprimary/tmp/koh-ci-f8ca6c6-completed.log GH_EXIT0:1417/1417pass1840.941s
+zeroskips,separaterustdoc4zerocases,.NETfast562success2UIskips0fail. Doesnotprove
+localcommits. Localledger148/565complete417outstanding;2additionalPORTmethods
+all8oldinputrows64expandedassertions, floatgroup11/22methods42cases275assertions.
+No featureretirement oroldcompilerremoval; fullgoalstillactive. Parentownsfiles.
+Read-onlyreview assignment: existing /root/backend_audit reviews currentdirty32bit
+conversiondiff pluslocal73ed932/2cc8e98 numericruntime changes. ParentownsALL
+edits/builds; reviewer MUSTNOT edit,commit,build,ortest. Verify fromsource/ECMA6
+contract andreportonlyconfirmedsemantic/metadata defects. Current24133testlive.
+24133TERMINAL EXIT0 619/619pass218.223s292unselected. New96conversionROMs and
+2046managednumericobservations total pluspriorFloat32/comparison/arraygroups.
+Read-onlybackend_auditreviewnoconfirmeddefect; notedmissingexplicitF32conv.r4
+identitytest. Added4handCILcasesnegativezero/NaNs/subnormal withpre/postoptimizer
+bitsassertions. 15474TERMINALidentity4/4pass0.022s,workspacealltargets/allfeatures
+checkEXIT0(6.46s existingunusedcubeshelperwarning),separaterustdocEXIT0zerocases.
+No productioneditafter619run. Rustfmt/diff/CSharpierchecksEXIT0. Readycommitthen
+batchpushlocal73ed932+2cc8e98+conversion. Baselinef8CIgateclearedasabove. No live
+localbuilds, parentownsfiles. Nextwideintegerconversion/binary64/checked work.

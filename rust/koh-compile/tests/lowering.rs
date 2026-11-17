@@ -21,6 +21,25 @@ fn method(il: &[u8]) -> Method<'_> {
 }
 
 #[rstest]
+#[case(0x80000000u32)]
+#[case(0x7fa12345)]
+#[case(0xffc12345)]
+#[case(1)]
+fn binary32_identity_conversion_preserves_raw_bits(#[case] bits: u32) {
+    let mut il = vec![0x22];
+    il.extend(bits.to_le_bytes());
+    il.extend([0x6b, 0x2a]);
+    let mut input = method(&il);
+    input.returns = Some(Type::F32);
+    let mut function = lower(input).unwrap();
+    verify(&function).unwrap();
+    assert_eq!(execute(&function), u64::from(bits));
+    koh_compile::optimize::simplify(&mut function).unwrap();
+    verify(&function).unwrap();
+    assert_eq!(execute(&function), u64::from(bits));
+}
+
+#[rstest]
 #[case(0x16, 7)]
 #[case(0x17, 9)]
 fn cil_stack_join_becomes_typed_block_arguments(#[case] condition: u8, #[case] expected: u64) {

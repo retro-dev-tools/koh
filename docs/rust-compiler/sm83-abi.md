@@ -230,3 +230,9 @@ the sign bit without a call. Comparisons call `f32.cmp`, with raw
 `byte(uint,uint)` signature and equal/less/greater/unordered codes0/1/2/3;
 the caller applies the CIL ordered/unordered predicate. See [float lowering](float-lowering.md)
 for the currently implemented operations and remaining limitations.
+
+Binary32/integer32 conversion calls carry one four-byte argument/result. Metadata
+signatures distinguish signed integers from raw unsigned bits; IR transport uses
+`I32`. Native16 operands extend with the selected instruction signedness. See
+[conversion semantics](float-conversions.md) for unchecked overflow/NaN and
+narrowing choices; this does not change the calling convention.

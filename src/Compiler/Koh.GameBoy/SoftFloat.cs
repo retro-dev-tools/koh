@@ -423,6 +423,8 @@ public static class SoftFloat
     [KohRuntime("f32.toU32")]
     public static uint ToU32(uint a)
     {
+        if ((a & 0x7fffffff) > 0x7f800000)
+            return 0;
         if ((a >> 31) != 0)
             return 0; // negative -> 0
         int e = (int)((a >> 23) & 0xFF);
@@ -453,9 +455,6 @@ public static class SoftFloat
         uint signBit = 0x80000000;
         if ((a >> 31) != 0)
         {
-            // Same saturation shape as ToI64 (see its comment): a magnitude beyond int.MinValue must
-            // saturate explicitly, or -(int)u wraps back to a wrong positive result instead of saturating
-            // like a host `(int)` cast does.
             if (u > signBit)
                 return (int)signBit; // saturate to int.MinValue
             return -(int)u;

@@ -13,9 +13,9 @@ float constants/calls/joins/byrefs/fields/arrays and metadata-selected software
 addition/subtraction/multiplication/division, direct sign-bit negation and ordered/unordered comparisons.
 Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
 covered. Other float operations remain unfinished and reject explicitly; this
-does not close the full legacy floating test group. Nine float methods now have
-native replacements (34 original parameter-expanded cases,211 explicit expanded
-assertions): the current ledger is146/565 complete,419 outstanding.
+does not close the full legacy floating test group. Eleven float methods now have
+native replacements (42 original parameter-expanded cases,275 explicit expanded
+assertions): the current ledger is148/565 complete,417 outstanding.
 See [float lowering contract and evidence](float-lowering.md).
 The [multiplication correction](softfloat-multiplication.md) replaces inherited
 subnormal flushing and missing special-value handling before enabling CIL `mul`.
@@ -23,7 +23,9 @@ It adds26 boundary and256 exponent-stratified numeric observations plus56 native
 multiplication executions. Subsequent [division work](softfloat-division.md) adds
 another26+256 numeric observations and64 division ROMs, closes the mixed arithmetic
 rows and preserves the unsupported-remainder diagnostic. Conversions/binary64
-remain unfinished; no floating feature has been retired.
+remain unfinished; no floating feature has been retired. [32-bit conversions](float-conversions.md)
+now cover signed/unsigned and16-bit-native inputs, with explicit clamping/NaN
+choices and narrower integer truncation.64-bit and checked casts remain open.
 Final comparison regression passes606/606 selected tests156.717s, exit0;
 workspace all-target/all-feature check and separate rustdoc pass. Hosted
 cceba4c run43981727648 stopped after1073 passes on an obsolete `FloatArray`

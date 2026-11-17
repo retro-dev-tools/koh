@@ -682,6 +682,41 @@ impl Builder<'_, '_> {
         )
     }
 
+    fn float_conversion(
+        &mut self,
+        key: &str,
+        mut value: (u32, Type),
+    ) -> Result<(u32, Type), String> {
+        value = match value.1 {
+            Type::F32 => self.value(Type::I32, Op::Reinterpret(value.0))?,
+            Type::Native => self.value(
+                Type::I32,
+                Op::Convert {
+                    value: value.0,
+                    bits: 16,
+                    signed: key == "i32.toF32",
+                },
+            )?,
+            Type::I32 => value,
+            _ => return Err("Unsupported float32 conversion operand".into()),
+        };
+        let resolver = self
+            .resolver
+            .ok_or("float32 conversion requires runtime metadata")?;
+        let target = crate::contracts::float_conversion(resolver, key)?;
+        self.value(
+            Type::I32,
+            Op::Call {
+                target,
+                signature: Signature {
+                    parameters: vec![Type::I32],
+                    returns: Some(Type::I32),
+                },
+                arguments: vec![value.0],
+            },
+        )
+    }
+
     fn binary(&mut self, op: Binary) -> Result<(), String> {
         let mut right = self.pop()?;
         let mut left = self.pop()?;
@@ -2929,6 +2964,34 @@ fn translate(
                 b.stack.push(value);
             }
         }
+        0x6b | 0x76 => {
+            let value = b.pop()?;
+            let value = if value.1 == Type::F32 && i.opcode == 0x6b {
+                value
+            } else {
+                match value.1 {
+                    Type::I32 | Type::Native => {}
+                    Type::I64 => {
+                        return Err(
+                            "64-bit integer to float32 conversion is not implemented".into()
+                        );
+                    }
+                    _ => {
+                        return Err(
+                            "Floating conversion requires a supported integer operand".into()
+                        );
+                    }
+                }
+                let key = if i.opcode == 0x76 {
+                    "u32.toF32"
+                } else {
+                    "i32.toF32"
+                };
+                let bits = b.float_conversion(key, value)?;
+                b.value(Type::F32, Op::Reinterpret(bits.0))?
+            };
+            b.stack.push(value);
+        }
         0x67..=0x6a | 0x6d..=0x6e | 0xd1..=0xd3 | 0xe0 => {
             let (bits, signed, ty) = match i.opcode {
                 0x67 => (8, true, Type::I32),
@@ -2943,7 +3006,14 @@ fn translate(
                 0xe0 => (16, false, Type::Native),
                 _ => return Err("Invalid conversion opcode".into()),
             };
-            let value = b.pop()?;
+            let mut value = b.pop()?;
+            if value.1 == Type::F32 {
+                if bits == 64 {
+                    return Err("float32 to 64-bit integer conversion is not implemented".into());
+                }
+                value =
+                    b.float_conversion(if signed { "f32.toI32" } else { "f32.toU32" }, value)?;
+            }
             let value = b.value(
                 ty,
                 Op::Convert {
