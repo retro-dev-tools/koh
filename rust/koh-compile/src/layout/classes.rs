@@ -265,13 +265,32 @@ impl Classes<'_, '_> {
             if ty.extends.row == 0 {
                 return Err("Reference class has no base type".into());
             }
-            if table == TableId::TypeSpec {
-                return Err("Class base generic shapes require instantiated lowering".into());
-            }
-            Some(
+            Some(if table == TableId::TypeSpec {
+                let specification = metadata
+                    .type_specs
+                    .get(ty.extends.row as usize - 1)
+                    .ok_or("Invalid base TypeSpec")?;
+                let signature = signature::type_spec(
+                    metadata
+                        .blobs
+                        .get(specification.signature)
+                        .map_err(|e| e.to_string())?,
+                )?;
+                let arguments = self
+                    .resolver
+                    .type_instance(identity)?
+                    .map_or_else(Vec::new, |instance| instance.arguments);
+                let bound =
+                    self.resolver
+                        .bind_signature(raw.assembly, &signature, &[], &arguments)?;
+                let TypeSig::Class(encoded) = bound.ty else {
+                    return Err("Class base must name a reference class".into());
+                };
+                self.resolver.signature_type(bound.assembly, encoded)?
+            } else {
                 self.resolver
-                    .resolve_type(identity.assembly, ((table as u32) << 24) | ty.extends.row)?,
-            )
+                    .resolve_type(raw.assembly, ((table as u32) << 24) | ty.extends.row)?
+            })
         };
         let (mut bytes, mut fields, depth) = if let Some(base) = base {
             let layout = self.layout(base)?;
@@ -288,8 +307,9 @@ impl Classes<'_, '_> {
                 return Err("Class inheritance depth exceeds64".into());
             }
             self.work(layout.fields.len())?;
-            let parent = self.resolver.assembly(base.assembly)?.metadata();
-            if parent.type_defs[(base.token & 0xffffff) as usize - 1].flags & 0x100 != 0 {
+            let raw_base = self.resolver.type_definition(base)?;
+            let parent = self.resolver.assembly(raw_base.assembly)?.metadata();
+            if parent.type_defs[(raw_base.token & 0xffffff) as usize - 1].flags & 0x100 != 0 {
                 return Err("Class cannot inherit a sealed base".into());
             }
             (

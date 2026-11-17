@@ -129,7 +129,7 @@ current full-workspace pass.
 
 ## Remaining work
 
-Constructed generic inheritance, virtual/interface/constrained dispatch,
+Constructed generic virtual/interface/constrained dispatch,
 variance-aware assignability and boxing-dependent fallback remain unfinished.
 This increment does not approve their retirement or classify valid unsupported
 CLI shapes as malformed. Existing C# compiler/test definitions remain until full
@@ -140,3 +140,32 @@ Workspace discovery lists1,763 cases; all17 new cases are unignored. Formatting
 checks pass (Rust and two C# fixture files). The workspace check retains the
 existing unused `build_host` warning in the cubes test target. Rustdoc runs four
 crates with zero documentation cases. These checks do not imply all1,763 ran.
+
+## Closed base classes
+
+Base-class TypeSpecs now substitute the current declaring arguments before
+layout. The closed base identity participates in the existing ancestry, field
+prefix and receiver-conversion paths. Sealed checks inspect its underlying
+TypeDef, rather than indexing metadata with a compilation-local identity.
+Nested substitution, per-assembly argument scope and existing cycle/depth/work
+limits remain shared with ordinary closed types. No authoring API or ABI change
+is needed. This follows the [C# base-class specification](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/language-specification/classes#1524-class-base-specification).
+
+The existing four-configuration driver now executes `Program::Inheritance`:
+byte/64-bit base storage, writes through a base reference, derived-field
+isolation, nested/reordered declaring arguments, a nongeneric subclass and a
+referenced base with a local packed payload. Literal expected field values,
+banked ELF execution, heap/stack guards and resolver-history determinism remain
+checked. Mutating the generic base to sealed must diagnose with IL context.
+This adds runtime coverage without claiming a legacy test-disposition closure.
+
+Inherited MemberRefs that require resolver-level generic signature substitution,
+and generic virtual/interface dispatch, remain separate gaps. Successful direct
+base calls do not establish those contracts.
+
+Final selected evidence: `/tmp/koh-inheritance-regression.log` reports438/438
+passing in460.872s, exit0, with375 excluded. This includes library/lowering tests,
+delegates, virtual-slot binding, object identity, IRQ dispatch and all closed-type
+configurations with sealed-base rejection. Rustfmt and separate all-feature
+workspace rustdoc pass (four crates, zero doc cases). Both formatted C# fixtures
+retain the hashes used in the final run. Full current-head CI remains required.

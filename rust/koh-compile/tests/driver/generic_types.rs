@@ -88,6 +88,7 @@ fn closed_types_preserve_layouts_and_static_initialization(
     let resolver = Resolver::new(&[&images[0], &images[1], &library]).unwrap();
     for entry in [
         "Values",
+        "Inheritance",
         "Objects",
         "Statics",
         "TypeOnly",
@@ -212,6 +213,23 @@ fn closed_types_preserve_layouts_and_static_initialization(
         );
     }
     let data = image.metadata();
+    let base = data
+        .type_defs
+        .iter()
+        .position(|row| data.strings.get(row.type_name).unwrap() == "BaseCell`1")
+        .unwrap();
+    let mut sealed = images[0].clone();
+    let (offset, _) = metadata::table_row(&sealed, clrmeta::TableId::TypeDef, base);
+    let flags = data.type_defs[base].flags | 0x100;
+    sealed[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+    let changed = Resolver::new(&[&sealed, &images[1], &library]).unwrap();
+    let error = compile::object(&changed, Some("Program::Inheritance"))
+        .err()
+        .expect("Closed base still obeys sealed metadata");
+    assert!(
+        error.contains("sealed base") && error.contains("IL_"),
+        "{error}"
+    );
     let error = compile::object(&resolver, Some("Program::InvalidExplicit"))
         .err()
         .expect("ECMA-335 forbids generic explicit layouts even when T is unused");

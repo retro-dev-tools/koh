@@ -1,5 +1,28 @@
 # Native compiler migration handoff
 
+## Current closed-base unit
+
+Published head6c2da323817694b7d5f8d387ba26cf958938f7cc, draft PR55/master.
+CI44097447812: .NET fast job success, Rust checks still running on that head.
+Local class-layout change binds base TypeSpecs with declaring
+arguments and resolves sealed metadata through raw TypeDefs. ClosedTypes adds
+Inheritance with byte/wide/nested/multi-level/foreign bases and base writes;
+four Debug/Release × DMG/CGB cases pass29.910s in
+/tmp/koh-closed-inheritance-scopes.log. Initial valid fixture rejected at generic
+base layout (/tmp/koh-closed-inheritance-red-valid.log). Earlier fixture typo
+derived from an existing sealed helper; fixed to a dedicated unsealed base
+before the meaningful red run.
+
+After adding sealed-base mutation rejection, final selected438/438 pass460.872s,
+exit0,375 excluded, /tmp/koh-inheritance-regression.log. Run is terminal.
+Final Rustfmt and separate workspace/all-feature rustdoc pass, four crates/zero
+doc cases. CSharpier ran before final test run; both fixture hashes unchanged.
+Docs closed-types.md describe the bounded capability; generic
+virtual/interface dispatch and inherited MemberRef substitution remain open.
+Ledger stays229/565,336 outstanding; no disposition credit for new runtime work.
+Commit this coherent unit and push after current hosted run ends. Update concise
+PR checklist and vault handoff. No local builds remain live.
+
 Full goal: one draft PR55 against master; C# authors/Roslyn, Rust CIL/IR/SM83
 compiler and ELF linker, existing C# emulator. Do not merge or narrow acceptance.
 Worktree /home/minorum/projekty/koh-rust-compiler, feat/rust-cil-compiler.

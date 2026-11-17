@@ -10,6 +10,11 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+[Closed base-class layouts](closed-types.md#closed-base-classes) now substitute
+declaring arguments through inherited storage, including nested and referenced
+base types. Generic virtual/interface dispatch and inherited MemberRef signature
+substitution remain open; this does not close another legacy test disposition.
+
 Current compiler increment adds distinct binary32 IR, explicit bit transport,
 float constants/calls/joins/byrefs/fields/arrays and metadata-selected software
 addition/subtraction/multiplication/division, direct sign-bit negation and ordered/unordered comparisons.

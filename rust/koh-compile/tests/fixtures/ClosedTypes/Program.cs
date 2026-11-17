@@ -2,6 +2,42 @@ using System.Runtime.InteropServices;
 
 public static class Program
 {
+    public static int Inheritance()
+    {
+        var small = new DerivedCell<byte>(245, 17);
+        var wide = new DerivedCell<ulong>(0xFEDCBA9876543210UL, 60000);
+        BaseCell<byte> parent = small;
+        parent.Value = 42;
+        var nested = new NestedDerived<byte, ushort>(
+            new Pair<ushort>
+            {
+                Head = 7,
+                Value = 60000,
+                Tail = 30600,
+            },
+            245
+        );
+        var remote = new LocalDerived<Payload>(new Payload { Tag = 17, Value = 60000 });
+        var fixedWide = new FixedDerived(0x123456789ABCDEF0UL);
+        return
+            small.Read() == 42
+            && small.Tail == 17
+            && wide.Read() == 0xFEDCBA9876543210UL
+            && wide.Tail == 60000
+            && nested.Read().Head == 7
+            && nested.Read().Value == 60000
+            && nested.Read().Tail == 30600
+            && nested.Tail == 30600
+            && nested.Extra == 245
+            && remote.Read().Tag == 17
+            && remote.Read().Value == 60000
+            && remote.Tag == 42
+            && fixedWide.Read() == 0x123456789ABCDEF0UL
+            && fixedWide.Tail == 17
+            ? 42
+            : 0;
+    }
+
     static T Copy<T>(T value) => value;
 
     static RemoteCell<T> Make<T>(T value) => new RemoteCell<T>(value);
@@ -240,6 +276,57 @@ public static class Program
             && Counter.Total == 4
             ? 42
             : 0;
+    }
+}
+
+class BaseCell<T>
+{
+    public T Value;
+
+    public BaseCell(T value)
+    {
+        Value = value;
+    }
+
+    public T Read() => Value;
+}
+
+class DerivedCell<T> : BaseCell<T>
+{
+    public ushort Tail;
+
+    public DerivedCell(T value, ushort tail)
+        : base(value)
+    {
+        Tail = tail;
+    }
+}
+
+class NestedDerived<A, B> : DerivedCell<Pair<B>>
+{
+    public A Extra;
+
+    public NestedDerived(Pair<B> value, A extra)
+        : base(value, 30600)
+    {
+        Extra = extra;
+    }
+}
+
+class FixedDerived : DerivedCell<ulong>
+{
+    public FixedDerived(ulong value)
+        : base(value, 17) { }
+}
+
+class LocalDerived<T> : RemoteBase<T>
+{
+    public byte Tag;
+
+    public LocalDerived(T value)
+        : base(value)
+    {
+        Tag = 42;
     }
 }
 
