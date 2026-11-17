@@ -153,15 +153,7 @@ pub(crate) fn assignable(
         }
         TypeSig::ValueType(encoded) if required_layout.interface => {
             let definition = resolver.signature_type(argument.assembly, encoded)?;
-            let definition = resolver.type_definition(definition)?;
-            let metadata = resolver.assembly(definition.assembly)?.metadata();
-            charge(&resolver.generic_work, metadata.interface_impls.len())?;
-            for interface in &metadata.interface_impls {
-                if interface.class != definition.token & 0xffffff {
-                    continue;
-                }
-                let actual =
-                    resolver.resolve_type(definition.assembly, coded(interface.interface)?)?;
+            for actual in resolver.declared_interfaces(definition)? {
                 let layout = crate::layout::class(resolver, actual)?;
                 if !layout.interface {
                     return Err("Value-type InterfaceImpl target is not an interface".into());

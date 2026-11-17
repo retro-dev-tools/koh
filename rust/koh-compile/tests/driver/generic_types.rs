@@ -15,6 +15,102 @@ fn managed() -> Host {
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
+fn constrained_instantiated_interfaces_preserve_values_and_mutation(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "ClosedInterfaces");
+    let library = std::fs::read(
+        directory
+            .path()
+            .join(format!("bin/{configuration}/net10.0/GenericLibrary.dll")),
+    )
+    .unwrap();
+    let resolver = Resolver::new(&[&images[0], &images[1], &library]).unwrap();
+    let object = compile::object(&resolver, Some("Program::Main")).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Compatible
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let report = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-heap",
+    );
+    let fields: Vec<_> = report.split_whitespace().collect();
+    assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"]);
+    super::assert_heap_snapshot(
+        fields[4],
+        &[0x5a; 4096],
+        "Constrained interfaces must not box",
+    );
+    let image = resolver.assembly(0).unwrap();
+    let data = image.metadata();
+    let body = (1..=data.method_defs.len())
+        .find(|&index| {
+            let name = image.method_name(0x06000000 | index as u32).unwrap();
+            name.starts_with("ExplicitCell`1::")
+                && name.contains("IValue")
+                && name.ends_with(".Read")
+        })
+        .unwrap();
+    let reference = (1..=data.member_refs.len())
+        .find(|&index| {
+            resolver
+                .resolve_method(0, 0x0a000000 | index as u32)
+                .is_ok_and(|target| {
+                    target.type_arguments == [clrmeta::TypeSig::Primitive(clrmeta::ElementType::U8)]
+                        && image.method_name(target.definition.token).unwrap()
+                            == "ExplicitCell`1::Read"
+                })
+        })
+        .unwrap();
+    let mapping = data
+        .method_impls
+        .iter()
+        .position(|entry| {
+            entry.method_body.table == Some(clrmeta::TableId::MethodDef)
+                && entry.method_body.row == body as u32
+        })
+        .unwrap();
+    let mut bytes = images[0].clone();
+    let (offset, context) = metadata::table_row(&bytes, clrmeta::TableId::MemberRef, reference - 1);
+    let offset = offset + context.coded_index_size(clrmeta::CodedIndexKind::MemberRefParent);
+    let width = context.string_index_size();
+    bytes[offset..offset + width]
+        .copy_from_slice(&data.method_defs[body - 1].name.to_le_bytes()[..width]);
+    let (offset, context) = metadata::table_row(&bytes, clrmeta::TableId::MethodImpl, mapping);
+    let offset = offset + context.table_index_size(clrmeta::TableId::TypeDef);
+    let width = context.coded_index_size(clrmeta::CodedIndexKind::MethodDefOrRef);
+    bytes[offset..offset + width]
+        .copy_from_slice(&((reference as u32) << 1 | 1).to_le_bytes()[..width]);
+    let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+    let error = compile::object(&changed, Some("Program::Main"))
+        .err()
+        .expect("Closed body owner must match the receiver instantiation");
+    assert!(
+        error.contains("Constrained MethodImpl body must belong") && error.contains("IL_"),
+        "{error}"
+    );
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
 fn closed_methodimpl_bodies_keep_the_inherited_declaring_scope(
     host: &Host,
     #[case] configuration: &str,
@@ -362,6 +458,7 @@ fn closed_types_preserve_layouts_and_static_initialization(
         "Inheritance",
         "ConstrainedDispatch",
         "InterfaceDispatch",
+        "InstantiatedInterfaces",
         "Objects",
         "Statics",
         "TypeOnly",

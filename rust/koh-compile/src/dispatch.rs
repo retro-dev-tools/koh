@@ -325,18 +325,9 @@ impl<'r, 'a> Binder<'r, 'a> {
         owner: Definition,
         interface: Definition,
     ) -> Result<bool, String> {
-        let raw = self.resolver.type_definition(owner)?;
-        let metadata = self.resolver.assembly(raw.assembly)?.metadata();
-        self.charge(metadata.interface_impls.len())?;
-        for row in metadata
-            .interface_impls
-            .iter()
-            .filter(|row| row.class == raw.token & 0xffffff)
-        {
-            let table = row.interface.table.ok_or("Null InterfaceImpl")?;
-            let id = self
-                .resolver
-                .resolve_type(raw.assembly, ((table as u32) << 24) | row.interface.row)?;
+        let interfaces = self.resolver.declared_interfaces(owner)?;
+        self.charge(interfaces.len())?;
+        for id in interfaces {
             if id == interface || crate::layout::implements(self.resolver, id, interface)? {
                 return Ok(true);
             }

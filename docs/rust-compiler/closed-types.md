@@ -129,18 +129,17 @@ current full-workspace pass.
 
 ## Remaining work
 
-Instantiated interface contracts, method-generic dispatch on constructed reference
-owners,
-variance-aware assignability and boxing-dependent fallback remain unfinished.
+Method-generic dispatch on constructed reference owners, variance-aware
+assignability and boxing-dependent fallback remain unfinished.
 
 Closed generic value receivers now execute through the existing
 [constrained call contract](constrained-calls.md#closed-generic-value-receivers),
-including explicit implementations and generic interface methods. This does not
-establish instantiated interface contracts.
+including explicit implementations and generic interface methods. Instantiated
+invariant contracts are covered by the [interface binding work below](#instantiated-invariant-interface-contracts).
 This increment does not approve their retirement or classify valid unsupported
 CLI shapes as malformed. Existing C# compiler/test definitions remain until full
-migration acceptance. No extra legacy dispositions are claimed:198/565 complete,
-367 outstanding. Full game/debug/release/performance/platform acceptance is separate.
+migration acceptance. No extra legacy dispositions are claimed:229/565 complete,
+336 outstanding. Full game/debug/release/performance/platform acceptance is separate.
 
 Workspace discovery lists1,763 cases; all17 new cases are unignored. Formatting
 checks pass (Rust and two C# fixture files). The workspace check retains the
@@ -253,7 +252,8 @@ edit real Roslyn MethodImpl rows. Closed generic owners and nongeneric leaves us
 an inherited generic-base body, execute independently expected counter values and
 reject an unrelated body with IL context. A method with its own generic arguments
 on a constructed reference owner still diagnoses unfinished support; instantiated
-interface contracts and variance also remain unfinished. No feature retirement
+interface contracts were unfinished at that checkpoint (see below), and variance
+remains unfinished. No feature retirement
 or additional legacy disposition closure is claimed.
 
 Evidence: the original guard rejects4/4 in
@@ -271,3 +271,68 @@ Rustfmt, CSharpier and separate workspace/all-feature rustdoc pass (four crates,
 zero doc cases). Workspace discovery lists1,808 tests; all four new cases are
 unignored. The existing unused cubes-host warning remains. Full current-head
 hosted validation is still required; source dispositions stay229/565 complete.
+
+## Instantiated invariant interface contracts
+
+InterfaceImpl binding now substitutes the declaring type arguments before
+layout, constraint checks and dispatch consume the interface identity. All three
+consumers share the resolver path. Closed identities remain distinct, including
+different instantiations of the same interface on one receiver; inherited
+interfaces retain declaration order. Metadata scans remain work-bounded and
+reject null, invalid and non-interface targets.
+
+`Program.InstantiatedInterfaces` in the ClosedTypes fixture checks implicit byte
+and ulong implementations, explicit implementations on one receiver, and an
+inherited generic interface on a generic base. Values and per-method counters
+must match independently known results through Roslyn, ELF emission, linking
+and emulator execution. The initial four Debug/Release and DMG/CGB cases reject
+valid InterfaceImpl TypeSpec rows; after binding they pass4/4 in34.089s
+(`/tmp/koh-instantiated-interfaces-green.log`). The final fixture additionally
+distinguishes byte and sbyte contracts on the same receiver and checks a referenced
+class returning a game-local packed value by copy.
+
+Constrained struct calls bind the declaration before selecting a body, compare
+member signatures in the closed interface/receiver scopes, then specialize the
+selected body on the actual receiver. Explicit MethodImpl selection uses both
+the method definition and closed owner. Its body must belong to that exact
+receiver instantiation. Method arguments remain separate from declaring arguments;
+the original managed pointer remains the receiver, preserving caller mutation.
+
+The ClosedInterfaces fixture checks implicit and explicit generic structs,
+multiple same-width contracts, generic methods on instantiated interfaces,
+packed aggregate copies, complete ulong values and a referenced struct whose
+argument comes from the game assembly. All four Debug/Release and DMG/CGB
+executions require return42, restored stack/guards and an untouched managed heap
+(no boxing). The initial cases failed4/4 with unbound class-layout diagnostics;
+the first constrained/reference/generic regression passed12/12 in66.138s.
+Expanded value cases passed4/4 in14.302s. Logs:
+`/tmp/koh-instantiated-value-red-budget.log`,
+`/tmp/koh-instantiated-value-green.log`,
+`/tmp/koh-instantiated-value-expanded.log`.
+
+The final consumer run passed14/14 in82.948s, including a MethodImpl mutation
+that names the correct generic definition with the wrong closed body owner.
+The compiler rejects it with method/IL context. The same run executes the
+formerly rejected GenericInterface contract and retains the BoxedInterface
+diagnostic and all existing malformed-interface checks. Log:
+`/tmp/koh-interface-final-consumers.log`.
+
+The prior128-case regression found a dropped layout scan charge and two stale
+generic-interface rejection assertions. The original scan charge is restored;
+both interface-budget cases pass. GenericInterface now joins the actual ROM
+execution cases; BoxedInterface retains its explicit diagnostic expectation.
+Variance, boxing/default-interface value fallback and method-generic reference
+dispatch remain unfinished. No feature retirement or additional legacy
+disposition closure is claimed.
+
+Final selected library/driver regression passes132/132 in407.720s, exit0,
+551 outside the selection (`/tmp/koh-instantiated-interfaces-final-regression.log`).
+This includes the unchanged interface-budget assertions, default/interface and
+virtual dispatch, retained generic/constrained cases, callbacks, interrupt roots
+and wide arithmetic. Rustfmt and separate workspace/all-feature rustdoc pass
+(four crates, zero doc cases). Full current-head hosted and product acceptance
+remain required.
+Workspace nextest discovery lists1,812 cases; all four new constrained-interface
+cases are unignored. CSharpier checks all three changed C# fixtures. Fixture
+hashes remain unchanged through final verification. The existing unused cubes
+host warning is unchanged.

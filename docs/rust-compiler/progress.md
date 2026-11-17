@@ -37,11 +37,15 @@ base types. [Inherited method references](closed-types.md#inherited-method-refer
 now bind caller scopes and exact closed base identities; field references retain
 their declaring-type requirement. [Closed reference dispatch](closed-types.md#closed-reference-dispatch)
 now supports nongeneric virtual/interface methods, overrides and retained virtual
-callbacks. Instantiated interface contracts and method-generic dispatch on closed
-reference owners remain open; this does not close another legacy disposition.
+callbacks. [Instantiated invariant interface contracts](closed-types.md#instantiated-invariant-interface-contracts)
+now preserve declaring scopes for reference and constrained value calls, including
+explicit/generic value methods and foreign aggregate returns. Method-generic
+dispatch on closed reference owners remains open; this does not close another
+legacy disposition. The selected interface/generic/virtual regression passes132/132
+in407.720s; final consumers pass14/14 in82.948s. These are scoped results.
 Closed generic value receivers now support [constrained calls](constrained-calls.md#closed-generic-value-receivers)
 to nongeneric interface contracts, preserving caller mutation and explicit/generic
-method selection. Instantiated interface contracts remain unfinished.
+method selection. Variance and boxing/default-interface value fallback remain unfinished.
 
 Current compiler increment adds distinct binary32 IR, explicit bit transport,
 float constants/calls/joins/byrefs/fields/arrays and metadata-selected software

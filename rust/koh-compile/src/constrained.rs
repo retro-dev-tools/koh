@@ -59,13 +59,16 @@ pub(crate) fn value_target(
     use clrmeta::TableId;
     let raw_value = resolver.type_definition(value)?;
     let owner = crate::lower::owner_type(resolver, method)?;
+    let method = resolver
+        .instance(method)?
+        .map_or(method, |instance| instance.method);
     let declared_image = resolver.assembly(method.assembly)?;
     let declared = declared_image.method(method.token)?;
     let signature = declared_image.method_signature(method.token)?;
     if declared.flags & 0x10 != 0 || !signature.calling_convention.has_this() {
         return Err("Constrained call requires an instance method".into());
     }
-    if owner == raw_value {
+    if resolver.type_definition(owner)? == raw_value {
         if declared.flags & 0x400 != 0 || declared.rva == 0 {
             return Err("Constrained value method has no body".into());
         }
@@ -109,7 +112,13 @@ pub(crate) fn value_target(
         Ok(row.flags & 0x410 == 0
             && row.rva != 0
             && actual.calling_convention.has_this()
-            && resolver.methods_equal(method.assembly, &signature, body.assembly, &actual, 0)?)
+            && resolver.member_signatures_equal(
+                method.assembly,
+                &signature,
+                owner,
+                &actual,
+                value,
+            )?)
     };
     let mut explicit = None;
     let mut declarations = HashSet::new();
@@ -118,29 +127,55 @@ pub(crate) fn value_target(
         .iter()
         .filter(|row| row.class == raw_value.token & 0xffffff)
     {
-        let resolve = |index: clrmeta::CodedIndex| -> Result<Definition, String> {
+        let resolve = |index: clrmeta::CodedIndex| -> Result<(Definition, Definition), String> {
             let table = index.table.ok_or("Null constrained MethodImpl token")?;
             if !matches!(table, TableId::MethodDef | TableId::MemberRef) || index.row == 0 {
                 return Err("Invalid constrained MethodImpl token".into());
             }
-            let target =
-                resolver.resolve_method(raw_value.assembly, ((table as u32) << 24) | index.row)?;
-            if target.declaring.is_some()
-                || !target.type_arguments.is_empty()
-                || !target.method_arguments.is_empty()
-            {
-                return Err(
-                    "Constructed constrained MethodImpl requires instantiated binding".into(),
+            let arguments = resolver
+                .type_instance(value)?
+                .map_or_else(Vec::new, |instance| instance.arguments);
+            let target = resolver.resolve_method_in(
+                raw_value.assembly,
+                ((table as u32) << 24) | index.row,
+                &[],
+                &arguments,
+            )?;
+            let template = crate::lower::owner_type(resolver, target.definition)?;
+            let declaring = if let Some(declaring) = target.declaring {
+                declaring
+            } else if !target.type_arguments.is_empty() {
+                let types = target
+                    .type_arguments
+                    .iter()
+                    .map(|ty| {
+                        resolver.bind_signature(target.argument_assembly, ty, &[], &arguments)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let value_type = matches!(
+                    resolver.type_argument(template)?.ty,
+                    clrmeta::TypeSig::ValueType(_)
                 );
+                resolver.close_type(template, types, value_type)?
+            } else if template == raw_value {
+                value
+            } else {
+                template
+            };
+            if !target.method_arguments.is_empty() {
+                return Err("Constrained MethodImpl cannot name a method instantiation".into());
             }
-            Ok(target.definition)
+            Ok((target.definition, declaring))
         };
         let declaration = resolve(mapping.method_declaration)?;
-        let body = resolve(mapping.method_body)?;
+        let (body, body_owner) = resolve(mapping.method_body)?;
         if !declarations.insert(declaration) {
             return Err("Duplicate constrained MethodImpl declaration".into());
         }
-        if declaration == method {
+        if declaration == (method, owner) {
+            if body_owner != value {
+                return Err("Constrained MethodImpl body must belong to its value type".into());
+            }
             if declared.flags & 0x70 != 0x40
                 || resolver.assembly(body.assembly)?.method(body.token)?.flags & 0x50 != 0x40
             {

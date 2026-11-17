@@ -189,22 +189,7 @@ impl Classes<'_, '_> {
         let mut interfaces = Vec::new();
         let mut interface_depth = 1;
         self.work(metadata.interface_impls.len())?;
-        for row in metadata
-            .interface_impls
-            .iter()
-            .filter(|row| row.class == rid)
-        {
-            let table = row
-                .interface
-                .table
-                .ok_or("InterfaceImpl has null interface")?;
-            if !matches!(table, TableId::TypeDef | TableId::TypeRef) || row.interface.row == 0 {
-                return Err("InterfaceImpl requires a nongeneric interface type".into());
-            }
-            let id = self.resolver.resolve_type(
-                identity.assembly,
-                ((table as u32) << 24) | row.interface.row,
-            )?;
+        for id in self.resolver.declared_interfaces(identity)? {
             let layout = self.layout(id)?;
             if !layout.interface {
                 return Err("InterfaceImpl names a non-interface type".into());

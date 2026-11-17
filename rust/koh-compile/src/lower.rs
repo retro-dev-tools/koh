@@ -2227,11 +2227,15 @@ fn translate(
                 &b.type_arguments,
             )?;
             let constrained_value = if let Some(Type::Struct(value)) = constrained {
-                target.definition = crate::constrained::value_target(
-                    resolver,
-                    value.identity(),
-                    target.definition,
+                let declaration = resolver.instantiate_in(
+                    &target,
+                    &b.method_arguments,
+                    &b.type_arguments,
+                    b.declaring,
                 )?;
+                target.definition =
+                    crate::constrained::value_target(resolver, value.identity(), declaration)?;
+                target.type_arguments.clear();
                 target.declaring = resolver
                     .type_instance(value.identity())?
                     .map(|_| value.identity());

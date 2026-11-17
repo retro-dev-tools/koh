@@ -1,5 +1,51 @@
 # Native compiler migration handoff
 
+## Active instantiated-interface unit
+
+Local commitbe80033 independently improves regression setup: run-scoped reuse of
+successful execution-host builds in the serialized roslyn group, MSBuild on each
+new run. Same8 delegate cases:46.865s baseline,42.954s incremental,26.850s reused,
+all8 passed. Separate generic/debugger consumer8/8 pass53.513s,fmt passed.
+Queued for push until CI44117991696 finishes; do not cancel that run by pushing.
+
+Published head remains3d44c0b; CI44117991696 is still running, with .NET fast
+tests successful. Current uncommitted resolver binding shares closed InterfaceImpl
+substitution across layout, constraints and dispatch. New ClosedTypes entry tests
+implicit, explicit, inherited and multiple instantiations on one receiver.
+Initial four cases reject valid TypeSpec rows; corrected four cases pass34.089s,
+exit0 (/tmp/koh-instantiated-interfaces-green.log). Final fixture adds byte/sbyte
+identity and is included in the active broader regression.
+
+Nextest session29383 ended exit100:125/128 passed in728.347s; three failures in
+/tmp/koh-instantiated-interfaces-regression.log. It found an interface graph
+budget diagnostic regression: dropping the
+original class scan charge caused the generic work guard to fire first. Restored
+the class charge without changing the test; that edit is newer than this run's
+binary. The two other failures are stale GenericInterface rejection assertions
+in interfaces.rs; now replaced with executable acceptance, retaining BoxedInterface
+diagnostics. Session11921 ended2budget passes/4expected constrained-value
+failures,exit100,19.074s. Constrained selection now binds closed declarations,
+compares scoped signatures and retains exact MethodImpl owner identity before
+specializing the body on the receiver. Original struct pointer is retained.
+
+Final consumer14/14 passes82.948s,exit0,
+/tmp/koh-interface-final-consumers.log. Tests include generic methods on closed
+interfaces, implicit/explicit generic structs, packed/ulong returns, byte/sbyte
+contracts and foreign struct/class code returning game-local payloads. Heap must
+remain untouched for value calls; caller mutation and aggregate copies checked.
+A metadata mutation names the correct generic body definition on the wrong
+closed instantiation and must reject with member/IL context.
+
+Session31864 completed132/132 passes407.720s,TEST_EXIT0, followed serially by
+fmt (exit0) and workspace/all-feature rustdoc (exit0,4crates/0cases). Logs:
+/tmp/koh-instantiated-interfaces-final-regression.log,
+/tmp/koh-instantiated-interfaces-final-fmt.log,
+/tmp/koh-instantiated-interfaces-final-doc.log. Discovery1812 includes all4new
+unignored cases; CSharpier checked3files,exit0. Fixture hashes
+/tmp/koh-instantiated-interface-fixtures.sha256 verified unchanged.
+Interface unit ready to commit. Next gaps include method-generic reference
+dispatch, variance and boxing/default-interface value fallback. Ledger unchanged.
+
 ## Latest closed-reference dispatch unit
 
 Published34a7e9b CI44104980515 ended failure after1361 Rust passes: obsolete

@@ -2,6 +2,53 @@ using System.Runtime.InteropServices;
 
 public static class Program
 {
+    public static int InstantiatedInterfaces()
+    {
+        var small = new TypedCell<byte> { Value = 245 };
+        var wide = new TypedCell<ulong> { Value = 0xFEDCBA9876543210UL };
+        IValue<byte> left = small;
+        IValue<ulong> right = wide;
+        byte a = left.Read();
+        ulong b = right.Read();
+        var dual = new DualValueCell();
+        IValue<byte> dualByte = dual;
+        IValue<ulong> dualWide = dual;
+        IValue<sbyte> dualSigned = dual;
+        byte c = dualByte.Read();
+        ulong d = dualWide.Read();
+        sbyte signed = dualSigned.Read();
+        var derived = new DerivedTypedCell<byte> { Value = 17 };
+        IDerivedValue<byte> inherited = derived;
+        byte e = inherited.Read();
+        var remote = new RemoteInterfaceCell<Payload>
+        {
+            Value = new Payload { Tag = 19, Value = 50000 },
+        };
+        IRemoteValue<Payload> foreign = remote;
+        Payload copy = foreign.Read();
+        copy.Tag = 99;
+        return
+            a == 245
+            && b == 0xFEDCBA9876543210UL
+            && small.Calls == 1
+            && wide.Calls == 1
+            && c == 245
+            && d == 0x123456789ABCDEF0UL
+            && dual.ByteCalls == 1
+            && dual.WideCalls == 1
+            && signed == -7
+            && dual.SignedCalls == 1
+            && e == 17
+            && derived.Calls == 1
+            && remote.Calls == 1
+            && remote.Value.Tag == 19
+            && remote.Value.Value == 50000
+            && copy.Tag == 99
+            && copy.Value == 50000
+            ? 42
+            : 0;
+    }
+
     public static int UnsupportedGenericReferenceMethod() =>
         new GenericVirtualReference<byte>().Forward(42);
 
@@ -765,4 +812,50 @@ public static class Storage<T>
     }
 
     public static T Read() => Value;
+}
+
+public interface IValue<T>
+{
+    T Read();
+}
+
+public interface IDerivedValue<T> : IValue<T> { }
+
+public class TypedCell<T> : IValue<T>
+{
+    public T Value;
+    public int Calls;
+
+    public T Read()
+    {
+        Calls++;
+        return Value;
+    }
+}
+
+public sealed class DerivedTypedCell<T> : TypedCell<T>, IDerivedValue<T> { }
+
+public sealed class DualValueCell : IValue<byte>, IValue<ulong>, IValue<sbyte>
+{
+    public int ByteCalls;
+    public int WideCalls;
+    public int SignedCalls;
+
+    sbyte IValue<sbyte>.Read()
+    {
+        SignedCalls++;
+        return -7;
+    }
+
+    byte IValue<byte>.Read()
+    {
+        ByteCalls++;
+        return 245;
+    }
+
+    ulong IValue<ulong>.Read()
+    {
+        WideCalls++;
+        return 0x123456789ABCDEF0UL;
+    }
 }

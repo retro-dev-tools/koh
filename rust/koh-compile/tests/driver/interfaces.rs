@@ -52,6 +52,7 @@ fn interface_calls_through_static_storage_execute(
         "LargeDispatch",
         "WideResult",
         "AggregateResult",
+        "GenericInterface",
         "Casts",
         "NonmatchingCast",
         "ClassIsInstance",
@@ -387,10 +388,7 @@ fn interface_metadata_contracts_diagnose_and_inherited_memberref_bodies_execute(
         let error = result.unwrap_err();
         assert!(error.contains(needle), "{label}: {error}");
     }
-    for (entry, needle) in [
-        ("GenericInterface", "generic"),
-        ("BoxedInterface", "0x008c"),
-    ] {
+    for (entry, needle) in [("BoxedInterface", "0x008c")] {
         let result = super::dotnet()
             .arg(&managed.dll)
             .arg(

@@ -6,6 +6,44 @@ use crate::{
 use clrmeta::{MethodSig, TableId, TypeSig};
 
 impl Resolver<'_> {
+    pub(crate) fn declared_interfaces(&self, owner: Definition) -> Result<Vec<Definition>, String> {
+        let raw = self.type_definition(owner)?;
+        let metadata = self.assembly(raw.assembly)?.metadata();
+        charge(&self.generic_work, metadata.interface_impls.len())?;
+        let arguments = self.member_arguments(owner)?;
+        let mut interfaces = Vec::new();
+        for entry in metadata
+            .interface_impls
+            .iter()
+            .filter(|entry| entry.class == raw.token & 0xffffff)
+        {
+            if !matches!(
+                entry.interface.table,
+                Some(TableId::TypeDef | TableId::TypeRef | TableId::TypeSpec)
+            ) || entry.interface.row == 0
+            {
+                return Err("InterfaceImpl requires an interface type".into());
+            }
+            let signature = self.type_signature(raw.assembly, coded(entry.interface)?)?;
+            let bound = self.bind_signature(raw.assembly, &signature, &[], &arguments)?;
+            let TypeSig::Class(encoded) = bound.ty else {
+                return Err("InterfaceImpl requires a reference interface type".into());
+            };
+            let interface = self.signature_type(bound.assembly, encoded)?;
+            let definition = self.type_definition(interface)?;
+            let target = row(
+                &self.assembly(definition.assembly)?.metadata().type_defs,
+                definition.token,
+                2,
+            )?;
+            if target.flags & 0x20 == 0 {
+                return Err("InterfaceImpl names a non-interface type".into());
+            }
+            interfaces.push(interface);
+        }
+        Ok(interfaces)
+    }
+
     pub(crate) fn base_type(&self, owner: Definition) -> Result<Option<Definition>, String> {
         let raw = self.type_definition(owner)?;
         let metadata = self.assembly(raw.assembly)?.metadata();

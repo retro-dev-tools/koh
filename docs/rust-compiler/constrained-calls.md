@@ -2,7 +2,7 @@
 
 The Rust frontend supports `constrained. thisType; callvirt` for supported closed
 class/interface and nongeneric or closed generic struct receivers implementing
-nongeneric interface contracts. Closed generic reference receivers use the
+nongeneric and instantiated invariant interface contracts. Closed generic reference receivers use the
 [closed dispatch contract](closed-types.md#closed-reference-dispatch). Standard C#
 generic constraints and `ref T` arguments produce this CIL; authors need no Koh
 attribute or alternative API.
@@ -17,7 +17,7 @@ Neither path invents an object layout or calling convention.
 
 The prefix type retains its assembly scope through generic substitution. The
 receiver must be the matching managed-pointer type. Implicit implementations match
-public instance virtual methods by raw signature; explicit MethodImpl bodies must
+public instance virtual methods by scoped signature; explicit MethodImpl bodies must
 match the signature, flags and declaring struct. Existing nominal assignability,
 generic constraints and work budgets remain enforced. Generic interface methods
 use the same closed argument binding as ordinary calls.
@@ -27,10 +27,14 @@ call after its prefix. Dangling prefixes and wrong type tokens diagnose with IL
 offsets. Modern constrained static-interface call/ldftn extensions diagnose as
 unfinished support, rather than malformed metadata. Boxing-dependent base methods,
 default-interface value fallback, primitive receiver runtimes, method-generic
-dispatch on constructed reference owners and instantiated interface contracts
+dispatch on constructed reference owners and variance-aware interface assignability
 remain unfinished. Closed declaring layouts and static
 storage are implemented separately; see [closed types](closed-types.md).
 None of the unfinished dispatch behavior is approved for retirement.
+
+Instantiated contracts preserve the closed interface and body-owner identities,
+including methods with their own generic arguments on struct receivers. See
+[interface binding and execution evidence](closed-types.md#instantiated-invariant-interface-contracts).
 
 ## Native evidence
 

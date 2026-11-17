@@ -106,3 +106,32 @@ public class RemoteDispatchCell<T> : IRemoteMarker
 
     public virtual T ReadValue() => Payload;
 }
+
+public interface IRemoteValue<T>
+{
+    T Read();
+}
+
+public struct RemoteInterfaceValue<T> : IRemoteValue<T>
+{
+    public T Value;
+    public int Calls;
+
+    T IRemoteValue<T>.Read()
+    {
+        Calls++;
+        return Value;
+    }
+}
+
+public class RemoteInterfaceCell<T> : IRemoteValue<T>
+{
+    public T Value = default!;
+    public int Calls;
+
+    public T Read()
+    {
+        Calls++;
+        return Value;
+    }
+}
