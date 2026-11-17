@@ -51,6 +51,17 @@ increment does not retire useful legacy span capabilities. Unsupported tested
 members/shapes diagnose with member/IL context. ROM banking of these literals is
 still ROM0-only and shares the linker's capacity diagnostics.
 
+Materialized literal data shares the per-method 64 KiB frontend budget. Readonly
+views charge their complete RVA blob before copying it into IR, including its
+terminator and repeated uses. ELF literal deduplication does not bypass this
+allocation limit. Unreachable methods do not consume a reachable method's budget.
+`tests/literal_limits.rs` generates real Roslyn Debug/Release inputs: sixteen
+4096-byte blobs compile and link; a seventeenth diagnoses with method and IL
+context. Both boundary cases and four existing literal ROM cases passed6/6 in
+15.035s (`/tmp/koh-span-data-budget-green.log`). Before the fix both rejection
+cases failed because compilation incorrectly succeeded. This checks frontend
+resource accounting; ROM capacity remains the linker's responsibility.
+
 ## Metadata work accounting
 
 The real framework reference assembly exposed a false generic-budget rejection.

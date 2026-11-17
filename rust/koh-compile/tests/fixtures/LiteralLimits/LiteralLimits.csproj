@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <DebugType>portable</DebugType>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NuGetAudit>true</NuGetAudit>
+  </PropertyGroup>
+  <Target Name="WriteFixtureReferences" AfterTargets="ResolveReferences">
+    <WriteLinesToFile File="$(IntermediateOutputPath)reference-paths.txt" Lines="@(ReferencePath)" Overwrite="true" />
+  </Target>
+</Project>

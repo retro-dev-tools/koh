@@ -10,6 +10,18 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Literal-data budget correction
+
+Readonly span literals now charge the existing cumulative per-method 64 KiB
+budget before allocating their IR payload. Real Roslyn Debug/Release fixtures
+accept exactly sixteen 4096-byte blobs and reject a seventeenth with method/IL
+context; the positive case also passes ELF serialization and native linking.
+Unreachable over-budget methods do not affect the selected entry. Both negative
+cases reproduced the missing check before the fix. Budget and existing literal
+ROM tests passed6/6 in15.035s; the final library/span/budget selection passed
+231/231 in4.653s, zero skipped, exit0 (`/tmp/koh-span-budget-final.log`).
+This closes a resource-validation bug, not an additional legacy disposition.
+
 ### Faster iteration and full validation
 
 [Metadata images](fixture-images.md) now build once per serialized nextest run
@@ -55,8 +67,8 @@ Discovery finds1874 workspace cases,1697 compiler cases, zero ignored
 The preceding full CI on113eaf2 completed1856/1856 native tests in1785.687s,
 zero skipped, with separate rustdoc and .NET fast checks successful. Primary log:
 `/tmp/koh-ci-113eaf2-completed.log`. The literal commit75951e2 is now published;
-its CI44177800888 is running. Neither that run nor this new test batch has a
-completed full workspace pass yet. No controlled compilation/suite speedup is claimed.
+its CI44177800888 subsequently passed1869/1869 as recorded above. The newer
+test/CI batches still require full validation. No controlled compiler speedup is claimed.
 
 ### Array and UTF-8 literal acceptance
 

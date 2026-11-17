@@ -73,17 +73,19 @@ pub(super) fn call(
         let Type::FieldHandle(field) = bytes.1 else {
             return Err("Readonly byte-span requires an RVA literal".into());
         };
-        let bytes = resolver
-            .assembly(field.assembly)?
-            .field_data(field.token)?
-            .to_vec();
+        let bytes = resolver.assembly(field.assembly)?.field_data(field.token)?;
         if bytes.is_empty() || bytes.len() > 0x4000 {
             return Err("Readonly byte-span extent exceeds its literal data".into());
         }
+        b.data_bytes = b
+            .data_bytes
+            .checked_add(bytes.len())
+            .filter(|&total| total <= 65536)
+            .ok_or("Method literal data exceeds 64 KiB budget")?;
         let value = b.value(
             Type::Struct(shape),
             Op::ByteSpanLiteral {
-                bytes,
+                bytes: bytes.to_vec(),
                 length: length.0,
             },
         )?;
