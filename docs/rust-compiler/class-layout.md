@@ -159,4 +159,6 @@ The native Arrays fixture previously asserted that `new object[2]` must fail.
 That temporary subset restriction has no language-semantic justification once
 typed reference arrays execute. Its replacement checks return value2, a
 two-byte length header, four zero bytes for null elements and unchanged arena/
-CGB bank2 surroundings. Float/nested/multidimensional array diagnostics remain.
+CGB bank2 surroundings. Subsequent [rectangular-array](rectangular-arrays.md)
+and [binary32](float-lowering.md) work replaces those temporary restrictions;
+nested and rank-three arrays still diagnose.

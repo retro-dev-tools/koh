@@ -6,7 +6,7 @@ allocator lifetime and 16-bit native width below are explicit target extensions.
 
 The native path supports mutable, one-dimensional, zero-based arrays of CLI
 integer primitives: bool, char, signed/unsigned 8/16/32/64-bit integers and native
-integers, class/string references and nongeneric value types. Sequential values
+integers, binary32 floats, class/string references and nongeneric value types. Sequential values
 may contain reference fields; explicit values must remain unmanaged. Arrays
 retain element identity in IR; references occupy two bytes.
 `newarr`, `ldlen`, integer `ldelem`/`stelem`, typed `ldelem`/`stelem` and `ldelema`
@@ -68,10 +68,12 @@ user types named `System.Int32` are not primitive array storage. Missing ordinar
 references continue to fail resolution. Class/string element loads and stores
 retain typed reference cells, including null and shared referents; see
 [object storage](class-layout.md) and [reference-bearing values](aggregates.md).
-Nested-array, multidimensional and floating-point arrays remain explicit
-diagnostics. Nested inline fields inside a value element are distinct from
-nested arrays. [Rectangular-array requirements](rectangular-arrays.md) record the
-next actual JRPG build blocker without claiming implementation.
+Nested and rank-three arrays remain explicit diagnostics. Nested inline fields
+inside a value element are distinct from nested arrays. Rank-two arrays use the
+[rectangular-array contract](rectangular-arrays.md); float elements retain their
+[binary32 identity and bits](float-lowering.md). The CLI/native array execution
+test asserts `new float[2]` returns length2 with an eight-byte zeroed payload,
+intact guards and unchanged surrounding heap/CGB bank2.
 [RVA initialization](rva-initializers.md) now copies validated literal bytes into
 ordinary mutable heap arrays. Actual sample graphics and broader array/runtime
 contracts remain migration requirements.

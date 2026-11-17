@@ -3591,6 +3591,7 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
         (if color { "Banked" } else { "Main" }, 0),
         (if color { "BankedTypes" } else { "Types" }, 0),
         ("ObjectArray", 0),
+        ("FloatArray", 0),
         ("Multidimensional", 0),
         ("NullArray", 4),
         ("Negative", 5),
@@ -3649,7 +3650,7 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
             assert_eq!(
                 (fields[1], fields[2]),
                 (
-                    if entry == "ObjectArray" {
+                    if matches!(entry, "ObjectArray" | "FloatArray") {
                         "00000002"
                     } else if entry == "Multidimensional" {
                         "00000004"
@@ -3667,6 +3668,8 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
             };
             if entry == "ObjectArray" {
                 array(2, &[0; 4]);
+            } else if entry == "FloatArray" {
+                array(2, &[0; 8]);
             } else if entry == "Multidimensional" {
                 let mut dimensions_and_data = [0; 20];
                 dimensions_and_data[0] = 2;
@@ -3717,7 +3720,7 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
             assert_heap_snapshot(fields[5], &[0x6b; 0x1000], entry);
         }
     }
-    for entry in ["FloatArray", "NestedArray", "RankThree"] {
+    for entry in ["NestedArray", "RankThree"] {
         let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
             .arg(output.join("Arrays.dll"))
             .arg("-r")
