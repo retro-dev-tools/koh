@@ -38,7 +38,9 @@ The current supported expression domain uses binary32 precision. Binary64
 operations still reject; no successful binary64 conversion silently loses bits.
 Checked conversions remain explicitly unsupported pending overflow handling.
 Do not mistake integer/binary32 conversion support for complete floating-language
-support; binary64 and remainder execution remain unfinished.
+support; binary64 numeric conversions and remainder execution remain unfinished.
+The [binary64 core](binary64.md) supports separate eight-byte arithmetic/storage
+without enabling unimplemented precision conversions.
 
 ## Wide rounding and bounds
 

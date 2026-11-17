@@ -392,6 +392,7 @@ impl<'a> Resolver<'a> {
             "Int64" => ElementType::I8,
             "UInt64" => ElementType::U8,
             "Single" => ElementType::R4,
+            "Double" => ElementType::R8,
             "IntPtr" => ElementType::IntPtr,
             "UIntPtr" => ElementType::UIntPtr,
             "Object" => ElementType::Object,

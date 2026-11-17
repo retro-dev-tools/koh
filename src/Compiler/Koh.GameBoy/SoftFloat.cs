@@ -564,16 +564,37 @@ public static class SoftFloat
         int eb = (int)((b >> 52) & 0x7FF);
         ulong ma = a & 0xFFFFFFFFFFFFF;
         ulong mb = b & 0xFFFFFFFFFFFFF;
-        if (ea == 0)
+        if (ea == 2047)
         {
-            if (eb == 0)
-                return (sa & sb) << 63;
+            if (ma != 0)
+                return a | 0x0008000000000000;
+            if (eb == 2047)
+            {
+                if (mb != 0)
+                    return b | 0x0008000000000000;
+                if (sa != sb)
+                    return 0x7ff8000000000000;
+            }
+            return a;
+        }
+        if (eb == 2047)
+        {
+            if (mb != 0)
+                return b | 0x0008000000000000;
             return b;
         }
+        if (ea == 0)
+            ea = 1;
+        else
+            ma |= 0x10000000000000;
         if (eb == 0)
-            return a;
-        ulong siga = (ma | 0x10000000000000) << 3;
-        ulong sigb = (mb | 0x10000000000000) << 3;
+            eb = 1;
+        else
+            mb |= 0x10000000000000;
+        if (ma == 0 && mb == 0)
+            return (sa & sb) << 63;
+        ulong siga = ma << 3;
+        ulong sigb = mb << 3;
         int exp;
         if (ea > eb)
         {
@@ -616,7 +637,7 @@ public static class SoftFloat
             sig = ShrStickyF64(sig, 1);
             exp = exp + 1;
         }
-        while (sig != 0 && sig < ((ulong)1 << 55))
+        while (exp > 1 && sig != 0 && sig < ((ulong)1 << 55))
         {
             sig = sig << 1;
             exp = exp - 1;
@@ -634,8 +655,8 @@ public static class SoftFloat
         }
         if (exp >= 2047)
             return (sign << 63) | ((ulong)0x7FF << 52);
-        if (exp <= 0)
-            return sign << 63;
+        if (exp == 1 && sig < 0x10000000000000)
+            exp = 0;
         return (sign << 63) | ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF);
     }
 

@@ -32,6 +32,15 @@ fn runtime() -> Host {
 #[case::f32_wide_sweep1("f32-wide-sweep-1", 256)]
 #[case::f32_wide_sweep2("f32-wide-sweep-2", 256)]
 #[case::f32_wide_sweep3("f32-wide-sweep-3", 256)]
+#[case::f64_add_boundaries("f64-add-boundaries", 14)]
+#[case::f64_add_sweep0("f64-add-sweep-0", 256)]
+#[case::f64_add_sweep1("f64-add-sweep-1", 256)]
+#[case::f64_add_sweep2("f64-add-sweep-2", 256)]
+#[case::f64_add_sweep3("f64-add-sweep-3", 256)]
+#[case::f64_add_sweep4("f64-add-sweep-4", 256)]
+#[case::f64_add_sweep5("f64-add-sweep-5", 256)]
+#[case::f64_add_sweep6("f64-add-sweep-6", 256)]
+#[case::f64_add_sweep7("f64-add-sweep-7", 256)]
 fn software_runtime_matches_independent_numeric_oracles(
     runtime: &Host,
     #[case] group: &str,
@@ -48,6 +57,53 @@ fn software_runtime_matches_independent_numeric_oracles(
         expected.push(result);
     };
     match group {
+        "f64-add-boundaries" => {
+            for (a, b) in [
+                (1u64, 1),
+                (0x000fffffffffffff, 1),
+                (0x0010000000000000, 0x800fffffffffffff),
+                (0x8000000000000001, 0x8000000000000001),
+                (0x8000000000000000, 0x8000000000000000),
+                (0x8000000000000000, 0),
+                (0x7ff0000000000000, 0x3ff0000000000000),
+                (0x7ff0000000000000, 0xfff0000000000000),
+                (0x7ff8123456789abc, 0x3ff0000000000000),
+                (0x7ff0123456789abc, 0x3ff0000000000000),
+                (0x7fefffffffffffff, 0x7fefffffffffffff),
+                (0x3ff0000000000000, 0x3ca0000000000000),
+                (0x3ff0000000000001, 0x3ca0000000000000),
+                (0x3ff0000000000000, 0xbc90000000000000),
+            ] {
+                add(
+                    "AddF64",
+                    &[a, b],
+                    (f64::from_bits(a) + f64::from_bits(b)).to_bits(),
+                );
+            }
+        }
+        group if group.starts_with("f64-add-sweep-") => {
+            let start = group.rsplit('-').next().unwrap().parse::<u64>().unwrap() * 256;
+            let mut seed = 0x91e10da5c79e7b1du64 ^ start;
+            for exponent in start..start + 256 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let a = (seed & 0x800fffffffffffff) | (exponent << 52);
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let b = if exponent % 4 == 0 {
+                    a ^ 0x8000000000000000
+                } else {
+                    seed
+                };
+                add(
+                    "AddF64",
+                    &[a, b],
+                    (f64::from_bits(a) + f64::from_bits(b)).to_bits(),
+                );
+            }
+        }
         "f32-wide" => {
             for x in [
                 0i64,
@@ -507,6 +563,13 @@ fn software_runtime_matches_independent_numeric_oracles(
         {
             assert!(
                 f32::from_bits(result as u32).is_nan() && result & 0x00400000 != 0,
+                "{query}"
+            );
+        } else if (group == "f64-add-boundaries" || group.starts_with("f64-add-sweep-"))
+            && f64::from_bits(expected).is_nan()
+        {
+            assert!(
+                f64::from_bits(result).is_nan() && result & 0x0008000000000000 != 0,
                 "{query}"
             );
         } else {

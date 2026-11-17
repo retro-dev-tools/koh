@@ -21,22 +21,30 @@ fn method(il: &[u8]) -> Method<'_> {
 }
 
 #[rstest]
-#[case(0x80000000u32)]
-#[case(0x7fa12345)]
-#[case(0xffc12345)]
-#[case(1)]
-fn binary32_identity_conversion_preserves_raw_bits(#[case] bits: u32) {
-    let mut il = vec![0x22];
-    il.extend(bits.to_le_bytes());
-    il.extend([0x6b, 0x2a]);
+#[case(Type::F32, 0x80000000)]
+#[case(Type::F32, 0x7fa12345)]
+#[case(Type::F32, 0xffc12345)]
+#[case(Type::F32, 1)]
+#[case(Type::F64, 0x8000000000000000)]
+#[case(Type::F64, 0x7ff0123456789abc)]
+#[case(Type::F64, 0xfff8123456789abc)]
+#[case(Type::F64, 1)]
+fn floating_identity_conversion_preserves_raw_bits(#[case] float: Type, #[case] bits: u64) {
+    let mut il = vec![if float == Type::F64 { 0x23 } else { 0x22 }];
+    if float == Type::F64 {
+        il.extend(bits.to_le_bytes());
+    } else {
+        il.extend((bits as u32).to_le_bytes());
+    }
+    il.extend([if float == Type::F64 { 0x6c } else { 0x6b }, 0x2a]);
     let mut input = method(&il);
-    input.returns = Some(Type::F32);
+    input.returns = Some(float);
     let mut function = lower(input).unwrap();
     verify(&function).unwrap();
-    assert_eq!(execute(&function), u64::from(bits));
+    assert_eq!(execute(&function), bits);
     koh_compile::optimize::simplify(&mut function).unwrap();
     verify(&function).unwrap();
-    assert_eq!(execute(&function), u64::from(bits));
+    assert_eq!(execute(&function), bits);
 }
 
 #[rstest]

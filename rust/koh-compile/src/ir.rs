@@ -132,6 +132,7 @@ pub enum Type {
     I32,
     I64,
     F32,
+    F64,
     Native,
     ByRef(Scalar),
     Array(Storage, ArrayKind),
@@ -193,6 +194,7 @@ pub enum Scalar {
     I64,
     U64,
     F32,
+    F64,
     NativeSigned,
     NativeUnsigned,
 }
@@ -208,6 +210,7 @@ impl Scalar {
         match self {
             Self::I64 | Self::U64 => Type::I64,
             Self::F32 => Type::F32,
+            Self::F64 => Type::F64,
             Self::NativeSigned | Self::NativeUnsigned => Type::Native,
             _ => Type::I32,
         }
@@ -217,7 +220,7 @@ impl Scalar {
             Self::Bool | Self::I8 | Self::U8 => 8,
             Self::Char | Self::I16 | Self::U16 | Self::NativeSigned | Self::NativeUnsigned => 16,
             Self::I32 | Self::U32 | Self::F32 => 32,
-            Self::I64 | Self::U64 => 64,
+            Self::I64 | Self::U64 | Self::F64 => 64,
         }
     }
 }
@@ -250,7 +253,7 @@ impl Type {
             Self::StructRef(_) => 16,
             Self::FieldHandle(_) | Self::MethodHandle(_) => 0,
             Self::I32 | Self::F32 => 32,
-            Self::I64 => 64,
+            Self::I64 | Self::F64 => 64,
             Self::Native
             | Self::Delegate(_)
             | Self::ByRef(_)
@@ -1153,7 +1156,10 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         let target = result.ok_or("Bit reinterpretation has no result")?;
                         if !matches!(
                             (source, target),
-                            (Type::I32, Type::F32) | (Type::F32, Type::I32)
+                            (Type::I32, Type::F32)
+                                | (Type::F32, Type::I32)
+                                | (Type::I64, Type::F64)
+                                | (Type::F64, Type::I64)
                         ) {
                             return Err(
                                 "Bit reinterpretation requires matching integer/float widths"
@@ -1544,7 +1550,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             );
                         }
                         let ty = result.ok_or("Memory load has no result")?;
-                        if ty == Type::F32 && signed {
+                        if matches!(ty, Type::F32 | Type::F64) && signed {
                             return Err("Float memory loads require raw unsigned bits".into());
                         }
                         if matches!(ty, Type::Struct(value) if value.references && check(address, position)? != Type::StructRef(value))
@@ -1576,6 +1582,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                 (bits, ty),
                                 (8 | 16 | 32, Type::I32)
                                     | (32, Type::F32)
+                                    | (64, Type::F64)
                                     | (64, Type::I64)
                                     | (
                                         16,
@@ -1632,6 +1639,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                 (bits, stored),
                                 (8 | 16 | 32, Type::I32)
                                     | (32, Type::F32)
+                                    | (64, Type::F64)
                                     | (64, Type::I64)
                                     | (
                                         16,
@@ -1770,8 +1778,8 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(left)
                     }
                     Op::Compare { op, left, right } => {
-                        if check(left, position)? == Type::F32
-                            || check(right, position)? == Type::F32
+                        if matches!(check(left, position)?, Type::F32 | Type::F64)
+                            || matches!(check(right, position)?, Type::F32 | Type::F64)
                         {
                             return Err(
                                 "Float comparison requires software runtime lowering".into()
@@ -1811,7 +1819,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         Some(ty)
                     }
                     Op::Convert { value, bits, .. } => {
-                        if check(value, position)? == Type::F32 {
+                        if matches!(check(value, position)?, Type::F32 | Type::F64) {
                             return Err(
                                 "Numeric float conversion requires software runtime lowering"
                                     .into(),

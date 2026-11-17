@@ -1477,3 +1477,41 @@ supportmustnotunconditionallyroundconv.r.unthroughF64beforeconv.r4. Inspect
 actualRoslynconv.r.un+conv.r4/r8shapes andnominalprecision/merges; documentvalid
 unsupportedCILshapes ratherthanlabelmalformed. CurrentR8stillrejects. Checked
 casts andremexecutionalsoopen;nooverallmigrationcompletionclaim.
+
+2026-11-17 dirtybinary64core afterlocal3122c6c: Type/ScalarF64, onlyI64↔F64
+bitreinterpret,strictfloatintverifier, eight-byte calls/fields/array/refstorage,
+ldc.r8/ldind/stind/ldelem/stelemR8,System.Doubleprimitiveauth. F64add/sub route
+checkedmetadataulong(ulong,ulong), cmpbyte(ulong,ulong), negsignbitXOR. No I128,
+no nativefloatALU, no compilerfallback. Binary64Mul/Div/conversionsstillreject;
+conv.r8F64identityonly so currentu64→F32one-roundproofnotchanged. No mixed
+precisioncoercionorunverifiedUInt128helperenablement. AddF64oldraw1+raw1=0 both
+ROM/CLR observed77210redEXIT1003/3fail11.580s. Numerichelperfixedeffectiveexp1/
+nohiddenbitforsubnormals,stopnormalizationatexp1,quietNaN/inf/zeros/encoding.
+94823EXIT1009pass1fail21.583s: all14+2048hostboundary/sweep checksfixed; native
+RawTinypasses thenldc.r8unsupported. AddedtypedF64core;56742EXIT100missingouter
+ldind.r8opcoderange. Fixedouterranges4f/57/99/a1;69397EXIT0 4/4pass27.148s.
+Addedgeneric32/64IRnegative/constant/identitycases andF64cmpNaN/negative/zero:
+82208EXIT0 28/28pass30.668s. FourmoreoriginalF64cmpinputswillclose1PORTmethod
+(4rows×2modes×4assertions=32); currentlocalproposedledger149/565complete416
+remaining, no legacydefinitionsretired. New19+4entries23×4=92F64ROMs withPDB/
+ELF/KDBG/full8byteheapoutputatDFF8, arraysatD000, allbank/frameguards.
+Completed19564 /tmp/koh-float64-final.log passed658/658 in306.759s,292unselected;
+allLib/IR/lowering +
+float32/float64/comparison/conversion/runtime/arraycases. SourceONLYdiagnostic
+stringswerepolishedafterbuild (floatmetadatamessage,F64mul/divhuman names), so
+followupfocusedF64testrequiredafterterminal; no semanticchanges. Neednegative
+metadatahelpershape tests/review/checks/docs thenlogicalcommit andbatchpush
+3122c6c+binary64core. bc1598aCI43991609562 TERMINALSUCCESS:1434/1434pass2408.087s
+zeroskips,separaterustdoc4zerocases,.NETfast562pass2UIskips0fail. Completedprimary
+/tmp/koh-ci-bc1598a-completed.log GH_EXIT0. Previousheadsuccessnotcurrentproof.
+Read-onlyreviewassignmentexistingbackend_audit: currentbinary64core/numericdiff;
+NOedits/builds/tests/commits/spawns; parentownsallfiles/currentbuild.
+
+Finalbinary64 follow-up7207 TERMINALEXIT0:8/8pass141.183s375unselected. Four
+drivercases include missingf64metadata/wrongsignedness diagnostics; four SDK
+cases retainF32andaddF64 ordinarydotnetbuild pathswithspaces andwholeheap/
+bank2/frameguards. Broad658run isterminal; no activebuilds. Workspacealltargets/
+allfeaturescheckEXIT0(existingunusedcubeshelperwarning), rustdocEXIT0fourcrates
+zerocases, rustfmt/CSharpier2files/diffchecks pass. Read-onlybackendreviewno
+confirmeddefect. Ledger149/565complete416outstanding, zero physicallyretired.
+Readylogicalbinary64commit thenbatchpushwith3122c6c; previousbcCIgreen.

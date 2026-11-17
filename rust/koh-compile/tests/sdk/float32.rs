@@ -3,11 +3,14 @@ use rstest::rstest;
 use std::path::Path;
 
 #[rstest]
-#[case("Debug", false)]
-#[case("Release", true)]
+#[case("Debug", false, false)]
+#[case("Release", true, false)]
+#[case("Debug", false, true)]
+#[case("Release", true, true)]
 fn sdk_compiles_actual_float_addition_without_managed_runtime_execution(
     #[case] configuration: &str,
     #[case] color: bool,
+    #[case] wide: bool,
 ) {
     let directory = tempfile::Builder::new()
         .prefix("koh float SDK ")
@@ -30,7 +33,11 @@ fn sdk_compiles_actual_float_addition_without_managed_runtime_execution(
     .unwrap();
     std::fs::write(
         directory.path().join("Program.cs"),
-        include_bytes!("../fixtures/Float32/Program.cs"),
+        if wide {
+            include_bytes!("../fixtures/Float64/Program.cs").as_slice()
+        } else {
+            include_bytes!("../fixtures/Float32/Program.cs").as_slice()
+        },
     )
     .unwrap();
     let rom = directory.path().join("float output.gb");
@@ -72,13 +79,30 @@ fn sdk_compiles_actual_float_addition_without_managed_runtime_execution(
     let host = support::build_host();
     let output = support::dotnet()
         .arg(&host.dll)
-        .args(["--native", &format!("{stop:x}")])
+        .args(["--native-heap", &format!("{stop:x}")])
         .arg(&rom)
         .output()
         .unwrap();
     assert!(output.status.success(), "{}", report(&output));
+    let text = String::from_utf8(output.stdout).unwrap();
+    let fields: Vec<_> = text.split_whitespace().collect();
+    assert_eq!(fields.len(), if color { 6 } else { 5 });
     assert_eq!(
-        String::from_utf8(output.stdout).unwrap().trim(),
-        "00 40800000 D000 OK"
+        &fields[..4],
+        &[
+            "00",
+            if wide { "0000002A" } else { "40800000" },
+            "D000",
+            "OK"
+        ]
     );
+    let mut heap = vec![0x5a; 4096];
+    if wide {
+        heap[4088..].copy_from_slice(&0x4010000000000000u64.to_le_bytes());
+    }
+    let expected: String = heap.iter().map(|byte| format!("{byte:02X}")).collect();
+    assert_eq!(fields[4], expected);
+    if color {
+        assert_eq!(fields[5], "6B".repeat(4096));
+    }
 }

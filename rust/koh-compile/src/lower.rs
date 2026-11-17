@@ -20,6 +20,7 @@ fn primitive_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
         ) => Ok(Type::I32),
         TypeSig::Primitive(ElementType::I8 | ElementType::U8) => Ok(Type::I64),
         TypeSig::Primitive(ElementType::R4) => Ok(Type::F32),
+        TypeSig::Primitive(ElementType::R8) => Ok(Type::F64),
         TypeSig::Primitive(ElementType::String) => Ok(Type::String),
         TypeSig::Primitive(ElementType::IntPtr | ElementType::UIntPtr) | TypeSig::Ptr(_) => {
             Ok(Type::Native)
@@ -83,6 +84,7 @@ fn scalar(ty: &clrmeta::TypeSig) -> Result<Scalar, String> {
         ElementType::I8 => Scalar::I64,
         ElementType::U8 => Scalar::U64,
         ElementType::R4 => Scalar::F32,
+        ElementType::R8 => Scalar::F64,
         ElementType::IntPtr => Scalar::NativeSigned,
         ElementType::UIntPtr => Scalar::NativeUnsigned,
         _ => return Err("Managed reference scalar type is unsupported".into()),
@@ -665,17 +667,27 @@ impl Builder<'_, '_> {
     fn float_call(&mut self, key: &str, left: u32, right: u32) -> Result<(u32, Type), String> {
         let resolver = self
             .resolver
-            .ok_or("float32 operation requires runtime metadata")?;
+            .ok_or("Floating operation requires runtime metadata")?;
         let target = crate::contracts::float_binary(resolver, key)?;
-        let left = self.value(Type::I32, Op::Reinterpret(left))?;
-        let right = self.value(Type::I32, Op::Reinterpret(right))?;
+        let raw = if key.starts_with("f64.") {
+            Type::I64
+        } else {
+            Type::I32
+        };
+        let returns = if key.ends_with(".cmp") {
+            Type::I32
+        } else {
+            raw
+        };
+        let left = self.value(raw, Op::Reinterpret(left))?;
+        let right = self.value(raw, Op::Reinterpret(right))?;
         self.value(
-            Type::I32,
+            returns,
             Op::Call {
                 target,
                 signature: Signature {
-                    parameters: vec![Type::I32, Type::I32],
-                    returns: Some(Type::I32),
+                    parameters: vec![raw, raw],
+                    returns: Some(returns),
                 },
                 arguments: vec![left.0, right.0],
             },
@@ -725,22 +737,35 @@ impl Builder<'_, '_> {
     fn binary(&mut self, op: Binary) -> Result<(), String> {
         let mut right = self.pop()?;
         let mut left = self.pop()?;
-        if left.1 == Type::F32 || right.1 == Type::F32 {
-            if left.1 != Type::F32 || right.1 != Type::F32 {
-                return Err("Unsupported float32 binary operation or mixed operand types".into());
+        if matches!(left.1, Type::F32 | Type::F64) || matches!(right.1, Type::F32 | Type::F64) {
+            if left.1 != right.1 {
+                return Err("Unsupported mixed floating binary operand types".into());
             }
-            let key = match op {
-                Binary::Add => "f32.add",
-                Binary::Subtract => "f32.sub",
-                Binary::Multiply => "f32.mul",
-                Binary::DivideSigned => "f32.div",
-                Binary::RemainderSigned => {
+            let key = match (left.1, op) {
+                (Type::F32, Binary::Add) => "f32.add",
+                (Type::F32, Binary::Subtract) => "f32.sub",
+                (Type::F32, Binary::Multiply) => "f32.mul",
+                (Type::F32, Binary::DivideSigned) => "f32.div",
+                (Type::F32, Binary::RemainderSigned) => {
                     return Err("Unsupported float32 operation f32.rem".into());
                 }
-                _ => return Err("Unsupported float32 binary operation".into()),
+                (Type::F64, Binary::Add) => "f64.add",
+                (Type::F64, Binary::Subtract) => "f64.sub",
+                (Type::F64, Binary::Multiply) => {
+                    return Err("Binary64 multiplication is not implemented".into());
+                }
+                (Type::F64, Binary::DivideSigned) => {
+                    return Err("Binary64 division is not implemented".into());
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported floating binary operation {op:?} on {:?}",
+                        left.1
+                    ));
+                }
             };
             let bits = self.float_call(key, left.0, right.0)?;
-            let value = self.value(Type::F32, Op::Reinterpret(bits.0))?;
+            let value = self.value(left.1, Op::Reinterpret(bits.0))?;
             self.stack.push(value);
             return Ok(());
         }
@@ -808,11 +833,16 @@ impl Builder<'_, '_> {
     fn compare(&mut self, op: Comparison) -> Result<(u32, Type), String> {
         let mut right = self.pop()?;
         let mut left = self.pop()?;
-        if left.1 == Type::F32 || right.1 == Type::F32 {
-            if left.1 != Type::F32 || right.1 != Type::F32 {
-                return Err("CIL float32 comparison operand type mismatch".into());
+        if matches!(left.1, Type::F32 | Type::F64) || matches!(right.1, Type::F32 | Type::F64) {
+            if left.1 != right.1 {
+                return Err("Unsupported mixed floating comparison operand types".into());
             }
-            let code = self.float_call("f32.cmp", left.0, right.0)?;
+            let key = if left.1 == Type::F64 {
+                "f64.cmp"
+            } else {
+                "f32.cmp"
+            };
+            let code = self.float_call(key, left.0, right.0)?;
             let expected = match op {
                 Comparison::Equal => 0,
                 Comparison::LessSigned | Comparison::LessUnsigned => 1,
@@ -1603,9 +1633,9 @@ fn translate(
             let value = b.value(Type::Native, Op::ArrayLength(array.0))?;
             b.stack.push(value);
         }
-        0x8f..=0x98 | 0x9a..=0xa0 | 0xa2..=0xa4 => {
+        0x8f..=0xa4 => {
             let reference = matches!(i.opcode, 0x9a | 0xa2);
-            let store = matches!(i.opcode, 0x9b..=0xa0 | 0xa2 | 0xa4);
+            let store = matches!(i.opcode, 0x9b..=0xa2 | 0xa4);
             let stored = if store { Some(b.pop()?) } else { None };
             let index = b.pop()?;
             if !matches!(index.1, Type::I32 | Type::Native) {
@@ -1638,6 +1668,7 @@ fn translate(
                 0x95 => Scalar::U32,
                 0x96 | 0x9f => Scalar::I64,
                 0x98 | 0xa0 => Scalar::F32,
+                0x99 | 0xa1 => Scalar::F64,
                 _ => Scalar::NativeSigned,
             };
             let array = if raw.1 == Type::Null {
@@ -2428,6 +2459,7 @@ fn translate(
                     Type::I32 => Scalar::I32,
                     Type::I64 => Scalar::I64,
                     Type::F32 => Scalar::F32,
+                    Type::F64 => Scalar::F64,
                     Type::Native => Scalar::NativeSigned,
                     Type::ByRef(_)
                     | Type::Delegate(_)
@@ -2498,6 +2530,13 @@ fn translate(
             let value = b.value(Type::F32, Op::Constant(u64::from(bits)))?;
             b.stack.push(value);
         }
+        0x23 => {
+            let Operand::Float64(bits) = i.operand else {
+                return Err("Invalid float64 constant".into());
+            };
+            let value = b.value(Type::F64, Op::Constant(bits))?;
+            b.stack.push(value);
+        }
         0x25 => {
             let value = *b.stack.last().ok_or("CIL evaluation stack underflow")?;
             b.stack.push(value);
@@ -2556,7 +2595,11 @@ fn translate(
                     0x37 => (Comparison::LessUnsigned, false),
                     _ => return Err("Invalid conditional branch".into()),
                 };
-                if invert && b.stack.last().is_some_and(|value| value.1 == Type::F32) {
+                if invert
+                    && b.stack
+                        .last()
+                        .is_some_and(|value| matches!(value.1, Type::F32 | Type::F64))
+                {
                     op = match op {
                         Comparison::LessSigned => Comparison::LessUnsigned,
                         Comparison::LessUnsigned => Comparison::LessSigned,
@@ -2871,7 +2914,7 @@ fn translate(
                 b.stack.push(value);
             }
         }
-        0x46..=0x4e => {
+        0x46..=0x4f => {
             let (bits, signed, ty) = match i.opcode {
                 0x46 => (8, true, Type::I32),
                 0x47 => (8, false, Type::I32),
@@ -2881,6 +2924,7 @@ fn translate(
                 0x4b => (32, false, Type::I32),
                 0x4c => (64, true, Type::I64),
                 0x4e => (32, false, Type::F32),
+                0x4f => (64, false, Type::F64),
                 _ => (16, false, Type::Native),
             };
             let address = b.pop()?;
@@ -2899,13 +2943,14 @@ fn translate(
             )?;
             b.stack.push(value);
         }
-        0x52..=0x56 | 0xdf => {
+        0x52..=0x57 | 0xdf => {
             let (bits, ty) = match i.opcode {
                 0x52 => (8, Type::I32),
                 0x53 => (16, Type::I32),
                 0x54 => (32, Type::I32),
                 0x55 => (64, Type::I64),
                 0x56 => (32, Type::F32),
+                0x57 => (64, Type::F64),
                 _ => (16, Type::Native),
             };
             let value = b.pop()?;
@@ -2943,21 +2988,26 @@ fn translate(
         }
         0x65 | 0x66 => {
             let value = b.pop()?;
-            if value.1 == Type::F32 {
+            if matches!(value.1, Type::F32 | Type::F64) {
                 if i.opcode != 0x65 {
-                    return Err("Bitwise not cannot consume float32".into());
+                    return Err("Bitwise not cannot consume floating values".into());
                 }
-                let bits = b.value(Type::I32, Op::Reinterpret(value.0))?;
-                let sign = b.value(Type::I32, Op::Constant(0x80000000))?;
+                let raw = if value.1 == Type::F64 {
+                    Type::I64
+                } else {
+                    Type::I32
+                };
+                let bits = b.value(raw, Op::Reinterpret(value.0))?;
+                let sign = b.value(raw, Op::Constant(1u64 << (value.1.bits() - 1)))?;
                 let bits = b.value(
-                    Type::I32,
+                    raw,
                     Op::Binary {
                         op: Binary::Xor,
                         left: bits.0,
                         right: sign.0,
                     },
                 )?;
-                let value = b.value(Type::F32, Op::Reinterpret(bits.0))?;
+                let value = b.value(value.1, Op::Reinterpret(bits.0))?;
                 b.stack.push(value);
             } else {
                 let op = if i.opcode == 0x65 {
@@ -2969,6 +3019,13 @@ fn translate(
                 b.stack.push(value);
             }
         }
+        0x6c => {
+            let value = b.pop()?;
+            if value.1 != Type::F64 {
+                return Err("Binary64 numeric conversion is not implemented".into());
+            }
+            b.stack.push(value);
+        }
         0x6b | 0x76 => {
             let value = b.pop()?;
             let value = if value.1 == Type::F32 && i.opcode == 0x6b {
@@ -2976,6 +3033,9 @@ fn translate(
             } else {
                 match value.1 {
                     Type::I32 | Type::I64 | Type::Native => {}
+                    Type::F64 => {
+                        return Err("Binary64 to binary32 conversion is not implemented".into());
+                    }
                     _ => {
                         return Err(
                             "Floating conversion requires a supported integer operand".into()
@@ -3008,6 +3068,9 @@ fn translate(
                 _ => return Err("Invalid conversion opcode".into()),
             };
             let mut value = b.pop()?;
+            if value.1 == Type::F64 {
+                return Err("Binary64 to integer conversion is not implemented".into());
+            }
             if value.1 == Type::F32 {
                 let key = match (bits == 64, signed) {
                     (true, true) => "f32.toI64",
