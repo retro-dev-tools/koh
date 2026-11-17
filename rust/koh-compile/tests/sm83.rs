@@ -14,6 +14,8 @@ mod liveness;
 mod loop_contracts;
 #[path = "support/narrowing.rs"]
 mod narrowing;
+#[path = "support/optimization.rs"]
+mod optimization;
 #[path = "support/optimizer_contracts.rs"]
 mod optimizer_contracts;
 #[path = "support/parallel_phis.rs"]
@@ -24,6 +26,172 @@ mod recursion_fixture;
 mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case("Debug")]
+#[case("Release")]
+fn optimization_preserves_arithmetic_aliases_and_effects(host: &Host, #[case] configuration: &str) {
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/OptimizationContracts");
+    let output = dotnet()
+        .arg("build")
+        .arg(fixture.join("OptimizationContracts.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let image = std::fs::read(fixture.join(format!(
+        "bin/{configuration}/net10.0/OptimizationContracts.dll"
+    )))
+    .unwrap();
+    let resolver = koh_compile::resolve::Resolver::new(&[&image]).unwrap();
+    let metadata = resolver.assembly(0).unwrap().metadata();
+    let identity = |name: &str| Definition {
+        assembly: 0,
+        token: 0x06000001
+            + metadata
+                .method_defs
+                .iter()
+                .position(|m| metadata.strings.get(m.name).unwrap() == name)
+                .unwrap() as u32,
+    };
+    let mut cases = Vec::new();
+    for &shape in optimization::SHAPES {
+        let original = koh_compile::lower::assembly_method(&resolver, identity(shape))
+            .unwrap_or_else(|e| panic!("{shape}: {e}"));
+        for &(x, y) in optimization::INPUTS {
+            let arguments = vec![u64::from(x), u64::from(y)];
+            for (root, arguments) in [
+                (original.clone(), arguments.clone()),
+                (
+                    control_flow_scalars::constant_inputs(original.clone(), &arguments),
+                    vec![],
+                ),
+            ] {
+                let mut functions = vec![root];
+                for helper in match shape {
+                    "Escaped" => &["Change"][..],
+                    "InlineLeaf" => &["AddThree"][..],
+                    _ => &[],
+                } {
+                    functions.push(
+                        koh_compile::lower::assembly_method(&resolver, identity(helper)).unwrap(),
+                    );
+                }
+                for optimized in [false, true] {
+                    if optimized {
+                        for f in &mut functions {
+                            koh_compile::optimize::simplify(f).unwrap();
+                        }
+                    }
+                    verify_program(&functions).unwrap();
+                    if shape == "UnusedBusRead" {
+                        assert!(
+                            functions[0]
+                                .blocks
+                                .iter()
+                                .flat_map(|b| &b.instructions)
+                                .any(|i| matches!(i.op, Op::LoadMemory { .. })),
+                            "Native bus reads must survive DCE"
+                        );
+                    }
+                    cases.push((
+                        rom_program(&functions, identity(shape), &arguments, 0xd000),
+                        optimization::expected(shape, x, y),
+                    ));
+                }
+            }
+        }
+    }
+    assert_eq!(cases.len(), 1344);
+    assert_eq!(
+        cases.iter().filter(|(_, result)| *result == Err(2)).count(),
+        32
+    );
+    assert_eq!(
+        cases.iter().filter(|(_, result)| *result == Err(4)).count(),
+        48
+    );
+    for cases in cases.chunks(32) {
+        run_roms(host, cases, 0xd000);
+    }
+    let error = koh_compile::compile::reachable(&resolver, identity("Dead")).unwrap_err();
+    assert!(error.contains("Dead") && error.contains("IL_"), "{error}");
+    assert!(
+        error.contains("System.Runtime") || error.contains("opcode"),
+        "{error}"
+    );
+    let reachable = koh_compile::compile::reachable(&resolver, identity("InlineLeaf")).unwrap();
+    assert_eq!(reachable.len(), 2);
+    assert!(
+        reachable
+            .iter()
+            .all(|f| [identity("InlineLeaf"), identity("AddThree")].contains(&f.identity))
+    );
+}
+
+#[rstest::rstest]
+#[case(false)]
+#[case(true)]
+fn optimization_preserves_dead_and_store_reachable_phi_cycles(host: &Host, #[case] stored: bool) {
+    let mut original = parallel_phis::swap(Type::I32);
+    original.blocks[3].terminator.kind = Control::Return(Some(6));
+    if stored {
+        original.locals.push(Type::I32);
+        original.blocks[0].instructions.push(Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 0 },
+            il_offset: 0,
+        });
+        original.blocks[2].instructions.push(Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 4 },
+            il_offset: 2,
+        });
+        original.blocks[3].instructions.push(Instruction {
+            result: Some((10, Type::I32)),
+            op: Op::LoadLocal(0),
+            il_offset: 3,
+        });
+        original.blocks[3].terminator.kind = Control::Return(Some(10));
+    }
+    let mut cases = Vec::new();
+    for (x, y, n) in [
+        (1, 2, 0),
+        (1, 2, 1),
+        (1, 2, 2),
+        (0xffff, 0x1234, 7),
+        (u32::MAX as u64, 0, 8),
+    ] {
+        let expected = if stored {
+            if n > 0 && n % 2 == 0 { y } else { x }
+        } else {
+            n
+        };
+        let arguments = vec![x, y, n];
+        for (root, arguments) in [
+            (original.clone(), arguments.clone()),
+            (
+                control_flow_scalars::constant_inputs(original.clone(), &arguments),
+                vec![],
+            ),
+        ] {
+            let mut optimized = root.clone();
+            koh_compile::optimize::simplify(&mut optimized).unwrap();
+            for function in [root, optimized] {
+                verify(&function).unwrap();
+                cases.push((function, arguments.clone(), Ok(expected)));
+            }
+        }
+    }
+    assert_eq!(cases.len(), 20);
+    run(host, &cases);
+}
 
 #[rstest::rstest]
 #[case("Debug")]

@@ -10,6 +10,34 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### General optimizer contract migration
+
+All36 `OptimizationTests` methods now have [native replacements](optimization-semantics.md)
+for132 original assertion sites (21 verifier,15 numeric result/store,96 private
+graph/pass observations). Real Roslyn Debug/Release methods run with runtime
+arguments and bound IR constants, before/after production optimization. Alongside
+bounded dead/store-reachable phi cycles this gives2728 ROMs:2568 successful and
+160 defined arithmetic/null faults. Native bus reads remain observable; called
+mutations, distinct locals, aliased element stores and neighboring bytes are
+checked independently. Explicitly selecting otherwise dead unsupported code
+diagnoses; the valid leaf root includes exactly its transitive callee.
+
+The expanded selection passed629/629 in34.831s, exit0
+(`/tmp/koh-optimization-final.log`), including complete library/IR targets and
+neighboring comparison/conversion/loop execution. Final byte-local normalization
+and execution/fault-count guards passed4/4 in19.240s, exit0
+(`/tmp/koh-optimization-final-guards.log`). The ledger is377/565 complete
+(376 native replacements, one DELETE),188 outstanding. No compiler-owned case
+is deferred and no private pass ordering or unmeasured speed improvement is claimed.
+
+The Linux native job of full run44187413725 on older published e412837 completed
+1880/1880 in1369.457s, zero skipped, plus separate doctests for all four crates
+(zero examples), release native builds and the graphics SDK run smoke test
+(1/1,8.420s). Native-backed language-server/native artifacts were published by
+that job. Primary log: `/tmp/koh-full-e412837-linux-native.log`. This does not
+cover subsequent local changes. Other native platforms remained running; both
+legacy .NET jobs failed114 compiler tests, so full validation is not green.
+
 ### Loop optimization contract migration
 
 All six `LoopInvariantCodeMotionTests` methods now have native replacements for
@@ -270,7 +298,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-341/565 dispositions complete (340 native replacements, one DELETE),224 outstanding,
+377/565 dispositions complete (376 native replacements, one DELETE),188 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

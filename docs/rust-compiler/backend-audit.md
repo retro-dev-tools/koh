@@ -515,46 +515,48 @@ See the [73-site source matrix and independent execution oracles](narrowing.md).
 
 Classification: Semantic preservation and private pipeline structure. Optimization must preserve fixed-width results, effects, aliases and CFG/phi meaning; node identity and specific pass ordering are not user contracts.
 
-Proposed future location: `rust/koh-compiler/tests/optimization_semantics.rs` (not implemented).
+Complete native locations: `tests/sm83.rs`, `tests/support/optimization.rs`,
+`tests/fixtures/OptimizationContracts`, and reused native verifier/phi contracts.
+See the [36-row quantified matrix](optimization-semantics.md).
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `ConstantFolding_FoldsIntegerArithmetic` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `ConstantFolding_WrapsToOperandWidth` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `ConstantFolding_SignedAndUnsignedDivideDiffer` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `ConstantFolding_DoesNotFoldDivideByZero` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `ConstantFolding_FoldsComparisons` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `ConstantFolding_FoldsConversions` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `ConstantFolding_AppliesIdentities` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `DeadCodeElimination_RemovesUnusedChain` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `DeadCodeElimination_KeepsUnusedLoad` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `DeadCodeElimination_KeepsStoresAndCalls` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `DeadCodeElimination_SweepsClosedDeadPhiCycle` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `DeadCodeElimination_KeepsPhiCycleReachableFromStore` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Optimize_FoldsAndEliminatesCascade` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Optimize_RewritesPhiIncomingThroughRauw` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Optimize_LeavesNonConstantCodeIntact` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `RedundantLoadElimination_ForwardsStoredValueToLoad` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `RedundantLoadElimination_CollapsesRepeatedLoads` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `RedundantLoadElimination_DoesNotForwardThroughEscapingAlloca` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `DeadStoreElimination_RemovesStoresToWriteOnlyAlloca` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `DeadStoreElimination_KeepsStoresToLoadedAlloca` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `SimplifyCfg_FoldsConstantBranchAndDropsUnreachableBlock` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `SimplifyCfg_PrunesPhiIncomingFromDeadEdge` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Optimize_PromotesScalarLocalToDirectDataflow` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `StrengthReduction_MultiplyByPowerOfTwoBecomesShift` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `StrengthReduction_UnsignedDivideByPowerOfTwoBecomesShift` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `StrengthReduction_UnsignedRemainderByPowerOfTwoBecomesMask` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `StrengthReduction_LeavesNonPowersAlone` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `StrengthReduction_SignedDivideByPositivePowerOfTwoBecomesBiasedShift` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `StrengthReduction_LeavesSignedDivideByNegativePowerBoundaryAlone` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `LocalCse_DeduplicatesIdenticalExpressions` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `LocalCse_DeduplicatesGepWithEqualConstantIndex` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `LocalCse_KeepsDistinctAllocasAndLoads` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Mem2Reg_PromotesLocalAcrossIfElseIntoPhi` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `TrivialPhiElimination_ReplacesSingleIncomingPhi` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Inlining_SplicesLeafCalleeAndDropsTheCall` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Optimize_RemovesUnreachableFunctions` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `ConstantFolding_FoldsIntegerArithmetic` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `ConstantFolding_WrapsToOperandWidth` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `ConstantFolding_SignedAndUnsignedDivideDiffer` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `ConstantFolding_DoesNotFoldDivideByZero` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `ConstantFolding_FoldsComparisons` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `ConstantFolding_FoldsConversions` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `ConstantFolding_AppliesIdentities` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `DeadCodeElimination_RemovesUnusedChain` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `DeadCodeElimination_KeepsUnusedLoad` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `DeadCodeElimination_KeepsStoresAndCalls` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `DeadCodeElimination_SweepsClosedDeadPhiCycle` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `DeadCodeElimination_KeepsPhiCycleReachableFromStore` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `Optimize_FoldsAndEliminatesCascade` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `Optimize_RewritesPhiIncomingThroughRauw` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `Optimize_LeavesNonConstantCodeIntact` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `RedundantLoadElimination_ForwardsStoredValueToLoad` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `RedundantLoadElimination_CollapsesRepeatedLoads` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `RedundantLoadElimination_DoesNotForwardThroughEscapingAlloca` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `DeadStoreElimination_RemovesStoresToWriteOnlyAlloca` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `DeadStoreElimination_KeepsStoresToLoadedAlloca` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `SimplifyCfg_FoldsConstantBranchAndDropsUnreachableBlock` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `SimplifyCfg_PrunesPhiIncomingFromDeadEdge` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `Optimize_PromotesScalarLocalToDirectDataflow` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `StrengthReduction_MultiplyByPowerOfTwoBecomesShift` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `StrengthReduction_UnsignedDivideByPowerOfTwoBecomesShift` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `StrengthReduction_UnsignedRemainderByPowerOfTwoBecomesMask` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `StrengthReduction_LeavesNonPowersAlone` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `StrengthReduction_SignedDivideByPositivePowerOfTwoBecomesBiasedShift` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `StrengthReduction_LeavesSignedDivideByNegativePowerBoundaryAlone` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `LocalCse_DeduplicatesIdenticalExpressions` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `LocalCse_DeduplicatesGepWithEqualConstantIndex` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `LocalCse_KeepsDistinctAllocasAndLoads` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `Mem2Reg_PromotesLocalAcrossIfElseIntoPhi` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `TrivialPhiElimination_ReplacesSingleIncomingPhi` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `Inlining_SplicesLeafCalleeAndDropsTheCall` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
+| `Optimize_RemovesUnreachableFunctions` | Mixed | REPLACE, complete | [Independent behavioral contract and native location](optimization-semantics.md#source-test-disposition). |
 
 ### Ir/RedundantBankSelectEliminationTests.cs (6)
 
