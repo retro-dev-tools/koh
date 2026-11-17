@@ -60,6 +60,27 @@ public class InterruptAndHaltTests
     }
 
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Reti_ReenablesInterruptsAtReturnBoundary(bool pending)
+    {
+        var gb = MakeSystemWithProgram(0xD9, 0x00);
+        gb.Registers.Sp = 0xFFFC;
+        gb.Mmu.DebugWrite(0xFFFC, 0x01);
+        gb.Mmu.DebugWrite(0xFFFD, 0x01);
+        gb.Io.Interrupts.IE = Interrupts.VBlank;
+        if (pending)
+            gb.Io.Interrupts.Raise(Interrupts.VBlank);
+
+        RunInstructions(gb, 1);
+
+        await Assert.That(gb.Registers.Pc).IsEqualTo(pending ? (ushort)0x40 : (ushort)0x101);
+        await Assert.That(gb.Registers.Sp).IsEqualTo(pending ? (ushort)0xFFFC : (ushort)0xFFFE);
+        await Assert.That(gb.Cpu.Ime).IsEqualTo(!pending);
+        await Assert.That(gb.Io.Interrupts.IF).IsEqualTo((byte)0);
+    }
+
+    [Test]
     public async Task Ei_Has_One_Instruction_Delay_Before_Interrupt()
     {
         // EI ; NOP ; NOP  (IE+IF set to VBlank beforehand, IME off)
