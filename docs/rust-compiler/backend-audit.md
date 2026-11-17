@@ -187,19 +187,50 @@ Proposed future location: `rust/koh-compiler/tests/backend_semantics.rs` (not im
 
 ### Backends/Sm83CompareBranchFusionTests.cs (7)
 
-Classification: Comparison behavior and private fusion decisions. Signedness, operand width and multiple consumers determine observable branches; a fused-set membership or exact code size is only one implementation.
+All seven methods are complete:3 PORT/4 REPLACE, nine assertion sites and26
+expanded assertions across24 original executions. The18 original predicate rows
+and both word-sized42/42 and42/43 multi-use cases are retained. Public contracts
+are predicate truth, normalized0/1 values, branch selection and preservation of
+all consumers. Internal eligibility sets, fixed WRAM slots and exact byte layouts
+belong to the retired backend.
 
-Proposed future location: `rust/koh-compiler/tests/compare_branch.rs` (not implemented).
+Implemented native coverage: `tests/support/compare_branch.rs` builds standard CIL;
+`tests/sm83.rs::comparison_branches_preserve_predicates_and_all_consumers` has four
+rstest width cases (8/16/32/64), all discoverable by cargo-nextest. Small-integer
+conversions use ordinary CIL I32 stack values, not legacy I8/I16 SSA types.
 
-| Existing [Test] method | Assertion class | Disposition | Native acceptance |
-|---|---|---|---|
-| `FusedCompareBranch_TakesCorrectArm` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `TwoUseCompare_TrueArm_StillComputesBothUsesCorrectly` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `TwoUseCompare_FalseArm_StillComputesBothUsesCorrectly` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `FusedCompareBranch_IsInternalContextSet_ForImmediatelyConsumedCompareOnly` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
-| `FusedCompare_EmitsNoStoreToItsOwnSlot` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
-| `UnfusedCompare_DoesEmitAStoreToItsOwnSlot_ProvingTheScanDetectsIt` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
-| `FusedCompareBranch_EmitsExpectedByteCount_WithNoWramRoundTrip` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+| Existing method | Decision | Native acceptance / retired assertion |
+| --- | --- | --- |
+| FusedCompareBranch_TakesCorrectArm | PORT, complete | All18 original unsigned/signed/equality vectors return111/222 before and after optimization. Adds64-bit high-only differences and both directions. |
+| TwoUseCompare_TrueArm_StillComputesBothUsesCorrectly | PORT, complete | Exact42==42 case returns cmp+10=11; every predicate/width also exercises this shared consumer. |
+| TwoUseCompare_FalseArm_StillComputesBothUsesCorrectly | PORT, complete | Exact42!=43 case returns99; false-path `(cmp+10)+89` additionally observes the computed zero rather than returning an unconditional sentinel. |
+| FusedCompareBranch_IsInternalContextSet_ForImmediatelyConsumedCompareOnly | REPLACE, complete | Mixed Eq/add and unsigned-less/branch consumers return1 for1<2 and0 for reverse/equal inputs. Retires two private set-membership checks. |
+| FusedCompare_EmitsNoStoreToItsOwnSlot | REPLACE, complete | Single-use truth/arm checks plus bounded emitted footprint and whole-call cost replace a fixed-slot/opcode scan. |
+| UnfusedCompare_DoesEmitAStoreToItsOwnSlot_ProvingTheScanDetectsIt | REPLACE, complete | Shared result and branch are both observed, including false-path control. The old scanner and its positive-control byte sequence have no production counterpart. |
+| FusedCompareBranch_EmitsExpectedByteCount_WithNoWramRoundTrip | REPLACE, complete | Retires the static-frame ABI's exact opcode absence/count. Verifies actual results/stack/guards, generated fixture code/data<=2KiB and representative full checked calls within one DMG frame (70224 T-cycles). |
+
+There is no requirement to implement the old fusion-context abstraction. Porting
+it would copy a private architecture; the native backend may materialize typed
+booleans. The six private assertion sites are explicitly replaced by executable
+contracts. No public numeric expectation is removed and no compiler test is
+deferred. A future optimization can use these same independent expectations.
+
+The fixture checks single/shared predicates, two independent compares and a
+non-eliminable MMIO store between compare and branch. Rust verifies that the
+store survives optimization.37 predicate/input triples include all original
+vectors and high-only64-bit distinctions.246 before/after semantic ROM executions
+plus12 separate timing calls run through ELF and the existing emulator. Timing
+includes native checked-frame/call setup, so it is not comparable to an isolated
+legacy opcode count. Actual costs range4360..14128 T-cycles. An initial8192-cycle
+cap was an unsupported estimate and was rejected after semantic cases passed;
+the documented replacement ceiling is a complete hardware frame, not an alleged
+legacy performance guarantee. No production optimization was changed to satisfy
+this group.
+
+Initial regression selection passes45/45 in78.238s,exit0
+(`/tmp/koh-compare-branch-final.log`). Final strengthened high-bit/aggregate-size
+cases pass4/4 in14.056s,exit0 (`/tmp/koh-compare-branch-consumers-final.log`),173 other
+SM83 cases excluded. Workspace discovery lists1792 tests; all four new cases are unignored. Both runs are selected checks, not workspace completion.
 
 ### Backends/Sm83ControlFlowTests.cs (54)
 

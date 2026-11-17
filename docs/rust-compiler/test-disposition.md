@@ -31,14 +31,14 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:222/565 methods (221 native behavioral replacements,
+**Complete dispositions:229/565 methods (228 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
 Six [interrupt/vector/dispatch methods](interrupts.md) now have complete native
 replacements (11 original assertion sites).
 Eleven [comparison/conversion optimizer methods](optimizer-scalar-contracts.md)
 now have complete native semantic replacements (43 source assertion sites).
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 343 methods still have
+The remaining 336 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -786,3 +786,15 @@ All45 inventoried sample/art-integration methods now have native replacements.
 This does not complete the other520 methods or overall product acceptance.
 Current ledger222/565 complete (221 native,1 obsolete parser DELETE),343
 outstanding; zero legacy definitions physically removed.
+
+## Comparison/branch replacements
+
+All seven `Sm83CompareBranchFusionTests` methods now have native replacements
+(3 PORT/4 REPLACE), retaining all18 predicate rows and both original multi-use
+results. Four rstest width cases execute246 before/after semantic ROMs plus12
+timing calls. Nine original assertion sites/26 expanded checks are accounted
+for in the [exact matrix](backend-audit.md#backendssm83comparebranchfusiontestscs-7),
+including the six retired private set/store/count assertions and their stronger
+behavioral replacements. No production compiler change is needed for this group.
+Ledger229/565 complete (228 native+1 obsolete parser DELETE),336 outstanding;
+no legacy definitions physically removed and no compiler-owned coverage deferred.

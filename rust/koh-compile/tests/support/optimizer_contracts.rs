@@ -4,7 +4,7 @@ use koh_compile::{
     resolve::Definition,
 };
 
-fn conversion_opcode(bits: u16, signed: bool) -> u8 {
+pub(super) fn conversion_opcode(bits: u16, signed: bool) -> u8 {
     match (bits, signed) {
         (8, false) => 0xd2,
         (8, true) => 0x67,

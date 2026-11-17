@@ -23,7 +23,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-222/565 dispositions complete (221 native replacements, one DELETE),343 outstanding,
+229/565 dispositions complete (228 native replacements, one DELETE),336 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The remaining five [CGB HAL methods](cgb-hal.md) now check actual referenced
 code, both VRAM banks, all palette bytes and CGB-only CPU writes.
@@ -1739,3 +1739,12 @@ compiler's remaining source groups still require closure. Ledger222/565 complete
 four original2048 SDK configurations pass. Workspace check, formatting, separate
 rustdoc and discovery1788 pass; all17 new cases are unignored. This remains a
 selected execution result, not a current full-workspace pass.
+
+## Comparison/branch source closure
+
+Seven legacy methods now have native [predicate/consumer replacements](backend-audit.md#backendssm83comparebranchfusiontestscs-7). All18 original rows and both42/42,42/43
+multi-use results survive;64-bit high-only and intervening-effect cases extend
+coverage. Four Rust cases execute246 semantic ROMs plus12 measured calls. Final
+4/4 pass14.056s,exit0; earlier neighboring45/45 pass78.238s. These are selected
+checks. No production compiler changes or old private fusion model are added.
+Ledger229/565 complete,336 outstanding; no physical legacy removal.

@@ -2,6 +2,8 @@ use koh_compile::{ir::*, resolve::Definition, sm83};
 use koh_objects::*;
 use rstest::fixture;
 use std::path::Path;
+#[path = "support/compare_branch.rs"]
+mod compare_branch;
 #[path = "support/liveness.rs"]
 mod liveness;
 #[path = "support/optimizer_contracts.rs"]
@@ -12,6 +14,94 @@ mod recursion_fixture;
 mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case(8)]
+#[case(16)]
+#[case(32)]
+#[case(64)]
+fn comparison_branches_preserve_predicates_and_all_consumers(host: &Host, #[case] bits: u16) {
+    let mut cases = Vec::new();
+    for (predicate, a, b, condition) in compare_branch::inputs(bits) {
+        for shape in ["single", "shared", "barrier"] {
+            let function = compare_branch::function(bits, predicate, shape);
+            let mut optimized = function.clone();
+            koh_compile::optimize::simplify(&mut optimized).unwrap();
+            if shape == "barrier" {
+                assert!(
+                    optimized
+                        .blocks
+                        .iter()
+                        .flat_map(|b| &b.instructions)
+                        .any(|i| matches!(i.op, Op::StoreMemory { bits: 8, .. }))
+                );
+            }
+            let expected = match (shape, condition) {
+                ("shared", true) => 11,
+                ("shared", false) => 99,
+                (_, true) => 111,
+                (_, false) => 222,
+            };
+            for f in [function, optimized] {
+                verify(&f).unwrap();
+                let object = sm83::emit(&f).unwrap();
+                assert!(object.sections.iter().map(|s| s.data.len()).sum::<usize>() <= 2048);
+                cases.push((f, vec![a, b], Ok(expected)));
+            }
+        }
+    }
+    for (a, b, expected) in [(1, 2, 1), (2, 1, 0), (42, 42, 0)] {
+        let function = compare_branch::function(bits, Comparison::Equal, "mixed");
+        let mut optimized = function.clone();
+        koh_compile::optimize::simplify(&mut optimized).unwrap();
+        for f in [function, optimized] {
+            cases.push((f, vec![a, b], Ok(expected)));
+        }
+    }
+    run(host, &cases);
+    let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
+    for (shape, a, b, expected) in [
+        ("single", 1, 2, 111u64),
+        ("shared", 42, 42, 11),
+        ("mixed", 1, 2, 1),
+    ] {
+        let predicate = if shape == "single" {
+            Comparison::LessUnsigned
+        } else {
+            Comparison::Equal
+        };
+        let f = compare_branch::function(bits, predicate, shape);
+        let path = directory.path().join("compare.gb");
+        std::fs::write(&path, rom(&f, &[a, b], 0xd000)).unwrap();
+        let output = dotnet()
+            .arg(&host.dll)
+            .arg("--cost")
+            .arg(path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = String::from_utf8(output.stdout).unwrap();
+        let fields: Vec<_> = output.split_whitespace().collect();
+        assert_eq!(fields[0], "A5", "{output}");
+        assert_eq!(
+            fields[2],
+            expected
+                .to_le_bytes()
+                .iter()
+                .map(|b| format!("{b:02X}"))
+                .collect::<String>(),
+            "{output}"
+        );
+        assert_eq!(&fields[3..5], &["D000", "OK"], "{output}");
+        let cycles: u64 = fields[5].parse().unwrap();
+        println!("{bits}/{shape}: {cycles} T-cycles");
+        assert!(cycles < 70224, "{bits}/{shape}: {cycles} T-cycles");
+    }
+}
 
 #[rstest::rstest]
 #[case(8)]

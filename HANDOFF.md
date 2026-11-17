@@ -2218,3 +2218,18 @@ annotation explicitly confirms maximum1h0m0s. .NET fast job succeeded. Rust logs
 were not uploaded (gh log reports log not found), so no Rust result is claimed.
 Native PR-check job limit changes to90 in a separate commit; two Linux jobs and
 all required tests remain. Safe to push queued batch after commits; never merge.
+
+## Compare/branch closure
+
+Seven legacy methods/nine sites/26 expanded assertions now have native
+replacements (3 PORT/4 REPLACE). Four rstest cases execute standard CIL with
+single/shared/mixed predicates and intervening MMIO. Retains18 source vectors
+and42/42→11,42/43→99; extends64-bit high-only cases.246 semantic ROMs plus12
+timing calls. Exact old slots/registers/byte counts retired explicitly; initial
+8192-cycle estimate was not a justified contract. Full checked-call ceiling is
+one DMG hardware frame70224; measured4360..14128. No production source changed.
+Final4/4 pass14.056s,exit0,/tmp/koh-compare-branch-consumers-final.log; prior adjacent
+45/45 pass78.238s. Ledger229/565 complete (228 native+1 DELETE),336 outstanding.
+CI44088642289 for publishedc08a609 remains active; queue this commit until it
+finishes rather than cancelling it. Next substantive runtime gap is constructed
+generic inheritance/dispatch or banked data; compiler audit groups also remain.
