@@ -754,9 +754,7 @@ impl Builder<'_, '_> {
                 (Type::F64, Binary::Multiply) => {
                     return Err("Binary64 multiplication is not implemented".into());
                 }
-                (Type::F64, Binary::DivideSigned) => {
-                    return Err("Binary64 division is not implemented".into());
-                }
+                (Type::F64, Binary::DivideSigned) => "f64.div",
                 _ => {
                     return Err(format!(
                         "Unsupported floating binary operation {op:?} on {:?}",

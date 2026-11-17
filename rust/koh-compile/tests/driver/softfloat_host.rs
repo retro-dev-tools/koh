@@ -41,6 +41,15 @@ fn runtime() -> Host {
 #[case::f64_add_sweep5("f64-add-sweep-5", 256)]
 #[case::f64_add_sweep6("f64-add-sweep-6", 256)]
 #[case::f64_add_sweep7("f64-add-sweep-7", 256)]
+#[case::f64_div_boundaries("f64-div-boundaries", 24)]
+#[case::f64_div_sweep0("f64-div-sweep-0", 256)]
+#[case::f64_div_sweep1("f64-div-sweep-1", 256)]
+#[case::f64_div_sweep2("f64-div-sweep-2", 256)]
+#[case::f64_div_sweep3("f64-div-sweep-3", 256)]
+#[case::f64_div_sweep4("f64-div-sweep-4", 256)]
+#[case::f64_div_sweep5("f64-div-sweep-5", 256)]
+#[case::f64_div_sweep6("f64-div-sweep-6", 256)]
+#[case::f64_div_sweep7("f64-div-sweep-7", 256)]
 fn software_runtime_matches_independent_numeric_oracles(
     runtime: &Host,
     #[case] group: &str,
@@ -57,6 +66,40 @@ fn software_runtime_matches_independent_numeric_oracles(
         expected.push(result);
     };
     match group {
+        "f64-div-boundaries" => {
+            for (a, b) in [
+                (1u64, 0x3ff0000000000000),
+                (1, 0x4000000000000000),
+                (3, 0x4000000000000000),
+                (0x001fffffffffffff, 0x4000000000000000),
+                (0x0010000000000000, 0x4000000000000000),
+                (0x000fffffffffffff, 0x0010000000000000),
+                (0x3ff0000000000000, 0x4008000000000000),
+                (0x7fefffffffffffff, 0x3fe0000000000000),
+                (0x8000000000000000, 0x4000000000000000),
+                (0, 0),
+                (0x3ff0000000000000, 0),
+                (0xbff0000000000000, 0),
+                (0x7ff0000000000000, 0x7ff0000000000000),
+                (0x7ff0000000000000, 0xbff0000000000000),
+                (0x3ff0000000000000, 0xfff0000000000000),
+                (0x7ff0123456789abc, 0x3ff0000000000000),
+                (0x3ff0000000000000, 0x7ff0123456789abc),
+                (0x0010000000000000, 0x4340000000000000),
+                (0x0010000000000001, 0x4340000000000000),
+                (0x0010000000000000, 0x4350000000000000),
+                (0x8000000000000001, 0x4000000000000000),
+                (0x8000000000000003, 0x4000000000000000),
+                (0x3ff0000000000000, 0x3ff0000000000001),
+                (0x3ff0000000000001, 0x3ff0000000000000),
+            ] {
+                add(
+                    "DivF64",
+                    &[a, b],
+                    (f64::from_bits(a) / f64::from_bits(b)).to_bits(),
+                );
+            }
+        }
         "f64-add-boundaries" => {
             for (a, b) in [
                 (1u64, 1),
@@ -81,7 +124,7 @@ fn software_runtime_matches_independent_numeric_oracles(
                 );
             }
         }
-        group if group.starts_with("f64-add-sweep-") => {
+        group if group.starts_with("f64-add-sweep-") || group.starts_with("f64-div-sweep-") => {
             let start = group.rsplit('-').next().unwrap().parse::<u64>().unwrap() * 256;
             let mut seed = 0x91e10da5c79e7b1du64 ^ start;
             for exponent in start..start + 256 {
@@ -92,15 +135,21 @@ fn software_runtime_matches_independent_numeric_oracles(
                 seed ^= seed << 13;
                 seed ^= seed >> 7;
                 seed ^= seed << 17;
-                let b = if exponent % 4 == 0 {
+                let division = group.starts_with("f64-div-");
+                let b = if !division && exponent % 4 == 0 {
                     a ^ 0x8000000000000000
                 } else {
                     seed
                 };
                 add(
-                    "AddF64",
+                    if division { "DivF64" } else { "AddF64" },
                     &[a, b],
-                    (f64::from_bits(a) + f64::from_bits(b)).to_bits(),
+                    if division {
+                        f64::from_bits(a) / f64::from_bits(b)
+                    } else {
+                        f64::from_bits(a) + f64::from_bits(b)
+                    }
+                    .to_bits(),
                 );
             }
         }
@@ -565,7 +614,10 @@ fn software_runtime_matches_independent_numeric_oracles(
                 f32::from_bits(result as u32).is_nan() && result & 0x00400000 != 0,
                 "{query}"
             );
-        } else if (group == "f64-add-boundaries" || group.starts_with("f64-add-sweep-"))
+        } else if (group == "f64-add-boundaries"
+            || group.starts_with("f64-add-sweep-")
+            || group == "f64-div-boundaries"
+            || group.starts_with("f64-div-sweep-"))
             && f64::from_bits(expected).is_nan()
         {
             assert!(

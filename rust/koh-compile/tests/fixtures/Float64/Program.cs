@@ -77,7 +77,46 @@ public static class Float64
 
     public static int UnsupportedMultiply() => Store(Bits(Multiply(1.5, 2.5)));
 
-    public static int UnsupportedDivide() => Store(Bits(Divide(1.5, 2.5)));
+    public static int Division() => Store(Bits(Divide(7.0, 2.0)));
+
+    public static int DivideThird() => Store(Bits(Divide(1.0, 3.0)));
+
+    public static int DivideTiny() => Store(Bits(Divide(From(1), 1.0)));
+
+    public static int DivideHalf() => Store(Bits(Divide(From(1), 2.0)));
+
+    public static int DivideOddHalf() => Store(Bits(Divide(From(3), 2.0)));
+
+    public static int DivideTransition() => Store(Bits(Divide(From(0x001fffffffffffff), 2.0)));
+
+    public static int DivideOverflow() => Store(Bits(Divide(From(0x7fefffffffffffff), 0.5)));
+
+    public static int DivideZero() => Store(Bits(Divide(From(0x8000000000000000), 2.0)));
+
+    public static int DivideInfinity() => Store(Bits(Divide(-1.0, 0.0)));
+
+    public static int DivideInvalid() => Store(Bits(Divide(0.0, 0.0)) & 0x7ff8000000000000);
+
+    public static int DivideUnderflowTie() =>
+        Store(Bits(Divide(From(0x0010000000000000), From(0x4340000000000000))));
+
+    public static int DivideUnderflowAbove() =>
+        Store(Bits(Divide(From(0x0010000000000001), From(0x4340000000000000))));
+
+    public static int DivideUnderflowBelow() =>
+        Store(Bits(Divide(From(0x0010000000000000), From(0x4350000000000000))));
+
+    public static int DivideNegativeHalf() => Store(Bits(Divide(From(0x8000000000000001), 2.0)));
+
+    public static int DivideByInfinity() => Store(Bits(Divide(1.0, From(0xfff0000000000000))));
+
+    public static int DivideInfiniteInvalid() =>
+        Store(
+            Bits(Divide(From(0x7ff0000000000000), From(0x7ff0000000000000))) & 0x7ff8000000000000
+        );
+
+    public static int DivideNan() =>
+        Store(Bits(Divide(1.0, From(0x7ff0123456789abc))) & 0x7ff8000000000000);
 
     public static int UnsupportedConversion() => Store(Bits(Convert(16777217)));
 
@@ -88,6 +127,8 @@ public static class Float64
     static void Step(ref double value, double increment) => value += increment;
 
     public static int RawTiny() => Store(Koh.GameBoy.SoftFloat.AddF64(1, 1));
+
+    public static int RawDivideTiny() => Store(Koh.GameBoy.SoftFloat.DivF64(1, 0x3ff0000000000000));
 
     public static int Main() => Store(Bits(Add(1.5, 2.5)));
 

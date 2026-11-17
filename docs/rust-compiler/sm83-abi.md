@@ -241,7 +241,7 @@ side and the same existing integer64 caller storage. No binary64 value or
 intermediate is introduced by those helpers.
 
 `F64` uses the same eight-byte storage/calling mechanism with distinct float IR
-identity. Metadata `f64.add`/`f64.sub` helpers carry two raw unsigned64 values and
+identity. Metadata `f64.add`/`f64.sub`/`f64.div` helpers carry two raw unsigned64 values and
 return one; `f64.cmp` returns byte classification. Negation flips the sign bit.
 See [binary64 contract and limits](binary64.md); unsupported precision conversion
 never becomes an implicit truncating integer operation.

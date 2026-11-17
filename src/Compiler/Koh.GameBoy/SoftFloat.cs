@@ -715,46 +715,78 @@ public static class SoftFloat
         int eb = (int)((b >> 52) & 0x7FF);
         ulong ma = a & 0xFFFFFFFFFFFFF;
         ulong mb = b & 0xFFFFFFFFFFFFF;
-        if (ea == 0)
+        if (ea == 2047 && ma != 0)
+            return a | 0x0008000000000000;
+        if (eb == 2047 && mb != 0)
+            return b | 0x0008000000000000;
+        bool za = ea == 0 && ma == 0;
+        bool zb = eb == 0 && mb == 0;
+        if ((za && zb) || (ea == 2047 && eb == 2047))
+            return 0x7ff8000000000000;
+        if (ea == 2047 || zb)
+            return sign | 0x7ff0000000000000;
+        if (za || eb == 2047)
             return sign;
-        if (eb == 0)
-            return sign | ((ulong)0x7FF << 52);
-        ulong siga = ma | 0x10000000000000;
-        ulong sigb = mb | 0x10000000000000;
-        int exp = ea - eb + 1023;
-        UInt128 num = (UInt128)siga << 54;
-        ulong q = (ulong)(num / (UInt128)sigb);
-        ulong r = (ulong)(num % (UInt128)sigb);
-        if (q >= ((ulong)1 << 54)) { } // leading already at bit 54 (no-op)
-        else
+        if (ea == 0)
         {
-            q = q << 1;
-            exp = exp - 1;
-        }
-        ulong sig = q >> 2;
-        ulong low = q & 3;
-        ulong sticky = (r != 0) ? (ulong)1 : (ulong)0;
-        bool up;
-        if ((low & 2) == 0)
-            up = false;
-        else if (low == 2 && sticky == 0)
-            up = (sig & 1) != 0;
-        else
-            up = true;
-        if (up)
-        {
-            sig = sig + 1;
-            if (sig >= ((ulong)1 << 53))
+            ea = 1;
+            while (ma < 0x10000000000000)
             {
-                sig = sig >> 1;
-                exp = exp + 1;
+                ma <<= 1;
+                ea--;
             }
         }
+        else
+            ma |= 0x10000000000000;
+        if (eb == 0)
+        {
+            eb = 1;
+            while (mb < 0x10000000000000)
+            {
+                mb <<= 1;
+                eb--;
+            }
+        }
+        else
+            mb |= 0x10000000000000;
+        int exp = ea - eb + 1023;
+        if (ma < mb)
+        {
+            ma <<= 1;
+            exp--;
+        }
         if (exp >= 2047)
-            return sign | ((ulong)0x7FF << 52);
-        if (exp <= 0)
+            return sign | 0x7ff0000000000000;
+        if (exp < -52)
             return sign;
-        return sign | ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF);
+        if (exp == -52)
+            return sign | (ma > mb ? 1UL : 0UL);
+        int bits = exp > 0 ? 52 : exp + 51;
+        ulong q = 1;
+        ulong remainder = ma - mb;
+        for (int i = 0; i < bits; i++)
+        {
+            remainder <<= 1;
+            q <<= 1;
+            if (remainder >= mb)
+            {
+                remainder -= mb;
+                q |= 1;
+            }
+        }
+        ulong twice = remainder << 1;
+        if (twice > mb || (twice == mb && (q & 1) != 0))
+            q++;
+        if (exp <= 0)
+            return sign | q;
+        if (q == 0x20000000000000)
+        {
+            q >>= 1;
+            exp++;
+        }
+        if (exp >= 2047)
+            return sign | 0x7ff0000000000000;
+        return sign | ((ulong)exp << 52) | (q & 0xFFFFFFFFFFFFF);
     }
 
     [KohRuntime("f64.isNan")]

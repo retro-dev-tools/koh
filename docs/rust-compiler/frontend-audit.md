@@ -109,7 +109,7 @@ Float operations, conversions and byrefs must preserve the declared target numer
 - **PORT** `F32_RefParameter_ReadsAndWritesThroughIndirection`.
 - **PORT COMPLETE** `F32_Rem_NoMatchingRuntimeKey_IsADiagnosticNotAMiscompile` — actual CIL5.5%2 rejects with `f32.rem` and member/IL context.
 - **PORT COMPLETE** `F32_Arithmetic_DebugAndReleaseProduceIdenticalObservableState` — independent exact0.1+0.2 bits, completion/guards in each mode; [matrix](softfloat-division.md#additional-source-dispositions).
-- **PORT** `F64_Arithmetic_DebugAndReleaseProduceIdenticalObservableState`.
+- **PORT COMPLETE** `F64_Arithmetic_DebugAndReleaseProduceIdenticalObservableState` — independent1/3 full-bit result, completion and guards in each mode, `driver/float64.rs`; [division](binary64.md#division).
 
 ### CilFontTextTests.cs
 

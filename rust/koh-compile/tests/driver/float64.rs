@@ -22,6 +22,24 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
     for (entry, expected) in [
         ("RawTiny", 2u64),
+        ("RawDivideTiny", 1),
+        ("Division", 3.5f64.to_bits()),
+        ("DivideThird", (1.0f64 / 3.0).to_bits()),
+        ("DivideTiny", 1),
+        ("DivideHalf", 0),
+        ("DivideOddHalf", 2),
+        ("DivideTransition", 0x0010000000000000),
+        ("DivideOverflow", 0x7ff0000000000000),
+        ("DivideZero", 0x8000000000000000),
+        ("DivideInfinity", 0xfff0000000000000),
+        ("DivideInvalid", 0x7ff8000000000000),
+        ("DivideNan", 0x7ff8000000000000),
+        ("DivideUnderflowTie", 0),
+        ("DivideUnderflowAbove", 1),
+        ("DivideUnderflowBelow", 0),
+        ("DivideNegativeHalf", 0x8000000000000000),
+        ("DivideByInfinity", 0x8000000000000000),
+        ("DivideInfiniteInvalid", 0x7ff8000000000000),
         ("Main", 0x4010000000000000),
         ("Opposite", 0xbffc000000000000),
         ("Tiny", 2),
@@ -103,7 +121,6 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
     }
     for (entry, expected) in [
         ("UnsupportedMultiply", "multiplication"),
-        ("UnsupportedDivide", "division"),
         ("UnsupportedConversion", "conversion"),
         ("UnsupportedInteger", "conversion"),
     ] {
@@ -112,7 +129,11 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
             .unwrap();
         assert!(error.contains("IL_") && error.contains(expected), "{error}");
     }
-    for (key, entry) in [("f64.add", "Main"), ("f64.cmp", "CompareNan")] {
+    for (key, entry) in [
+        ("f64.add", "Main"),
+        ("f64.cmp", "CompareNan"),
+        ("f64.div", "Division"),
+    ] {
         let mut changed = images[1].clone();
         let offsets: Vec<_> = changed
             .windows(key.len())

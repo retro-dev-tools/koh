@@ -1,7 +1,7 @@
 # Binary64 core
 
 Status: constants, bit transport, addition/subtraction, negation, comparisons and
-eight-byte storage/calls are implemented. Multiplication/division and numeric
+eight-byte storage/calls and division are implemented. Multiplication and numeric
 conversions remain explicitly unsupported pending independently correct runtime
 lowering. This is not complete `double` or general .NET floating support.
 
@@ -15,7 +15,7 @@ arrays carry all eight bytes. `System.Double` primitive resolution uses the same
 authenticated framework identity rules as integer and binary32 storage.
 
 Existing integer64 argument/return storage moves the raw bits. Metadata keys
-`f64.add`/`f64.sub` require `ulong(ulong,ulong)`, while `f64.cmp` requires
+`f64.add`/`f64.sub`/`f64.div` require `ulong(ulong,ulong)`, while `f64.cmp` requires
 `byte(ulong,ulong)` and the equal/less/greater/unordered0/1/2/3 contract. Calls
 compile the ordinary reachable library CIL; no host floating execution occurs in
 production. Negation flips bit63. Value/fused-branch comparisons use the same
@@ -38,8 +38,8 @@ at that exponent and emits exponent0 when the rounded significand remains
 subnormal. Separate NaN/infinity/zero handling preserves signed-zero semantics
 and quiets arithmetic NaNs. The53-bit significand plus three rounding/sticky bits
 fits in64 bits, including the addition carry. This requires no `UInt128` or new
-general compiler integer type. Existing binary64 multiply/divide routines still
-use unverified paths and are not selected by this increment.
+general compiler integer type. The binary64 multiplication routine still uses an unverified path and is not
+selected. Division now uses the independently bounded implementation below.
 
 Independent [Rust binary64 arithmetic](https://doc.rust-lang.org/core/primitive.f64.html)
 provides numeric observations consistent with ECMA-335 I.12.1.3. Fourteen boundary
@@ -50,7 +50,7 @@ the significand/bounds argument are not exhaustive verification of every pair.
 
 ## Native tests and source disposition
 
-`driver/float64.rs` runs23 entries in Debug/Release × DMG/CGB (92 ROMs): actual
+`driver/float64.rs` runs41 entries in Debug/Release × DMG/CGB (164 ROMs): actual
 Roslyn R8 constants, arithmetic, both comparison positions, calls, joins,
 references, fields and arrays. The emulator checks all eight result bytes at
 WRAM DFF8, array payload bytes and every surrounding byte/bank/frame guard.
@@ -67,8 +67,8 @@ before and after optimization.
 All four original parameter rows and32 expanded assertions are retained through
 compile/IR verification, complete CPU return, all result bits and guards. One
 method closes; mixed binary64 arithmetic and conversion methods remain open.
-The float disposition group now covers12 of22 methods,46 original
-parameter-expanded cases and307 explicit expanded assertions. No legacy source
+The float disposition group now covers13 of22 methods,47 original
+parameter-expanded cases and310 explicit expanded assertions. No legacy source
 definition is physically retired by this increment.
 
 ## Verification
@@ -84,5 +84,52 @@ Workspace all-target/all-feature checking passed with the existing unused
 `cubes` test helper warning. Separate workspace rustdoc checking passed (zero
 doctests in each of four crates); Rustfmt, CSharpier and diff checks passed.
 These local selections do not establish full migration or cross-platform
-acceptance. Binary64 multiplication, division and numeric conversions remain
+acceptance. Binary64 multiplication and numeric conversions remain
 explicitly unsupported.
+
+## Division
+
+The former `DivF64` used `UInt128` division and flushed subnormal inputs/results.
+The new ordinary-CIL helper normalizes each nonzero operand to53 significant
+bits and scales the numerator once so its ratio is in[1,2). Binary long division
+emits at most52 fractional bits. Each remainder is strictly smaller than the
+53-bit denominator; doubling it fits54 bits. No128-bit value, division helper
+or host floating operation is required.
+
+For subnormal output, fewer quotient bits are generated at the final storage
+scale. Comparing twice the exact remainder with the denominator performs one
+round-to-nearest-even step, including the transition to the smallest normal.
+At exponent-52 the result lies between half and one minimum-subnormal unit;
+exact equality rounds to zero, while a larger ratio rounds to one. Smaller
+exponents underflow to signed zero. NaNs, infinities and zeros are classified
+before normalization; arithmetic NaNs are quiet without requiring host payload
+or sign identity.
+
+Twenty-four independent boundary observations and2048 exponent-stratified
+divisions compare raw finite results with Rust binary64 division. Native cases
+cover repeating fractions, minimum subnormals, even/odd halfway rounding, the
+normal transition, overflow, signed zeros, divide-by-zero and invalid/NaN
+results. Missing `f64.div` metadata also diagnoses with IL context.
+
+`F64_Arithmetic_DebugAndReleaseProduceIdenticalObservableState` is PORT COMPLETE:
+`DivideThird` executes the original1/3 in both Roslyn modes and both cartridge
+modes. Independent expected bits, CPU completion and memory/frame guards replace
+the old cross-mode state equality while preserving its3 assertions. This closes
+one additional source method; the mixed four-operation method remains open
+until multiplication is implemented.
+
+Division verification passed46/46 focused cases in126.290s, followed by663/663
+selected compiler/IR/lowering/float/software-runtime cases in317.607s. The latter
+includes all164 binary64 ROMs and7252 managed numeric observations;296 tests
+were outside this selection. The separate primitive-array CLI follow-up passed
+4/4 cases in20.102s. Workspace all-target/all-feature checking, separate rustdoc
+and formatting passed. The existing unused `cubes` helper
+warning remains. Independent code review found no confirmed defect. These are
+local Linux results, not current-head hosted or cross-platform acceptance.
+
+Focused reproduction (with the .NET SDK on PATH or `KOH_DOTNET` set):
+
+```sh
+cargo nextest run -p koh-compile --test driver \
+  -E 'test(float64::) | test(softfloat_host::)' --locked
+```

@@ -1515,3 +1515,30 @@ allfeaturescheckEXIT0(existingunusedcubeshelperwarning), rustdocEXIT0fourcrates
 zerocases, rustfmt/CSharpier2files/diffchecks pass. Read-onlybackendreviewno
 confirmeddefect. Ledger149/565complete416outstanding, zero physicallyretired.
 Readylogicalbinary64commit thenbatchpushwith3122c6c; previousbcCIgreen.
+
+2026-11-17 nextdivisionunit DIRTYafterpublished3a45685. RawDivF64tinyregression
+91059EXIT100: originalUInt128helpercannotresolveSystem.Runtime. Replacedonly
+DivF64bodywith64bitbinarylongdivision; normalization53bit, remainder<53bits,
+shiftedremainder<54bits, atmost52fractioniterations. Finalsubnormalprecision
+beforeoneRNEstep; exp-52halfminimumsubnormalbranch; NaN/inf/zeroexplicit.
+RustlowerF64DivideSigned→metadataf64.div, exactexistingrawcontract. NoI128.
+20733/tmp/koh-f64-div-first.log TERMINALEXIT0 46/46pass126.290s318unselected:
+4nativecases140ROMs +all42softwarehostgroups7252numericobservations(total
+adds24boundary+2048sweepdivisions). Added6more nativeexp-52/below/negativezero/
+infNaNentries afterfirstrun, now41×4=164ROMs (72division).
+72368TERMINALEXIT0/tmp/koh-f64-div-final.log 663/663pass317.607s296unselected;
+allLib/IR/lowering +float/softwaremath. The cli_array filter didnotselect
+primitive-arrayCLIcases; focusedfollowupnowrunning /tmp/koh-f64-div-arrays.log. Nootherlocalbuild. Docspropose150/565complete415remaining:
+F64ArithmeticDebugRelease1/3methodPORT, preserves3originalassertions and
+independentbits/CPU/memoryguards. Mixedarithmeticmethodstillopenuntilmul.
+Published3a45685CI43999660970stillinprogress; do notpush/canceluntilterminal.
+Nextfinishbroadtest/checks/docs/logicalcommit; nofullmigrationclaim.
+Read-onlybackend_auditreviewcompleted: noconfirmeddefect; quotient/remainder
+bounds, singleRNE, exp-52halfquantum, subnormal→normalpromotion/specialvalues
+checked. No importantcoveragegapidentified. Parentownsregressionresults. Workspacealltargets/allfeaturescheckEXIT0(5.46s
+existingunusedcubeshelperwarning), separaterustdocEXIT0fourzerocasecrates.
+Formatting/diffchecks passed. No semanticproductionchangesafter663run.
+
+36126arrayCLIfollowupTERMINALEXIT0 4/4pass20.102s360unselected. Alllocal
+buildsfinished. Readydivisionlogicalcommit; holdpushuntilpublished3a45685CI
+43999660970terminal. Newdivisionmethodledger150/565complete415remaining.
