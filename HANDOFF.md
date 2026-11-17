@@ -1632,3 +1632,47 @@ workspacecheck/rustdoccompleted(readterminaloutput); format/Rustfmt/diffpass.
 No semanticchangesafter17run. Readylogicalwidthcastcommit; currentCIpublished
 bc06529run44003120165stillinprogress, holdpushandbatchnextintegerunit.
 Ledger156/565complete409remaining; zero physicallyretired.
+
+2026-11-17 DIRTYinteger↔binary64 afterLOCALf8e99a1(notpushed). Publishedbc06529
+CI44003120165wasinprogress. Red37598EXIT1004.540sunsupportedIntegerInput.
+Initial86124failedC#buildbecauseeditmatchedToI64F32insteadToI64andremoved
+unrelatedhelperblock; restoredfilefromHEAD(readgitshow, NOreset/checkout)
+andappliedexactsigedit, diffnowonly45lines. Repaired87610TERMINALEXIT0
+9/9pass95.524s434unselected original87entries×4=348ROMs+5handCIL.
+Newmetadatai64/u64.toF64, f64.toI32/U32/I64/U64. Source32/Native16sign/zero
+extendtoI64; unsignedconv.r.unlooksnextnonNOPconv.r4orconv.r8, selectsF32
+directorF64direct; otherbareinternalFshapesdiagnoseexplicitprecision.
+Signedconv.r8integer→i64.toF64. F64tointegerclampsat32/64thenexistingnarrow
+8/16/Nativecasts;NaN0. FromI64minimumuncheckedmag. ToU64NaNguard. ToI64
+saturationwithnobogusuniversalCLRclaim. NewToI32F64/ToU32F64ordinaryCIL
+wrappersclamp32aftersafe64helper, noC#compileralgorithms.
+Expandednative140entries×4=560ROMs(228integer):26typedinputs+27typedoutputs
++4previousunsupportednowcorrectpositives. Original6signed+4unsigned+3ToInt
+rowsincluded. Sixnewkeysmissing/renamed/wrongreturnsignednessprobes. Hostnew
+2176numericobservations(16×2bounds+4×128×2input,24×4bounds+4×64×4output),
+total14089. Current66931LIVE/tmp/koh-f64-integer-final.log broadLib/IR/
+lowering+float/softwaremath+primitivearrayCLI. Parentownsallfiles/builds.
+ReviewREADONLYagainstHEADf8e99a1,noedits/build/test/commit/spawn. Proposed
+3PORTclosuresledger159/565complete406remain;float22/22methods74cases504asserts.
+Needterminal/review/docs/checks/logicalcommit; batchpushwithf8e99afterCIterminal.
+
+66931TERMINALEXIT100197pass1fail505unrun49.906s: generatednegative(nint)-123
+CS0119/CS0075syntaxerror; fixed(nint)(-123), value/expectationunchanged.
+54647expandedTERMINALEXIT0 22/22pass195.205s373unselected:4F64native560ROMs,
+8integer/F32conversionnativecasesand10newintegerhostgroups2176observations.
+Read-onlyreviewnoconfirmeddefect. Added2signedshort/native65535→-1boundary
+rows AFTERfocusedrun; current142entries×4=568ROMs(236integer), samehost14089.
+FinalbroaderretryLIVE/tmp/koh-f64-integer-final-fixed.log703selection, all
+Lib/IR/lowering+float/softwaremath+primitivearrays. No otherlocalbuilds.
+Publishedbc06529CI44003120165TERMINALSUCCESS1489/1489Rust1535.136szeroskips,
+separaterustdoc4zero,.NETfast562pass2UIskips0fail. Primarycompletedlog
+/tmp/koh-ci-bc06529-completed.logGH_EXIT0. Pushgatecleared; finishunitchecks/
+committhenbatchpushf8e99a1+integerunit. Fullgoalactiveincomplete.
+
+66813TERMINALEXIT0 /tmp/koh-f64-integer-final-fixed.log703/703pass486.131s292
+unselected. All142×4=568F64ROMs(236integer),14089managednumericobservations,
+oldintegerF32single-roundcounterexampleandbothsignedwraprowscovered.
+/tmp/koh-f64-float-disposition-check.json sourcecrosscheck22methods74cases
+22COMPLETEmappings, last3rows3+6+4independentinputs. No productionchanges
+after703run; formatting/diffchecks pass. Finish59074workspacecheck/doclog
+thencommitintegerunit, batchpushwithf8e99a1(previousCIbc06529green).

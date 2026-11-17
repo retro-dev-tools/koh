@@ -71,6 +71,16 @@ fn runtime() -> Host {
 #[case::narrow_sweep5("width-narrow-sweep-5", 256)]
 #[case::narrow_sweep6("width-narrow-sweep-6", 256)]
 #[case::narrow_sweep7("width-narrow-sweep-7", 256)]
+#[case::f64_from_integer_bounds("f64-from-integer-bounds", 32)]
+#[case::f64_to_integer_bounds("f64-to-integer-bounds", 96)]
+#[case::f64_from_integer_sweep0("f64-from-integer-sweep-0", 256)]
+#[case::f64_to_integer_sweep0("f64-to-integer-sweep-0", 256)]
+#[case::f64_from_integer_sweep1("f64-from-integer-sweep-1", 256)]
+#[case::f64_to_integer_sweep1("f64-to-integer-sweep-1", 256)]
+#[case::f64_from_integer_sweep2("f64-from-integer-sweep-2", 256)]
+#[case::f64_to_integer_sweep2("f64-to-integer-sweep-2", 256)]
+#[case::f64_from_integer_sweep3("f64-from-integer-sweep-3", 256)]
+#[case::f64_to_integer_sweep3("f64-to-integer-sweep-3", 256)]
 fn software_runtime_matches_independent_numeric_oracles(
     runtime: &Host,
     #[case] group: &str,
@@ -87,6 +97,89 @@ fn software_runtime_matches_independent_numeric_oracles(
         expected.push(result);
     };
     match group {
+        "f64-from-integer-bounds" => {
+            for bits in [
+                0u64,
+                1,
+                5,
+                u64::MAX,
+                0x8000000000000000,
+                0x7fffffffffffffff,
+                9007199254740991,
+                9007199254740992,
+                9007199254740993,
+                9007199254740995,
+                0x8000000000000400,
+                0x8000000000000401,
+                0xfffffffffffffc00,
+                0xfffffffffffffbff,
+                0xfffffffffffffc01,
+                1000000,
+            ] {
+                add("FromI64", &[bits], ((bits as i64) as f64).to_bits());
+                add("FromU64", &[bits], (bits as f64).to_bits());
+            }
+        }
+        group if group.starts_with("f64-from-integer-sweep-") => {
+            let batch = group.rsplit('-').next().unwrap().parse::<u64>().unwrap();
+            let mut seed = 0xe54b71da9c203f81u64 ^ batch;
+            for _ in 0..128 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                add("FromI64", &[seed], ((seed as i64) as f64).to_bits());
+                add("FromU64", &[seed], (seed as f64).to_bits());
+            }
+        }
+        group if group.starts_with("f64-to-integer-") => {
+            let values: Vec<u64> = if group == "f64-to-integer-bounds" {
+                vec![
+                    0,
+                    0x8000000000000000,
+                    3.7f64.to_bits(),
+                    (-3.7f64).to_bits(),
+                    1000.25f64.to_bits(),
+                    2147483647f64.to_bits(),
+                    2147483648f64.to_bits(),
+                    (-2147483648f64).to_bits(),
+                    (-2147483649f64).to_bits(),
+                    4294967295f64.to_bits(),
+                    4294967296f64.to_bits(),
+                    0x43e0000000000000,
+                    0x43dfffffffffffff,
+                    0xc3e0000000000000,
+                    0xc3e0000000000001,
+                    0x43f0000000000000,
+                    0x43efffffffffffff,
+                    (-0.9f64).to_bits(),
+                    0.9f64.to_bits(),
+                    0x7ff0000000000000,
+                    0xfff0000000000000,
+                    0x7ff8123456789abc,
+                    0xfff8123456789abc,
+                    0x7ff0123456789abc,
+                ]
+            } else {
+                let batch = group.rsplit('-').next().unwrap().parse::<u64>().unwrap();
+                let mut seed = 0x27e8f3a96cb1504du64 ^ batch;
+                (0..64)
+                    .map(|i| {
+                        seed ^= seed << 13;
+                        seed ^= seed >> 7;
+                        seed ^= seed << 17;
+                        let exponent = 1022 + (i + batch * 17) % 68;
+                        (seed & 0x800fffffffffffff) | (exponent << 52)
+                    })
+                    .collect()
+            };
+            for bits in values {
+                let value = f64::from_bits(bits);
+                add("ToI64", &[bits], value as i64 as u64);
+                add("ToU64", &[bits], value as u64);
+                add("ToI32F64", &[bits], u64::from(value as i32 as u32));
+                add("ToU32F64", &[bits], u64::from(value as u32));
+            }
+        }
         "width-widen-boundaries" => {
             for bits in [
                 0u32, 0x80000000, 1, 0x7fffff, 0x800000, 0x3fc00000, 0xc0200000, 0x3dcccccd,

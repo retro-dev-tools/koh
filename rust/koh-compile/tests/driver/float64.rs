@@ -21,6 +21,137 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
     .unwrap();
     let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
     for (entry, expected) in [
+        ("InputInt0", (0u64 as f64).to_bits()),
+        ("InputInt1", (5u64 as f64).to_bits()),
+        ("InputInt2", (-5i64 as f64).to_bits()),
+        ("InputInt3", (1000000u64 as f64).to_bits()),
+        ("InputInt4", (16777217u64 as f64).to_bits()),
+        ("InputInt5", (-16777217i64 as f64).to_bits()),
+        ("InputInt6", (-2147483648i64 as f64).to_bits()),
+        ("InputInt7", (2147483647u64 as f64).to_bits()),
+        ("InputUInt0", (0u64 as f64).to_bits()),
+        ("InputUInt1", (5u64 as f64).to_bits()),
+        ("InputUInt2", (1000000u64 as f64).to_bits()),
+        ("InputUInt3", (16777217u64 as f64).to_bits()),
+        ("InputUInt4", (4294967295u64 as f64).to_bits()),
+        ("InputLong0", (-9223372036854775808i64 as f64).to_bits()),
+        ("InputLong1", (9223372036854775807u64 as f64).to_bits()),
+        ("InputLong2", (9007199254740993u64 as f64).to_bits()),
+        ("InputLong3", (9007199254740995u64 as f64).to_bits()),
+        ("InputLong4", (-9007199254740995i64 as f64).to_bits()),
+        ("InputULong0", (0u64 as f64).to_bits()),
+        ("InputULong1", (18446744073709551615u64 as f64).to_bits()),
+        ("InputULong2", (9007199254740993u64 as f64).to_bits()),
+        ("InputULong3", (9007199254740995u64 as f64).to_bits()),
+        ("InputULong4", (9223372036854776832u64 as f64).to_bits()),
+        ("InputULong5", (9223372036854776833u64 as f64).to_bits()),
+        ("InputNative0", (-123i64 as f64).to_bits()),
+        ("InputUNative0", (65535u64 as f64).to_bits()),
+        (
+            "OutputInt0",
+            f64::from_bits(0xc00d99999999999a) as i32 as i64 as u64,
+        ),
+        (
+            "OutputInt1",
+            f64::from_bits(0x400d99999999999a) as i32 as i64 as u64,
+        ),
+        (
+            "OutputInt2",
+            f64::from_bits(0x408f420000000000) as i32 as i64 as u64,
+        ),
+        (
+            "OutputInt3",
+            f64::from_bits(0x41e0000000000000) as i32 as i64 as u64,
+        ),
+        (
+            "OutputInt4",
+            f64::from_bits(0xc1e0000080000000) as i32 as i64 as u64,
+        ),
+        (
+            "OutputInt5",
+            f64::from_bits(0x7ff8000000000000) as i32 as i64 as u64,
+        ),
+        (
+            "OutputInt6",
+            f64::from_bits(0x7ff0000000000000) as i32 as i64 as u64,
+        ),
+        (
+            "OutputUInt0",
+            u64::from(f64::from_bits(0x400d99999999999a) as u32),
+        ),
+        (
+            "OutputUInt1",
+            u64::from(f64::from_bits(0xc00d99999999999a) as u32),
+        ),
+        (
+            "OutputUInt2",
+            u64::from(f64::from_bits(0x41f0000000000000) as u32),
+        ),
+        (
+            "OutputUInt3",
+            u64::from(f64::from_bits(0x7ff8000000000000) as u32),
+        ),
+        (
+            "OutputLong0",
+            f64::from_bits(0xc00d99999999999a) as i64 as u64,
+        ),
+        (
+            "OutputLong1",
+            f64::from_bits(0x43e0000000000000) as i64 as u64,
+        ),
+        (
+            "OutputLong2",
+            f64::from_bits(0xc3e0000000000000) as i64 as u64,
+        ),
+        (
+            "OutputLong3",
+            f64::from_bits(0x7ff0000000000000) as i64 as u64,
+        ),
+        (
+            "OutputLong4",
+            f64::from_bits(0xfff0000000000000) as i64 as u64,
+        ),
+        (
+            "OutputLong5",
+            f64::from_bits(0x7ff8000000000000) as i64 as u64,
+        ),
+        ("OutputULong0", f64::from_bits(0x43f0000000000000) as u64),
+        ("OutputULong1", f64::from_bits(0x43efffffffffffff) as u64),
+        ("OutputULong2", f64::from_bits(0xc00d99999999999a) as u64),
+        ("OutputULong3", f64::from_bits(0x7ff8000000000000) as u64),
+        (
+            "OutputSByte0",
+            ((f64::from_bits(0x4060400000000000) as i32) as i8) as i64 as u64,
+        ),
+        (
+            "OutputByte0",
+            u64::from((f64::from_bits(0x4072cc0000000000) as u32) as u8),
+        ),
+        (
+            "OutputShort0",
+            ((f64::from_bits(0x40f1170000000000) as i32) as i16) as i64 as u64,
+        ),
+        (
+            "OutputUShort0",
+            u64::from((f64::from_bits(0x40f1170000000000) as u32) as u16),
+        ),
+        (
+            "OutputNative0",
+            ((f64::from_bits(0x40f1170000000000) as i32) as i16) as i64 as u64,
+        ),
+        (
+            "OutputUNative0",
+            u64::from((f64::from_bits(0x40f0000000000000) as u32) as u16),
+        ),
+        ("OutputNativeSignedWrap", u64::MAX),
+        ("OutputShortSignedWrap", u64::MAX),
+        ("IntegerInput", (16777217f64).to_bits()),
+        ("IntegerUnsigned32", (16777217f64).to_bits()),
+        (
+            "IntegerUnsigned64",
+            (0x8000008000000001u64 as f64).to_bits(),
+        ),
+        ("IntegerOutput", 1),
         ("RawTiny", 2u64),
         ("Widen0", f64::from(f32::from_bits(0x3fc00000)).to_bits()),
         ("Widen1", f64::from(f32::from_bits(0xc0200000)).to_bits()),
@@ -209,13 +340,7 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
             super::assert_heap_snapshot(fields[5], &[0x6b; 4096], entry);
         }
     }
-    for (entry, expected) in [
-        ("UnsupportedConversion", "conversion"),
-        ("UnsupportedUnsigned32", "conv.r.un"),
-        ("UnsupportedUnsigned64", "conv.r.un"),
-        ("UnsupportedRemainder", "f64.rem"),
-        ("UnsupportedInteger", "conversion"),
-    ] {
+    for (entry, expected) in [("UnsupportedRemainder", "f64.rem")] {
         let error = compile::object(&resolver, Some(&format!("Float64::{entry}")))
             .err()
             .unwrap();
@@ -228,6 +353,12 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
         ("f64.mul", "Multiplication"),
         ("f32.toF64", "Widen0"),
         ("f64.toF32", "Narrow0"),
+        ("i64.toF64", "InputInt0"),
+        ("u64.toF64", "IntegerUnsigned32"),
+        ("f64.toI32", "IntegerOutput"),
+        ("f64.toU32", "OutputUInt0"),
+        ("f64.toI64", "OutputLong0"),
+        ("f64.toU64", "OutputULong0"),
     ] {
         let mut changed = images[1].clone();
         let offsets: Vec<_> = changed
@@ -276,6 +407,12 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
     for (name, entry, expected, returns) in [
         ("ToF64", "Widen0", "ulong(uint)", 11u8),
         ("ToF32", "Narrow0", "uint(ulong)", 9),
+        ("FromI64", "InputInt0", "ulong(long)", 11),
+        ("FromU64", "IntegerUnsigned32", "ulong(ulong)", 11),
+        ("ToI32F64", "IntegerOutput", "int(ulong)", 8),
+        ("ToU32F64", "OutputUInt0", "uint(ulong)", 9),
+        ("ToI64", "OutputLong0", "long(ulong)", 10),
+        ("ToU64", "OutputULong0", "ulong(ulong)", 11),
     ] {
         let mut changed = images[1].clone();
         let name = format!("{name}\0");
@@ -305,7 +442,7 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
         let start = heap_offset(&images[1], "#Blob") + method.signature as usize;
         assert_eq!(&images[1][start..start + 4], &[4, 0, 1, returns]);
         let mut changed = images[1].clone();
-        changed[start + 3] = returns - 1;
+        changed[start + 3] = returns ^ 1;
         let wrong = Resolver::new(&[&images[0], &changed]).unwrap();
         let error = compile::object(&wrong, Some(&format!("Float64::{entry}"))).unwrap_err();
         assert!(error.contains(expected) && error.contains("IL_"), "{error}");

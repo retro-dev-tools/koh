@@ -445,6 +445,12 @@ pub(crate) fn float_conversion(resolver: &Resolver<'_>, key: &str) -> Result<Def
         "f32.toU64" => (U4, U8, "ulong(uint)"),
         "f32.toF64" => (U4, U8, "ulong(uint)"),
         "f64.toF32" => (U8, U4, "uint(ulong)"),
+        "i64.toF64" => (I8, U8, "ulong(long)"),
+        "u64.toF64" => (U8, U8, "ulong(ulong)"),
+        "f64.toI64" => (U8, I8, "long(ulong)"),
+        "f64.toU64" => (U8, U8, "ulong(ulong)"),
+        "f64.toI32" => (U8, I4, "int(ulong)"),
+        "f64.toU32" => (U8, U4, "uint(ulong)"),
         _ => return Err(format!("Unsupported runtime conversion {key}")),
     };
     let definition = runtime_method(resolver, key)?;

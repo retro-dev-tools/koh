@@ -699,6 +699,16 @@ impl Builder<'_, '_> {
         key: &str,
         mut value: (u32, Type),
     ) -> Result<(u32, Type), String> {
+        if matches!(key, "i64.toF64" | "u64.toF64") && matches!(value.1, Type::I32 | Type::Native) {
+            value = self.value(
+                Type::I64,
+                Op::Convert {
+                    value: value.0,
+                    bits: value.1.bits() as u8,
+                    signed: key == "i64.toF64",
+                },
+            )?;
+        }
         value = match value.1 {
             Type::F32 => self.value(Type::I32, Op::Reinterpret(value.0))?,
             Type::F64 => self.value(Type::I64, Op::Reinterpret(value.0))?,
@@ -717,7 +727,16 @@ impl Builder<'_, '_> {
             .resolver
             .ok_or("Floating conversion requires runtime metadata")?;
         let target = crate::contracts::float_conversion(resolver, key)?;
-        let returns = if matches!(key, "f32.toI64" | "f32.toU64" | "f32.toF64") {
+        let returns = if matches!(
+            key,
+            "f32.toI64"
+                | "f32.toU64"
+                | "f32.toF64"
+                | "i64.toF64"
+                | "u64.toF64"
+                | "f64.toI64"
+                | "f64.toU64"
+        ) {
             Type::I64
         } else {
             Type::I32
@@ -3027,21 +3046,34 @@ fn translate(
                     let bits = b.float_conversion("f32.toF64", value)?;
                     b.value(Type::F64, Op::Reinterpret(bits.0))?
                 }
-                _ => return Err("Binary64 integer conversion is not implemented".into()),
+                Type::I32 | Type::I64 | Type::Native => {
+                    let bits = b.float_conversion("i64.toF64", value)?;
+                    b.value(Type::F64, Op::Reinterpret(bits.0))?
+                }
+                _ => return Err("Floating conversion requires a numeric operand".into()),
             };
             b.stack.push(value);
         }
         0x6b | 0x76 => {
             let value = b.pop()?;
-            if i.opcode == 0x76 && matches!(value.1, Type::I32 | Type::I64 | Type::Native) {
-                let consumer = method
-                    .il
-                    .get(i.offset as usize..)
-                    .and_then(|bytes| bytes.iter().skip(1).find(|&&byte| byte != 0));
-                if consumer != Some(&0x6b) {
-                    return Err("conv.r.un currently requires explicit conv.r4; unsigned-to-binary64 conversion is not implemented".into());
-                }
-            }
+            let precision =
+                if i.opcode == 0x76 && matches!(value.1, Type::I32 | Type::I64 | Type::Native) {
+                    match method
+                        .il
+                        .get(i.offset as usize..)
+                        .and_then(|bytes| bytes.iter().skip(1).find(|&&byte| byte != 0))
+                    {
+                        Some(0x6b) => Type::F32,
+                        Some(0x6c) => Type::F64,
+                        _ => {
+                            return Err(
+                                "conv.r.un requires explicit conv.r4 or conv.r8 precision".into()
+                            );
+                        }
+                    }
+                } else {
+                    Type::F32
+                };
             let value = if value.1 == Type::F32 && i.opcode == 0x6b {
                 value
             } else if value.1 == Type::F64 && i.opcode == 0x6b {
@@ -3059,14 +3091,18 @@ fn translate(
                         );
                     }
                 }
-                let key = match (value.1 == Type::I64, i.opcode == 0x76) {
-                    (true, true) => "u64.toF32",
-                    (true, false) => "i64.toF32",
-                    (false, true) => "u32.toF32",
-                    (false, false) => "i32.toF32",
+                let key = if precision == Type::F64 {
+                    "u64.toF64"
+                } else {
+                    match (value.1 == Type::I64, i.opcode == 0x76) {
+                        (true, true) => "u64.toF32",
+                        (true, false) => "i64.toF32",
+                        (false, true) => "u32.toF32",
+                        (false, false) => "i32.toF32",
+                    }
                 };
                 let bits = b.float_conversion(key, value)?;
-                b.value(Type::F32, Op::Reinterpret(bits.0))?
+                b.value(precision, Op::Reinterpret(bits.0))?
             };
             b.stack.push(value);
         }
@@ -3085,15 +3121,17 @@ fn translate(
                 _ => return Err("Invalid conversion opcode".into()),
             };
             let mut value = b.pop()?;
-            if value.1 == Type::F64 {
-                return Err("Binary64 to integer conversion is not implemented".into());
-            }
-            if value.1 == Type::F32 {
-                let key = match (bits == 64, signed) {
-                    (true, true) => "f32.toI64",
-                    (true, false) => "f32.toU64",
-                    (false, true) => "f32.toI32",
-                    (false, false) => "f32.toU32",
+            if matches!(value.1, Type::F32 | Type::F64) {
+                let key = match (value.1, bits == 64, signed) {
+                    (Type::F32, true, true) => "f32.toI64",
+                    (Type::F32, true, false) => "f32.toU64",
+                    (Type::F32, false, true) => "f32.toI32",
+                    (Type::F32, false, false) => "f32.toU32",
+                    (Type::F64, true, true) => "f64.toI64",
+                    (Type::F64, true, false) => "f64.toU64",
+                    (Type::F64, false, true) => "f64.toI32",
+                    (Type::F64, false, false) => "f64.toU32",
+                    _ => return Err("Invalid floating integer conversion type".into()),
                 };
                 value = b.float_conversion(key, value)?;
             }

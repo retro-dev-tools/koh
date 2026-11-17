@@ -247,3 +247,10 @@ Precision casts use `f32.toF64` (`ulong(uint)`) and `f64.toF32` (`uint(ulong)`);
 raw argument/result widths match the source/destination float widths. See
 [binary64 contract and limits](binary64.md); unsupported integer conversions
 never become implicit truncating integer operations.
+
+Integer/binary64 casts retain the existing64-bit raw ABI. `i64.toF64` and
+`u64.toF64` return raw unsigned64 float bits;32/native16 inputs extend first.
+`f64.toI32/U32/I64/U64` accept raw unsigned64 bits and return the matching
+integer width/signature. Narrower/native outputs truncate after32-bit clamping.
+Precision is selected explicitly by the supported `conv.r.un;conv.r4/r8` pair;
+no implicit binary64 rounding is inserted on direct unsigned→binary32 casts.

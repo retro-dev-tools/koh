@@ -101,9 +101,9 @@ Float operations, conversions and byrefs must preserve the declared target numer
 - **REPLACE COMPLETE** `F32_ToF64_RoutesThroughRealSoftFloatFunction` — metadata helper rename/missing-key/wrong-signature checks; [matrix](binary64.md#precision-casts).
 - **PORT COMPLETE** `F64_ToF32_MatchesHost` — exact native results/guards in both modes and cartridges; [precision-cast/byref matrix](binary64.md#precision-casts).
 - **REPLACE COMPLETE** `F64_ToF32_RoutesThroughRealSoftFloatFunction` — metadata helper rename/missing-key/wrong-signature checks; [matrix](binary64.md#precision-casts).
-- **PORT** `F64_ToInt_MatchesHost`.
-- **PORT** `F64_FromInt_MatchesHost`.
-- **PORT** `F64_FromUInt_MatchesHost`.
+- **PORT COMPLETE** `F64_ToInt_MatchesHost` — all original inputs in both modes, exact native integer/float bits and guards; [integer-cast matrix](binary64.md#integer-casts).
+- **PORT COMPLETE** `F64_FromInt_MatchesHost` — all original inputs in both modes, exact native integer/float bits and guards; [integer-cast matrix](binary64.md#integer-casts).
+- **PORT COMPLETE** `F64_FromUInt_MatchesHost` — all original inputs in both modes, exact native integer/float bits and guards; [integer-cast matrix](binary64.md#integer-casts).
 - **PORT COMPLETE** `F64_Arithmetic_MatchesHost` — all4 original arithmetic rows in both modes with independent full-bit results/guards, `driver/float64.rs`; [multiplication](binary64.md#multiplication).
 - **PORT COMPLETE** `F64_Compare_MatchesHost` — all4 original rows in both modes plus NaN, signed-zero, negative and fused-branch coverage, `driver/float64.rs`; [matrix](binary64.md#native-tests-and-source-disposition).
 - **PORT COMPLETE** `F32_RefParameter_ReadsAndWritesThroughIndirection` — exact native results/guards in both modes and cartridges; [precision-cast/byref matrix](binary64.md#precision-casts).

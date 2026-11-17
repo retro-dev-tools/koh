@@ -34,17 +34,13 @@ conversion follows Koh's explicit16-bit target extension.
 
 The sixth-edition ECMA-335 definition of `conv.r.un` produces the internal `F`
 type; it does not impose the older documentation's fixed binary64 intermediate.
-Unsigned integer conversion currently uses binary32 precision; integer↔binary64
-casts still reject. `conv.r.un` currently requires explicit following `conv.r4`
-(intervening nops allowed); other internal-F shapes diagnose until integer
-binary64 conversion is complete. Binary64 arithmetic and binary32↔binary64
-precision casts are separately supported without routing integers through the
-wrong precision.
-Checked conversions remain explicitly unsupported pending overflow handling.
-Do not mistake integer/binary32 conversion support for complete floating-language
-support; binary64 integer conversions and remainder execution remain unfinished.
-The [binary64 core](binary64.md) supports separate eight-byte arithmetic/storage
-and [precision casts](binary64.md#precision-casts).
+Unsigned `conv.r.un` requires explicit following `conv.r4` or `conv.r8`
+(intervening nops allowed). It produces the requested precision directly,
+avoiding an implicit binary64 intermediate on the binary32 path. Other bare
+internal-F shapes diagnose as unsupported. Binary64 arithmetic, precision casts
+and unchecked integer casts are implemented; see [binary64 contracts](binary64.md#integer-casts).
+Checked conversions and remainder execution remain unsupported. This is not
+general .NET floating-language support.
 
 ## Wide rounding and bounds
 

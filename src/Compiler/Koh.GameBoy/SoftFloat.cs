@@ -934,8 +934,8 @@ public static class SoftFloat
             mag = mag << 1;
             e = e - 1;
         }
-        ulong sig = mag >> 11; // 53-bit significand
-        ulong rem = mag & 0x7FF; // low 11 bits -> rounding
+        ulong sig = mag >> 11;
+        ulong rem = mag & 0x7FF;
         int exp = e + 1023;
         ulong half = 0x400;
         if (rem > half || (rem == half && (sig & 1) != 0))
@@ -956,13 +956,15 @@ public static class SoftFloat
         if (a == 0)
             return 0;
         if (a < 0)
-            return 0x8000000000000000 | FromU64((ulong)(-a));
+            return 0x8000000000000000 | FromU64(unchecked((ulong)(-a)));
         return FromU64((ulong)a);
     }
 
     [KohRuntime("f64.toU64")]
     public static ulong ToU64(ulong a)
     {
+        if ((a & 0x7fffffffffffffff) > 0x7ff0000000000000)
+            return 0;
         if ((a >> 63) != 0)
             return 0;
         int e = (int)((a >> 52) & 0x7FF);
@@ -976,7 +978,7 @@ public static class SoftFloat
         if (shift >= 0)
         {
             if (shift >= 12)
-                return 0xFFFFFFFFFFFFFFFF; // >= 2^64: saturate
+                return 0xFFFFFFFFFFFFFFFF;
             return sig << shift;
         }
         int rs = -shift;
@@ -988,22 +990,37 @@ public static class SoftFloat
     [KohRuntime("f64.toI64")]
     public static long ToI64(ulong a)
     {
-        ulong mag = a & 0x7FFFFFFFFFFFFFFF;
-        ulong u = ToU64(mag);
-        ulong signBit = 0x8000000000000000;
+        ulong mag = a & 0x7fffffffffffffff;
+        ulong value = ToU64(mag);
         if ((a >> 63) != 0)
         {
-            // Negative: magnitudes up to 2^63 (exactly long.MinValue) negate cleanly via wraparound; a
-            // magnitude beyond that must saturate explicitly, or -(long)u wraps back to a positive result
-            // (e.g. u = 0xFFFFFFFFFFFFFFFF -> -(long)u = 1, not long.MinValue) instead of saturating like a
-            // host `(long)` cast does.
-            if (u > signBit)
-                return (long)signBit; // saturate to long.MinValue
-            return -(long)u;
+            if (value >= 0x8000000000000000)
+                return long.MinValue;
+            return -(long)value;
         }
-        if (u >= signBit)
-            return (long)(signBit - 1); // saturate to long.MaxValue
-        return (long)u;
+        if (value > long.MaxValue)
+            return long.MaxValue;
+        return (long)value;
+    }
+
+    [KohRuntime("f64.toI32")]
+    public static int ToI32F64(ulong a)
+    {
+        long value = ToI64(a);
+        if (value > int.MaxValue)
+            return int.MaxValue;
+        if (value < int.MinValue)
+            return int.MinValue;
+        return (int)value;
+    }
+
+    [KohRuntime("f64.toU32")]
+    public static uint ToU32F64(ulong a)
+    {
+        ulong value = ToU64(a);
+        if (value > uint.MaxValue)
+            return uint.MaxValue;
+        return (uint)value;
     }
 
     [KohRuntime("f32.toF64")]

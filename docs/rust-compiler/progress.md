@@ -12,25 +12,25 @@ Current compiler increment adds distinct binary32 IR, explicit bit transport,
 float constants/calls/joins/byrefs/fields/arrays and metadata-selected software
 addition/subtraction/multiplication/division, direct sign-bit negation and ordered/unordered comparisons.
 Actual Debug/Release DMG/CGB execution and SDK paths with spaces are
-covered. Other float operations remain unfinished and reject explicitly; this
-does not close the full legacy floating test group. Nineteen float methods now have
-native replacements (61 original parameter-expanded cases,400 explicit expanded
-assertions): the current ledger is156/565 complete,409 outstanding.
+covered. Checked casts, remainder execution and bare internal-F expressions
+remain unsupported. All22 methods in the legacy CilFloatTests group now have
+native replacements (74 original parameter-expanded cases,504 explicit expanded
+assertions): the current ledger is159/565 complete,406 outstanding.
 See [float lowering contract and evidence](float-lowering.md).
 The [multiplication correction](softfloat-multiplication.md) replaces inherited
 subnormal flushing and missing special-value handling before enabling CIL `mul`.
 It adds26 boundary and256 exponent-stratified numeric observations plus56 native
 multiplication executions. Subsequent [division work](softfloat-division.md) adds
 another26+256 numeric observations and64 division ROMs, closes the mixed arithmetic
-rows and preserves the unsupported-remainder diagnostic. Checked and binary64
-integer conversions remain unfinished; no floating feature has been retired. [32-bit conversions](float-conversions.md)
+rows and preserves the unsupported-remainder diagnostic. Checked casts and remainder execution remain unfinished; no floating feature has been retired. [32-bit conversions](float-conversions.md)
 now cover signed/unsigned32/64-bit and16-bit-native inputs, with explicit
 clamping/NaN choices and narrower integer truncation. Wide conversion rounds
 once without binary64 intermediates and verifies all eight returned bytes in
 WRAM. At that checkpoint, additional integer-width coverage did not change the
 148-method ledger; checked casts remain open. The [binary64 core](binary64.md) now adds distinct typed
 64-bit float constants/storage/calls, corrected software addition/subtraction,
-negation and ordered/unordered comparisons. Integer↔binary64 conversions still reject explicitly. Binary32↔binary64 casts
+negation and ordered/unordered comparisons. Unchecked integer↔binary64 conversions now use direct53-bit rounding and
+explicit32/64-bit clamping/NaN policy. Binary32↔binary64 casts
 now preserve subnormals and round once at the final storage scale. Multiplication now uses exact
 two-limb products with final-scale rounding. Division now uses bounded64-bit long
 division with one rounding step at the final normal/subnormal scale.
@@ -41,22 +41,22 @@ rejection expectation; the replacement now checks real allocation, payload,
 heap/bank isolation and frame guards in all four configurations. Updated
 commits still require a fresh complete hosted run.
 
-Current runtime correction fixes inherited AddF32 subnormal/special-value errors
+Earlier AddF32 checkpoint fixes inherited subnormal/special-value errors
 observed in both managed execution and a Rust-compiled ROM. Raw1+raw1 now returns
 raw2; NaNs are quieted and infinity/zero/overflow/rounding boundaries are checked.
 Expanded14/14 passes64.421s, exit0 (/tmp/koh-softfloat-ieee-first.log):80 actual
 banked ROMs and415 managed observations. Independent Rust oracles and numerical
 review support the correction; sampled coverage is not exhaustive IEEE proof.
 API/compiler/emulator implementations are unchanged apart from this numeric
-runtime body. Broader floating arithmetic/conversion lowering remains unfinished; ledger
+runtime body. Broader floating arithmetic/conversion lowering was unfinished; ledger
 at that stage was137/565 complete,428 partial/outstanding, zero physically retired.
 See [algorithm rationale and evidence](softfloat-addition.md).
 Formatted final14/14 passes45.734s, exit0
 (`/tmp/koh-softfloat-ieee-final.log`). Rustfmt/CSharpier pass. Hosted baseline
 15d0cff run43968285185 has completed1373/1373 in1953.920s, zero skips, with
 separate rustdoc and .NET fast tests successful. This proves that baseline;
-4741e89 run43974339605 has also completed successfully. The current Float32
-compiler increment still requires its own hosted CI evidence.
+4741e89 run43974339605 has also completed successfully. That Float32
+compiler checkpoint still required its own hosted CI evidence.
 
 Previous software-runtime test migration closes23 methods (3CilKohRuntimeTests,
 20SoftFloatDifferentialTests):24 actual banked AddF32 ROMs plus145 independent
@@ -64,7 +64,7 @@ managed-library numeric checks covering every original85 parameter row. The
 12 Rust cases pass12/12 in53.059s, exit0 (/tmp/koh-softfloat-first.log). Review
 confirms no lost inputs/predicates; no production code/API/emulator changes.
 The ledger at that stage was137/565 complete,428 partial/outstanding, zero physically retired. Float/
-double CIL lowering and runtime-key dispatch remain unfinished. See the
+double CIL lowering and runtime-key dispatch were unfinished at that checkpoint. See the
 [complete dispositions and numeric-domain rationale](softfloat-bits-tests.md).
 
 The duplicate local15d0cff full run was intentionally interrupted after555 passes

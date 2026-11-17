@@ -164,16 +164,15 @@ public static class Float64
     public static int DivideNan() =>
         Store(Bits(Divide(1.0, From(0x7ff0123456789abc))) & 0x7ff8000000000000);
 
-    public static int UnsupportedConversion() => Store(Bits(Convert(16777217)));
+    public static int IntegerInput() => Store(Bits(Convert(16777217)));
 
-    public static int UnsupportedUnsigned32() => Store(Bits(ConvertUnsigned(16777217)));
+    public static int IntegerUnsigned32() => Store(Bits(ConvertUnsigned(16777217)));
 
-    public static int UnsupportedUnsigned64() =>
-        Store(Bits(ConvertUnsignedWide(0x8000008000000001)));
+    public static int IntegerUnsigned64() => Store(Bits(ConvertUnsignedWide(0x8000008000000001)));
 
     public static int UnsupportedRemainder() => Store(Bits(Remainder(5.5, 2.0)));
 
-    public static int UnsupportedInteger() => ConvertInt(1.5);
+    public static int IntegerOutput() => Store((ulong)ConvertInt(1.5));
 
     static double Choose(bool first, double a, double b) => first ? a : b;
 
@@ -285,4 +284,164 @@ public static class Float64
     public static int WidenNan() => Store(Bits(Widen(From32(0x7f812345))) & 0x7ff8000000000000);
 
     public static int NarrowNan() => Store(Bits32(Narrow(From(0x7ff0123456789abc))) & 0x7fc00000);
+
+    static double InputInt(int value) => value;
+
+    public static int InputInt0() => Store(Bits(InputInt(0)));
+
+    public static int InputInt1() => Store(Bits(InputInt(5)));
+
+    public static int InputInt2() => Store(Bits(InputInt(-5)));
+
+    public static int InputInt3() => Store(Bits(InputInt(1000000)));
+
+    public static int InputInt4() => Store(Bits(InputInt(16777217)));
+
+    public static int InputInt5() => Store(Bits(InputInt(-16777217)));
+
+    public static int InputInt6() => Store(Bits(InputInt(int.MinValue)));
+
+    public static int InputInt7() => Store(Bits(InputInt(2147483647)));
+
+    static double InputUInt(uint value) => value;
+
+    public static int InputUInt0() => Store(Bits(InputUInt(0u)));
+
+    public static int InputUInt1() => Store(Bits(InputUInt(5u)));
+
+    public static int InputUInt2() => Store(Bits(InputUInt(1000000u)));
+
+    public static int InputUInt3() => Store(Bits(InputUInt(16777217u)));
+
+    public static int InputUInt4() => Store(Bits(InputUInt(4294967295u)));
+
+    static double InputLong(long value) => value;
+
+    public static int InputLong0() => Store(Bits(InputLong(long.MinValue)));
+
+    public static int InputLong1() => Store(Bits(InputLong(9223372036854775807L)));
+
+    public static int InputLong2() => Store(Bits(InputLong(9007199254740993L)));
+
+    public static int InputLong3() => Store(Bits(InputLong(9007199254740995L)));
+
+    public static int InputLong4() => Store(Bits(InputLong(-9007199254740995L)));
+
+    static double InputULong(ulong value) => value;
+
+    public static int InputULong0() => Store(Bits(InputULong(0x0000000000000000UL)));
+
+    public static int InputULong1() => Store(Bits(InputULong(0xffffffffffffffffUL)));
+
+    public static int InputULong2() => Store(Bits(InputULong(0x0020000000000001UL)));
+
+    public static int InputULong3() => Store(Bits(InputULong(0x0020000000000003UL)));
+
+    public static int InputULong4() => Store(Bits(InputULong(0x8000000000000400UL)));
+
+    public static int InputULong5() => Store(Bits(InputULong(0x8000000000000401UL)));
+
+    static double InputNative(nint value) => value;
+
+    public static int InputNative0() => Store(Bits(InputNative((nint)(-123))));
+
+    static double InputUNative(nuint value) => value;
+
+    public static int InputUNative0() => Store(Bits(InputUNative((nuint)65535)));
+
+    static int OutputInt(double value) => (int)value;
+
+    public static int OutputInt0() =>
+        Store(unchecked((ulong)(long)OutputInt(From(0xc00d99999999999a))));
+
+    public static int OutputInt1() =>
+        Store(unchecked((ulong)(long)OutputInt(From(0x400d99999999999a))));
+
+    public static int OutputInt2() =>
+        Store(unchecked((ulong)(long)OutputInt(From(0x408f420000000000))));
+
+    public static int OutputInt3() =>
+        Store(unchecked((ulong)(long)OutputInt(From(0x41e0000000000000))));
+
+    public static int OutputInt4() =>
+        Store(unchecked((ulong)(long)OutputInt(From(0xc1e0000080000000))));
+
+    public static int OutputInt5() =>
+        Store(unchecked((ulong)(long)OutputInt(From(0x7ff8000000000000))));
+
+    public static int OutputInt6() =>
+        Store(unchecked((ulong)(long)OutputInt(From(0x7ff0000000000000))));
+
+    static uint OutputUInt(double value) => (uint)value;
+
+    public static int OutputUInt0() => Store((ulong)OutputUInt(From(0x400d99999999999a)));
+
+    public static int OutputUInt1() => Store((ulong)OutputUInt(From(0xc00d99999999999a)));
+
+    public static int OutputUInt2() => Store((ulong)OutputUInt(From(0x41f0000000000000)));
+
+    public static int OutputUInt3() => Store((ulong)OutputUInt(From(0x7ff8000000000000)));
+
+    static long OutputLong(double value) => (long)value;
+
+    public static int OutputLong0() =>
+        Store(unchecked((ulong)(long)OutputLong(From(0xc00d99999999999a))));
+
+    public static int OutputLong1() =>
+        Store(unchecked((ulong)(long)OutputLong(From(0x43e0000000000000))));
+
+    public static int OutputLong2() =>
+        Store(unchecked((ulong)(long)OutputLong(From(0xc3e0000000000000))));
+
+    public static int OutputLong3() =>
+        Store(unchecked((ulong)(long)OutputLong(From(0x7ff0000000000000))));
+
+    public static int OutputLong4() =>
+        Store(unchecked((ulong)(long)OutputLong(From(0xfff0000000000000))));
+
+    public static int OutputLong5() =>
+        Store(unchecked((ulong)(long)OutputLong(From(0x7ff8000000000000))));
+
+    static ulong OutputULong(double value) => (ulong)value;
+
+    public static int OutputULong0() => Store((ulong)OutputULong(From(0x43f0000000000000)));
+
+    public static int OutputULong1() => Store((ulong)OutputULong(From(0x43efffffffffffff)));
+
+    public static int OutputULong2() => Store((ulong)OutputULong(From(0xc00d99999999999a)));
+
+    public static int OutputULong3() => Store((ulong)OutputULong(From(0x7ff8000000000000)));
+
+    static sbyte OutputSByte(double value) => (sbyte)value;
+
+    public static int OutputSByte0() =>
+        Store(unchecked((ulong)(long)OutputSByte(From(0x4060400000000000))));
+
+    static byte OutputByte(double value) => (byte)value;
+
+    public static int OutputByte0() => Store((ulong)OutputByte(From(0x4072cc0000000000)));
+
+    static short OutputShort(double value) => (short)value;
+
+    public static int OutputShort0() =>
+        Store(unchecked((ulong)(long)OutputShort(From(0x40f1170000000000))));
+
+    static ushort OutputUShort(double value) => (ushort)value;
+
+    public static int OutputUShort0() => Store((ulong)OutputUShort(From(0x40f1170000000000)));
+
+    static nint OutputNative(double value) => (nint)value;
+
+    public static int OutputNative0() =>
+        Store(unchecked((ulong)(long)OutputNative(From(0x40f1170000000000))));
+
+    static nuint OutputUNative(double value) => (nuint)value;
+
+    public static int OutputUNative0() => Store((ulong)OutputUNative(From(0x40f0000000000000)));
+
+    public static int OutputNativeSignedWrap() =>
+        Store(unchecked((ulong)(long)OutputNative(65535.0)));
+
+    public static int OutputShortSignedWrap() =>
+        Store(unchecked((ulong)(long)OutputShort(65535.0)));
 }

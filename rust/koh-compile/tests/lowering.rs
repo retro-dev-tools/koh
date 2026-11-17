@@ -59,8 +59,8 @@ fn unsigned_float_conversion_rejects_floating_operands(#[case] float: Type) {
 }
 
 #[rstest]
-#[case(&[0x17, 0x76, 0x6c, 0x2a])]
-#[case(&[0x17, 0x76, 0x00, 0x6c, 0x2a])]
+#[case(&[0x17, 0x76, 0x00, 0x2a])]
+#[case(&[0x17, 0x76, 0x17, 0x58, 0x2a])]
 #[case(&[0x17, 0x76, 0x2a])]
 fn unsigned_float_conversion_requires_explicit_precision(#[case] il: &[u8]) {
     let error = lower(method(il)).unwrap_err();
