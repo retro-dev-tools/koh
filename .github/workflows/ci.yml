@@ -40,7 +40,7 @@ jobs:
       - name: Check
         run: cargo +stable check --workspace --all-targets --all-features --locked
       - name: Test
-        run: cargo +stable nextest run --workspace --all-features --locked
+        run: cargo +stable nextest run --workspace --all-features --locked --no-fail-fast
       - name: Test Rust documentation
         run: cargo +stable test --doc --workspace --all-features --locked
       - name: Build native executables
