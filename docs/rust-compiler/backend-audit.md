@@ -468,16 +468,18 @@ test and `ir::construction`; one parser-only case is intentionally obsolete.
 
 Classification: Optimization shape with control/memory safety constraints. Invariant arithmetic may move only when values dominate their uses and no newly executed operation changes observable effects; loads need alias/IO proof.
 
-Proposed future location: `rust/koh-compiler/tests/optimization_semantics.rs` (not implemented).
+Complete native locations: `tests/sm83.rs`, `tests/support/loop_contracts.rs`,
+the real Roslyn fixture `tests/fixtures/LoopContracts`, and the existing native
+dominance rejection in `tests/ir.rs`. See [quantified loop contracts](loop-contracts.md).
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `Licm_HoistsInvariantArithmeticIntoPreheader` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Licm_DoesNotHoistLoopVariantComputation` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Licm_DoesNotHoistLoads` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Licm_SplicesPreheaderWhenEntryEdgeIsConditional` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Licm_DoesNotOverHoistValueDefinedInSplicedInnerPreheader` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Licm_HoistedResultIsReusedNotRecomputed` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Licm_HoistsInvariantArithmeticIntoPreheader` | Mixed | REPLACE, complete | Execute invariant bounds/sums with full-width trip counts; no required preheader shape. |
+| `Licm_DoesNotHoistLoopVariantComputation` | Mixed | REPLACE, complete | Execute changing induction-dependent sums/comparisons before/after optimization. |
+| `Licm_DoesNotHoistLoads` | Mixed | REPLACE, complete | Actual stores through an invariant pointer change subsequent loads and the final observation. |
+| `Licm_SplicesPreheaderWhenEntryEdgeIsConditional` | Mixed | REPLACE, complete | Both conditional-entry paths preserve results and executed/skipped division faults. |
+| `Licm_DoesNotOverHoistValueDefinedInSplicedInnerPreheader` | Mixed | REPLACE, complete | Execute valid nested control flow on both inner paths; reject non-dominating definitions independently. |
+| `Licm_HoistedResultIsReusedNotRecomputed` | Mixed | REPLACE, complete | Verify and execute original/once/twice optimized IR; no private Changed flag or unmeasured timing contract. |
 
 ### Ir/NarrowPassTests.cs (19)
 

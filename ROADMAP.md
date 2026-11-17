@@ -133,7 +133,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 
 ## PR #55 completion path
 
-Overall progress is roughly50%; 100% requires every acceptance gate, rather
+Overall completion is unmeasured; 100% requires every acceptance gate, rather
 than a test count or a working standalone compiler. All work stays in PR #55.
 
 1. Finish the language/runtime needs of existing games: wider string operations,

@@ -10,6 +10,23 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Loop optimization contract migration
+
+All six `LoopInvariantCodeMotionTests` methods now have native replacements for
+23 source assertion sites (five verifier checks and18 private graph/pass checks).
+Actual Roslyn Debug/Release methods execute before optimization and after one/two
+production optimizer calls:420 ROMs,408 successful and12 division faults. Full
+int32 sums and trip counts retain changing induction, conditional entry, nested
+dominance and stores observed through invariant pointers. Empty/bypassed loops
+do not acquire division faults. The invalid dominance premise in the old nested
+fixture is corrected rather than copied. See [source matrix](loop-contracts.md).
+
+Final expanded selection passed595/595 in26.982s, exit0, with192 explicitly
+unselected cases (`/tmp/koh-loop-contracts-final.log`). It includes the complete
+library and IR targets plus new loop and neighboring narrowing execution cases.
+The current ledger is341/565 (340 native replacements, one DELETE),224 outstanding.
+No compiler-owned case is deferred and no new optimization/cycle win is claimed.
+
 ### Literal-data budget correction
 
 Readonly span literals now charge the existing cumulative per-method 64 KiB
@@ -253,7 +270,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-335/565 dispositions complete (334 native replacements, one DELETE),230 outstanding,
+341/565 dispositions complete (340 native replacements, one DELETE),224 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

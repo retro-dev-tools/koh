@@ -10,6 +10,8 @@ mod compare_branch;
 mod control_flow_scalars;
 #[path = "support/liveness.rs"]
 mod liveness;
+#[path = "support/loop_contracts.rs"]
+mod loop_contracts;
 #[path = "support/narrowing.rs"]
 mod narrowing;
 #[path = "support/optimizer_contracts.rs"]
@@ -22,6 +24,71 @@ mod recursion_fixture;
 mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case("Debug")]
+#[case("Release")]
+fn loop_optimization_preserves_control_memory_and_dominance(
+    host: &Host,
+    #[case] configuration: &str,
+) {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/LoopContracts");
+    let output = dotnet()
+        .arg("build")
+        .arg(fixture.join("LoopContracts.csproj"))
+        .args(["-c", configuration, "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let image =
+        std::fs::read(fixture.join(format!("bin/{configuration}/net10.0/LoopContracts.dll")))
+            .unwrap();
+    let resolver = koh_compile::resolve::Resolver::new(&[&image]).unwrap();
+    let mut cases = Vec::new();
+    for shape in ["Invariant", "Variant", "Loaded", "Nested", "Division"] {
+        let metadata = resolver.assembly(0).unwrap().metadata();
+        let index = metadata
+            .method_defs
+            .iter()
+            .position(|m| metadata.strings.get(m.name).unwrap() == shape)
+            .unwrap();
+        let identity = Definition {
+            assembly: 0,
+            token: 0x06000001 + index as u32,
+        };
+        let original = koh_compile::lower::assembly_method(&resolver, identity).unwrap();
+        let mut once = original.clone();
+        koh_compile::optimize::simplify(&mut once).unwrap();
+        let mut twice = once.clone();
+        koh_compile::optimize::simplify(&mut twice).unwrap();
+        for function in [original, once, twice] {
+            verify(&function).unwrap();
+            for &(n, seed, flag) in loop_contracts::INPUTS {
+                cases.push((
+                    function.clone(),
+                    vec![n as u32 as u64, seed as u32 as u64, flag as u32 as u64],
+                    loop_contracts::expected(shape, n, seed, flag),
+                ));
+            }
+        }
+    }
+    assert_eq!(cases.len(), 210);
+    assert_eq!(
+        cases
+            .iter()
+            .filter(|(_, _, result)| result.is_err())
+            .count(),
+        6
+    );
+    for cases in cases.chunks(32) {
+        run(host, cases);
+    }
+}
 
 #[rstest::rstest]
 #[case(8, false)]
