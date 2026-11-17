@@ -56,8 +56,8 @@ jobs:
           restore-keys: ${{ runner.os }}-pr-rust-
       - name: Check formatting
         run: cargo +stable fmt --all -- --check
-      - name: Run Rust tests
-        run: cargo +stable nextest run --workspace --all-features --locked --no-fail-fast
+      - name: Run Rust fast tests
+        run: cargo +stable nextest run --workspace --all-features --locked --no-fail-fast -E 'not (package(koh-compile) & (binary(driver) | binary(cubes) | binary(sdk)))'
       - name: Test Rust documentation
         run: cargo +stable test --doc --workspace --all-features --locked
 

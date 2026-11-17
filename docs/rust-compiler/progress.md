@@ -10,6 +10,30 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Faster iteration and full validation
+
+[Metadata images](fixture-images.md) now build once per serialized nextest run
+and return private byte buffers. New-run, failed/incomplete-build and disabled
+reuse checks remain explicit. All93 consumers/cache checks passed34.993s; the
+same six warmed reader cases fell26.890s→4.508s. No compiler performance win is
+claimed. The raw-byte fixture cache does not replace source-debugger builds.
+
+Per-push [CI checks](../ci-validation.md) now select all Rust targets except the
+three expensive compiler binaries `driver`, `cubes` and `sdk`. All cases remain
+discoverable; the default local command and three-platform full validation are
+unfiltered. Opening/reopening a draft can start full validation before manual
+dispatch reaches `master`; repeated pushes run the two quick Linux jobs.
+The exact fast selection passed1274/1274 in111.792s, exit0
+(`/tmp/koh-ci-fast-cached.log`), including four new cache checks. The pre-cache
+selection passed1270/1270 in414.482s; these are regression-loop measurements,
+not full-workspace or compiler-throughput benchmarks. Required check names and
+read-only permissions remain unchanged; branch protection was inspected, not edited.
+
+Full CI on the published literal head75951e2 subsequently passed1869/1869 in
+1821.803s, zero skipped, plus separate rustdoc and .NET fast checks. Primary log:
+`/tmp/koh-ci-75951e2-completed.log`. Newer test/CI increments still need their own
+full validation, and the migration remains incomplete.
+
 ### Narrowing contract migration
 
 All19 `NarrowPassTests` methods and73 assertion sites now have
