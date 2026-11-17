@@ -74,12 +74,14 @@ fn sdk_compiles_actual_float_addition_without_managed_runtime_execution(
         .symbols
         .iter()
         .find(|symbol| symbol.name == "__koh_exit")
-        .unwrap()
-        .value;
+        .unwrap();
     let host = support::build_host();
     let output = support::dotnet()
         .arg(&host.dll)
-        .args(["--native-heap", &format!("{stop:x}")])
+        .args([
+            "--native-heap",
+            &format!("{:x}:{:x}", stop.bank.unwrap_or(0), stop.value),
+        ])
         .arg(&rom)
         .output()
         .unwrap();

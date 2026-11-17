@@ -196,12 +196,14 @@ public static int Main() {
         .symbols
         .iter()
         .find(|symbol| symbol.name == "__koh_exit")
-        .unwrap()
-        .value;
+        .unwrap();
     let executed = support::dotnet()
         .current_dir(host.directory.path())
         .arg(&host.dll)
-        .args(["--native-video", &format!("{exit:x}")])
+        .args([
+            "--native-video",
+            &format!("{:x}:{:x}", exit.bank.unwrap_or(0), exit.value),
+        ])
         .arg(&rom)
         .output()
         .unwrap();
@@ -376,11 +378,13 @@ public static int Main() {
         .symbols
         .iter()
         .find(|symbol| symbol.name == "__koh_exit")
-        .unwrap()
-        .value;
+        .unwrap();
     let executed = support::dotnet()
         .arg(&host.dll)
-        .args(["--native", &format!("{exit:x}")])
+        .args([
+            "--native",
+            &format!("{:x}:{:x}", exit.bank.unwrap_or(0), exit.value),
+        ])
         .arg(&no_debug)
         .output()
         .unwrap();

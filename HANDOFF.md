@@ -2233,3 +2233,21 @@ Final4/4 pass14.056s,exit0,/tmp/koh-compare-branch-consumers-final.log; prior ad
 CI44088642289 for publishedc08a609 remains active; queue this commit until it
 finishes rather than cancelling it. Next substantive runtime gap is constructed
 generic inheritance/dispatch or banked data; compiler audit groups also remain.
+
+## CI bank-stop regression fix
+
+CI44088642289 for c08a609 ended failure:1070 Rust passes then Debug SceneFlow
+packet mismatch, .NET fast job success. Completed primary log
+/tmp/koh-ci-c08-completed.log,GH_EXIT0. Reproduced local Debug in both modes;
+wrong observation point, not incorrect scene state. Bare16-bit PC matched a
+function's window address in the wrong bank. New independent ELF/ROM probes
+first failed in source banks2/257 for both modes before publishing42.
+
+EmulatorHost test protocol now requires bank:address. Shared execute_mode and
+all direct SDK/DMA callers updated. Host handles ROM0/MBC1 mode and9-bit MBC5
+selected banks; production emulator/debugger unchanged. Original scene packet
+assertions preserved. Final22/22 (scene4, bank probes4, banked calls2, DMA4, SDK
+float4, SDK incremental2) pass239.993s,exit0;458 cases excluded.
+Primary /tmp/koh-stop-bank-final.log. No legacy
+disposition credit; current229/565 complete,336 outstanding. Safe to push queued
+ed20be1 plus this fix after commit; previous CI is terminal.

@@ -1748,3 +1748,21 @@ coverage. Four Rust cases execute246 semantic ROMs plus12 measured calls. Final
 4/4 pass14.056s,exit0; earlier neighboring45/45 pass78.238s. These are selected
 checks. No production compiler changes or old private fusion model are added.
 Ledger229/565 complete,336 outstanding; no physical legacy removal.
+
+## Bank-qualified native test stops
+
+Publishedc08a609 CI44088642289 failed after1070 Rust passes at the Debug scene-flow
+packet assertion. Local Debug/DMG and Debug/CGB reproduced zeros instead of the
+unchanged123456789/code1234/frame4 packet. The test host compared bare PC with a
+function symbol, permitting an earlier stop at the same window address in another
+ROM bank. Four independent tiny ELF/ROM probes (source banks2/257, DMG/CGB) first
+failed before writing their expected42 packet.
+
+Native test stops now require bank:address. Shared driver and every direct SDK/
+DMA caller pass both linked symbol fields. The host checks ROM0/MBC1 mode and
+full9-bit MBC5 state rather than the byte-sized display property. No production
+emulator/debugger or compiler algorithm changed. Existing scene-state assertions
+remain intact; a fresh8/8 then final22/22 pass239.993s,exit0
+(/tmp/koh-stop-bank-final.log),458 other driver/SDK cases excluded. This is a
+compiler-owned observation fix, not a new legacy disposition; ledger229/565
+complete,336 outstanding. High-bank debugger/KDBG limits remain separate.

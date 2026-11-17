@@ -33,6 +33,8 @@ mod generics;
 mod interfaces;
 #[path = "driver/mono.rs"]
 mod mono;
+#[path = "driver/native_stop.rs"]
+mod native_stop;
 #[path = "driver/original_2048.rs"]
 mod original_2048;
 #[path = "driver/pdb.rs"]
@@ -2507,11 +2509,13 @@ fn oam_dma_runs_from_relocated_hram_and_preserves_banks(
                 .symbols
                 .iter()
                 .find(|s| s.name == "__koh_exit")
-                .unwrap()
-                .value;
+                .unwrap();
             let output = dotnet()
                 .arg(&host.dll)
-                .args(["--native-oam", &format!("{stop:x}")])
+                .args([
+                    "--native-oam",
+                    &format!("{:x}:{:x}", stop.bank.unwrap_or(0), stop.value),
+                ])
                 .arg(path)
                 .output()
                 .unwrap();
@@ -4533,15 +4537,13 @@ fn execute_mode(
 ) -> String {
     let path = directory.join("native game.gb");
     std::fs::write(&path, &linked.rom).unwrap();
-    let exit = linked
-        .symbols
-        .iter()
-        .find(|s| s.name == stop)
-        .unwrap()
-        .value;
+    let exit = linked.symbols.iter().find(|s| s.name == stop).unwrap();
     let output = dotnet()
         .arg(&host.dll)
-        .args([mode, &format!("{exit:x}")])
+        .args([
+            mode,
+            &format!("{:x}:{:x}", exit.bank.unwrap_or(0), exit.value),
+        ])
         .arg(path)
         .output()
         .unwrap();

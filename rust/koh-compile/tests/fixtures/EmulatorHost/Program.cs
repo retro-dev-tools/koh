@@ -38,7 +38,11 @@ bool heap =
     || (args.Length > 0 && args[0] == "--native-heap");
 bool native =
     args.Length > 0 && (args[0] == "--native" || args[0] == "--native-poison" || heap || cpu);
-ushort stop = native ? Convert.ToUInt16(args[1], 16) : (ushort)0;
+string[] stopParts = native ? args[1].Split(':') : [];
+if (native && stopParts.Length != 2)
+    throw new InvalidOperationException("Native stop requires bank:address");
+ushort stop = native ? Convert.ToUInt16(stopParts[^1], 16) : (ushort)0;
+int stopBank = native ? Convert.ToInt32(stopParts[0], 16) : 0;
 foreach (
     string path in args.Skip(
         native ? 2
@@ -137,9 +141,26 @@ foreach (
     byte irqBankLow = 0;
     byte irqBankHigh = 0;
     var vblankTicks = new List<ulong>();
+    bool AtStop()
+    {
+        ushort pc = gb.Cpu.Registers.Pc;
+        if (pc != stop)
+            return false;
+        if (pc >= 0x8000)
+            return true;
+        int bank =
+            pc < 0x4000
+                ? gb.Cartridge.Kind == MapperKind.Mbc1 && gb.Cartridge.Mbc1_Mode == 1
+                    ? gb.Cartridge.Mbc1_BankHigh << 5
+                    : 0
+                : gb.Cartridge.Kind == MapperKind.Mbc5
+                    ? (gb.Cartridge.Mbc1_BankHigh << 8) | gb.Cartridge.Mbc1_BankLow
+                    : gb.Cartridge.CurrentRomBank;
+        return bank == stopBank;
+    }
     bool Finished() =>
         rawOam ? timing.OamStarts != 0
-        : native ? gb.Cpu.Registers.Pc == stop
+        : native ? AtStop()
         : gb.Mmu.DebugRead(0xC000) != 0;
     while (!Finished() && steps++ < (maps ? 8_000_000 : 2_000_000))
     {
