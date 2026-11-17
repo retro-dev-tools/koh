@@ -10,6 +10,27 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Regression setup cost
+
+Execution hosts build incrementally in their ignored fixture output directories.
+The serialized `roslyn` nextest group reuses each successful host build within
+one [nextest run ID](https://nexte.st/docs/configuration/env-vars/#environment-variables-nextest-sets).
+Each new run invokes MSBuild again; failed builds never publish a reuse stamp.
+Runs outside that group always invoke MSBuild. Test inputs remain fixed during
+a run, and each test still owns its temporary ROMs and mutable outputs. Keep
+builds serial in the checkout, as for the existing shared project references.
+
+On this Linux host, the same eight static/captured delegate execution cases
+passed in46.865s before,42.954s with incremental host builds, and26.850s with
+reuse within the run (about43% faster than baseline). The last log contains one
+EmulatorHost build. Logs: `/tmp/koh-host-speed-before.log`,
+`/tmp/koh-host-speed-after.log`, `/tmp/koh-host-speed-run-cache.log`.
+This measures the selected regression cases, not full-suite speed or compiler
+performance. No test selection, assertion, timeout or concurrency limit changed.
+Another run passed8/8 generic execution and source-breakpoint/machine-inspection
+cases in53.513s (`/tmp/koh-host-speed-consumers.log`), rebuilding EmulatorHost
+and DebuggerHost once each for that new run. Rustfmt check passed.
+
 [Closed base-class layouts](closed-types.md#closed-base-classes) now substitute
 declaring arguments through inherited storage, including nested and referenced
 base types. [Inherited method references](closed-types.md#inherited-method-references)
