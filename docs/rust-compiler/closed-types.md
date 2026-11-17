@@ -130,6 +130,28 @@ current full-workspace pass.
 ## Remaining work
 
 Variance-aware assignability and boxing-dependent fallback remain unfinished.
+
+Generic-parameter diagnostics distinguish unsupported interface variance from
+invalid special-constraint combinations. The variance diagnostic cannot mask
+simultaneous reference-type and nonnullable-value-type constraints.
+[ECMA-335 II.10.1.7 and II.23.1.7](https://www.ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf)
+define the incompatible constraints and their flag encoding; II.9.5 permits
+variance on interfaces and delegate classes. The new real-Roslyn `Variance`
+fixture covers both interface directions in Debug/Release, with valid original
+metadata also executed on .NET. Each of four native test cases checks legal
+variance with/without the reference constraint, six invalid flag combinations,
+and an invariant control that compiles and executes42 with balanced SP, guards
+and the full heap preserved. Boxing is still rejected at opcode008C with member
+and IL context, rather than producing a placeholder.
+
+The focused four new cases and four existing closed-type execution/constraint
+cases passed8/8 in27.138s, exit0 (`/tmp/koh-variance-flags-final.log`). The failing
+interface cases in `/tmp/koh-variance-flags-compile-red.log` first reproduced the
+contradictory-constraint misclassification. An exploratory delegate generic-argument
+probe reached an earlier unsupported compound-binding path; it did not prove
+the presumed delegate flag bug and was not retained as that regression. These
+checks do not establish variance-aware runtime dispatch, general boxing support,
+or completion of the supported-subset policy.
 Method-generic reference dispatch is covered [below](#generic-methods-on-closed-reference-receivers).
 
 Closed generic value receivers now execute through the existing

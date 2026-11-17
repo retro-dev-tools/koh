@@ -209,6 +209,7 @@ pub(crate) fn validate(
                 if metadata.type_defs[(method.token & 0xffffff) as usize - 1].flags & 0x20 != 0
                     && matches!(parameter.flags & 3, 1 | 2)
                     && parameter.flags & !0x3f == 0
+                    && parameter.flags & 0x0c != 0x0c
                 {
                     return Err("Generic type variance requires variance-aware binding".into());
                 }

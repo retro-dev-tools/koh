@@ -58,6 +58,8 @@ mod support;
 mod symbol_addresses;
 #[path = "driver/symbols.rs"]
 mod symbols;
+#[path = "driver/variance.rs"]
+mod variance;
 #[path = "driver/vblank.rs"]
 mod vblank;
 #[path = "driver/vram.rs"]
