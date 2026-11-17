@@ -5,6 +5,7 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 mod checked;
+mod int128;
 
 fn primitive_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
     use clrmeta::{ElementType, TypeSig};
@@ -98,6 +99,9 @@ pub(crate) fn storage_type(
     ty: &clrmeta::TypeSig,
 ) -> Result<clrmeta::TypeSig, String> {
     use clrmeta::TypeSig;
+    if int128::scalar(resolver, assembly, ty)?.is_some() {
+        return Ok(ty.clone());
+    }
     Ok(match ty {
         TypeSig::ValueType(encoded) => {
             let identity = resolver.signature_type(assembly, *encoded)?;
@@ -222,6 +226,14 @@ pub(crate) fn bound_type(
     assembly: usize,
     ty: &clrmeta::TypeSig,
 ) -> Result<Type, String> {
+    if let Some(scalar) = int128::scalar(resolver, assembly, ty)? {
+        return Ok(scalar.stack_type());
+    }
+    if let clrmeta::TypeSig::ByRef(inner) = ty {
+        if let Some(scalar) = int128::scalar(resolver, assembly, inner)? {
+            return Ok(Type::ByRef(scalar));
+        }
+    }
     if let Some(kind) = crate::delegates::bind(resolver, assembly, ty)? {
         return Ok(Type::Delegate(kind));
     }
@@ -291,6 +303,9 @@ fn bound_storage(
     assembly: usize,
     signature: &clrmeta::TypeSig,
 ) -> Result<Storage, String> {
+    if let Some(scalar) = int128::scalar(resolver, assembly, signature)? {
+        return Ok(Storage::Scalar(scalar));
+    }
     let signature = storage_type(resolver, assembly, signature)?;
     match bound_type(resolver, assembly, &signature)? {
         Type::Object(class) => Ok(Storage::Object(class)),
@@ -2352,6 +2367,9 @@ fn translate(
                 arguments.push(value.0);
             }
             arguments.reverse();
+            if int128::call(resolver, target.definition, &arguments, &signature, b)? {
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
             if let Some(intrinsic) = crate::contracts::intrinsic(resolver, target.definition)? {
                 if constructing {
                     return Err("newobj cannot invoke a hardware intrinsic".into());
@@ -2569,6 +2587,7 @@ fn translate(
                 FieldStorage::Value(Storage::Scalar(match ty {
                     Type::I32 => Scalar::I32,
                     Type::I64 => Scalar::I64,
+                    Type::I128 => Scalar::I128,
                     Type::F32 => Scalar::F32,
                     Type::F64 => Scalar::F64,
                     Type::Native => Scalar::NativeSigned,

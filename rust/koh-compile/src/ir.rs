@@ -131,6 +131,7 @@ pub enum Type {
     ReferenceCell(ReferenceCell),
     I32,
     I64,
+    I128,
     F32,
     F64,
     Native,
@@ -193,6 +194,8 @@ pub enum Scalar {
     U32,
     I64,
     U64,
+    I128,
+    U128,
     F32,
     F64,
     NativeSigned,
@@ -203,12 +206,13 @@ impl Scalar {
     pub(crate) fn signed(self) -> bool {
         matches!(
             self,
-            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::NativeSigned
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::I128 | Self::NativeSigned
         )
     }
     pub(crate) fn stack_type(self) -> Type {
         match self {
             Self::I64 | Self::U64 => Type::I64,
+            Self::I128 | Self::U128 => Type::I128,
             Self::F32 => Type::F32,
             Self::F64 => Type::F64,
             Self::NativeSigned | Self::NativeUnsigned => Type::Native,
@@ -221,6 +225,7 @@ impl Scalar {
             Self::Char | Self::I16 | Self::U16 | Self::NativeSigned | Self::NativeUnsigned => 16,
             Self::I32 | Self::U32 | Self::F32 => 32,
             Self::I64 | Self::U64 | Self::F64 => 64,
+            Self::I128 | Self::U128 => 128,
         }
     }
 }
@@ -254,6 +259,7 @@ impl Type {
             Self::FieldHandle(_) | Self::MethodHandle(_) => 0,
             Self::I32 | Self::F32 => 32,
             Self::I64 | Self::F64 => 64,
+            Self::I128 => 128,
             Self::Native
             | Self::Delegate(_)
             | Self::ByRef(_)
@@ -1522,7 +1528,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         }
                         if !matches!(field.token >> 24, 4 | 0xf8)
                             || field.token & 0xffffff == 0
-                            || (!matches!(bytes, 1 | 2 | 4 | 8)
+                            || (!matches!(bytes, 1 | 2 | 4 | 8 | 16)
                                 && !matches!(result, Some(Type::StructRef(value)) if value.bytes == bytes))
                         {
                             return Err("Invalid static field address/width".into());
@@ -1588,6 +1594,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                     | (32, Type::F32)
                                     | (64, Type::F64)
                                     | (64, Type::I64)
+                                    | (128, Type::I128)
                                     | (
                                         16,
                                         Type::Native
@@ -1645,6 +1652,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                                     | (32, Type::F32)
                                     | (64, Type::F64)
                                     | (64, Type::I64)
+                                    | (128, Type::I128)
                                     | (
                                         16,
                                         Type::Native
@@ -1762,8 +1770,8 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     Op::Binary { op, left, right } => {
                         let left = check(left, position)?;
                         let right = check(right, position)?;
-                        if !matches!(left, Type::I32 | Type::I64 | Type::Native)
-                            || !matches!(right, Type::I32 | Type::I64 | Type::Native)
+                        if !matches!(left, Type::I32 | Type::I64 | Type::I128 | Type::Native)
+                            || !matches!(right, Type::I32 | Type::I64 | Type::I128 | Type::Native)
                         {
                             return Err(
                                 "Managed reference arithmetic requires explicit pointer conversion"
@@ -1823,7 +1831,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     }
                     Op::Negate(value) | Op::Not(value) => {
                         let ty = check(value, position)?;
-                        if !matches!(ty, Type::I32 | Type::I64 | Type::Native) {
+                        if !matches!(ty, Type::I32 | Type::I64 | Type::I128 | Type::Native) {
                             return Err("Managed reference unary arithmetic".into());
                         }
                         Some(ty)
@@ -1851,10 +1859,10 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             return Err("Managed reference conversion is unsupported".into());
                         }
                         let ty = result.ok_or("Conversion has no result")?;
-                        if !matches!(ty, Type::I32 | Type::I64 | Type::Native) {
+                        if !matches!(ty, Type::I32 | Type::I64 | Type::I128 | Type::Native) {
                             return Err("Conversion cannot fabricate a managed reference".into());
                         }
-                        if !matches!(bits, 8 | 16 | 32 | 64) || u16::from(bits) > ty.bits() {
+                        if !matches!(bits, 8 | 16 | 32 | 64 | 128) || u16::from(bits) > ty.bits() {
                             return Err("Invalid conversion width".into());
                         }
                         Some(ty)

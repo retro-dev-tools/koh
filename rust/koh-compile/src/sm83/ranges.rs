@@ -105,6 +105,9 @@ pub(super) fn analyze(function: &Function) -> Widths {
                 let Some((id, ty)) = i.result else {
                     continue;
                 };
+                if ty == Type::I128 {
+                    continue;
+                }
                 let full = mask(ty.bits());
                 let bound = match i.op {
                     Op::Constant(value) => value,

@@ -4,6 +4,8 @@ mod cgb_hal;
 mod checked_arithmetic;
 #[path = "driver/checked_casts.rs"]
 mod checked_casts;
+#[path = "driver/int128.rs"]
+mod int128;
 #[path = "driver/interrupts.rs"]
 mod interrupts;
 #[path = "driver/ir_contracts.rs"]

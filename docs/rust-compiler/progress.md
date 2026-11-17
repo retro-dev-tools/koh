@@ -10,6 +10,29 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### 128-bit implementation increment
+
+[Framework Int128/UInt128 operators](int128.md) now lower to typed native integer
+operations with 16-byte slots, arguments and return buffers. The initial real C#
+fixture exposed and corrected framework value-type bases encoded as TypeDefs,
+then exercised full-width arithmetic, comparisons, recursion and static storage.
+The source-test ledger remains309/565: broader 128-bit acceptance and its source
+test audit remain open. No full-migration completion is claimed.
+
+Focused acceptance passed233/233 cases in90.913s, exit0, including all220 compiler
+unit cases,64 new128-bit ROM executions, eight unsupported-operation diagnostics,
+existing32/64-bit arithmetic vectors and allocation/call regressions. Primary log:
+`/tmp/koh-int128-acceptance.log`. This is focused coverage, not a full workspace run.
+After C# formatting the four new cases passed again in20.126s, exit0
+(`/tmp/koh-int128-formatted.log`). Workspace discovery finds1856 cases, including
+1679 compiler cases, zero ignored (`/tmp/koh-int128-discovery.json`). Rustfmt and
+diff checks passed.
+
+Published head0413235 completed hosted CI44162995161 successfully:
+1852/1852 native tests, zero skipped,1444.708s; separate Rust documentation tests
+and the .NET job also succeeded. Primary log:
+`/tmp/koh-ci-0413235-completed.log`. This predates the 128-bit increment.
+
 ### Regression setup cost
 
 Execution hosts build incrementally in their ignored fixture output directories.

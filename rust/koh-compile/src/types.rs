@@ -109,11 +109,17 @@ impl Resolver<'_> {
         let raw = self.type_definition(id)?;
         let metadata = self.assembly(raw.assembly)?.metadata();
         let row = &metadata.type_defs[(raw.token & 0xffffff) as usize - 1];
-        let value = row.extends.table == Some(clrmeta::TableId::TypeRef)
-            && matches!(
-                crate::resolve::framework_type(metadata, crate::resolve::coded(row.extends)?)?,
-                Some(("System", "ValueType" | "Enum"))
-            );
+        let base = match row.extends.table {
+            Some(clrmeta::TableId::TypeRef) => {
+                crate::resolve::framework_type(metadata, crate::resolve::coded(row.extends)?)?
+            }
+            Some(clrmeta::TableId::TypeDef) => self.framework_definition(Definition {
+                assembly: raw.assembly,
+                token: 0x02000000 | row.extends.row,
+            })?,
+            _ => None,
+        };
+        let value = matches!(base, Some(("System", "ValueType" | "Enum")));
         let encoded = ((id.token & 0xffffff) << 2) | if id.token >> 24 == 0xf9 { 3 } else { 0 };
         Ok(Argument {
             assembly: id.assembly,

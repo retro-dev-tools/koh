@@ -8,6 +8,11 @@ legalization. Promoting locals to SSA is optional optimization, not a correctnes
 prerequisite. A stack-machine IR would leave merge/type errors implicit; reproducing
 the old C# IR would import assumptions about widths and static frames.
 
+`I128` represents the full bit pattern of [framework 128-bit integers](int128.md).
+Signedness belongs to operations and scalar storage. Its 16-byte values are not
+compressed by the backend's 64-bit range analysis. `Constant(u64)` zero-extends;
+negative wide values require an explicit signed conversion or arithmetic.
+
 `LocalAddress` produces a typed reference into stable invocation storage.
 Narrow metadata storage is normalized on both local loads and stores; padded high
 bytes are not an alias invariant. [Reference checks](local-references.md) reject

@@ -846,16 +846,17 @@ impl Code<'_> {
     }
 
     fn multiply(&mut self, width: u16, temp: u16) {
-        let destination = temp + 16;
+        let stride = width.max(8);
+        let destination = temp + 2 * stride;
         let wide = self.label();
         let finished = self.label();
-        let sign = temp + 24;
+        let sign = temp + 3 * stride;
         if width >= 2 {
             self.load_a(temp + width - 1);
-            self.load_b(temp + 8 + width - 1);
+            self.load_b(temp + stride + width - 1);
             self.bytes(&[0xa8, 0xe6, 0x80]);
             self.store_a(sign);
-            for slot in [temp, temp + 8] {
+            for slot in [temp, temp + stride] {
                 let positive = self.label();
                 self.load_a(slot + width - 1);
                 self.bytes(&[0xe6, 0x80]);
@@ -863,7 +864,7 @@ impl Code<'_> {
                 self.negate(slot, slot, width);
                 self.mark(positive);
             }
-            for slot in [temp, temp + 8] {
+            for slot in [temp, temp + stride] {
                 for byte in 1..width {
                     self.load_a(slot + byte);
                     self.bytes(&[0xb7]);
@@ -872,7 +873,7 @@ impl Code<'_> {
             }
             self.indirect(temp);
             self.bytes(&[0xc5]);
-            self.indirect(temp + 10);
+            self.indirect(temp + stride + 2);
             self.bytes(&[0xd1, 0x41, 0x21, 0, 0, 0x0e, 8]);
             let bit = self.label();
             let skip = self.label();
@@ -894,13 +895,13 @@ impl Code<'_> {
         let start = self.label();
         let skip = self.label();
         self.mark(start);
-        self.load_a(temp + 8);
+        self.load_a(temp + stride);
         self.bytes(&[0xe6, 1]);
         self.jump(0xca, skip);
         self.arithmetic(destination, temp, destination, width, 0x88);
         self.mark(skip);
         self.shift_one(temp, width, true, false, false);
-        self.shift_one(temp + 8, width, false, false, false);
+        self.shift_one(temp + stride, width, false, false, false);
         self.bytes(&[0x0d]);
         self.jump(0xc2, start);
         self.mark(finished);
@@ -925,9 +926,10 @@ impl Code<'_> {
         remainder: bool,
     ) {
         let quotient = temp;
-        let divisor = temp + 8;
-        let rest = temp + 16;
-        let sign = temp + 24;
+        let stride = width.max(8);
+        let divisor = temp + stride;
+        let rest = temp + 2 * stride;
+        let sign = temp + 3 * stride;
         self.extend(left, quotient, width);
         self.extend(right, divisor, width);
         self.bytes(&[0x0e, 0]);
@@ -1246,7 +1248,16 @@ impl Layout {
             .max()
             .unwrap_or(0);
         let arithmetic = offset;
-        offset += 25;
+        offset += if function.blocks.iter().any(|block| {
+            block
+                .instructions
+                .iter()
+                .any(|i| i.result.is_some_and(|(_, ty)| ty == Type::I128))
+        }) {
+            49
+        } else {
+            25
+        };
         for (index, width) in large_locals {
             if offset + usize::from(width) > 0xf00 {
                 return Err("SM83 frame exceeds WRAM0 stack capacity".into());
@@ -2376,10 +2387,10 @@ pub(crate) fn emit_with_stack_reserve(
                             }
                         } else {
                             code.extend(place(left), layout.arithmetic, width);
-                            code.extend(place(right), layout.arithmetic + 8, width);
+                            code.extend(place(right), layout.arithmetic + width.max(8), width);
                             let routine = *multipliers.entry(width).or_insert_with(|| code.label());
                             code.jump(0xcd, routine);
-                            code.copy(layout.arithmetic + 16, destination, width);
+                            code.copy(layout.arithmetic + 2 * width.max(8), destination, width);
                         }
                     }
                     Binary::DivideSigned
