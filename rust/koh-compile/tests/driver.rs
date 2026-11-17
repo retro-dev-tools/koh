@@ -1,3 +1,5 @@
+#[path = "driver/cgb_hal.rs"]
+mod cgb_hal;
 #[path = "driver/checked_casts.rs"]
 mod checked_casts;
 #[path = "driver/ir_contracts.rs"]

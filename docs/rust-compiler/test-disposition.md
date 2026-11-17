@@ -31,10 +31,10 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:175/565 methods (174 native behavioral replacements,
+**Complete dispositions:180/565 methods (179 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 390 methods still have
+The remaining 385 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -47,6 +47,9 @@ The seven-method/20-assertion [IR round-trip matrix](ir-roundtrip.md) additional
 replaces useful data/entry/bitcast behavior and records the obsolete parser case.
 All four [live-value preservation methods](liveness.md) now have native execution
 replacements, covering15 original assertion sites and186 before/after ROMs.
+The remaining five [referenced CGB HAL methods](cgb-hal.md) now have native
+replacements, closing all seven original HAL methods/15 assertion sites with
+the earlier speed-switch coverage.
 
 ## Floating negation replacements
 

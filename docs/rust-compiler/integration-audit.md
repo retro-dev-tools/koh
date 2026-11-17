@@ -26,7 +26,7 @@ All method names below are exact names in the named class. A coherent group enum
 
 ### `Samples/CgbHalTests.cs` — 7 methods, 7 cases
 
-- **REPLACE** `CgbHal_CompilesThroughTheRealBackend`: native compilation of referenced Cgb/Ppu methods, not instantiation of `CilFrontend`/`Sm83Backend` or managed diagnostics types.
+- **REPLACE, complete** `CgbHal_CompilesThroughTheRealBackend`: `driver::cgb_hal` compiles referenced Cgb/Ppu methods and executes their native output in all four configurations; no managed compiler-class assertions survive.
 - **PORT** `TryEnableDoubleSpeed_FlipsKey1Bit7_InCgbMode`: returned success, KEY1 bit 7, emulator double-speed state, and switch disarming.
 - **PORT** `TryEnableDoubleSpeed_DoesNothingHarmful_InDmgMode`: false result, no speed state, CPU not parked in STOP.
 
@@ -35,8 +35,8 @@ These two speed-switch methods now map to discoverable native
 The replacement also checks pending requests, IE and IME before shutdown; see
 [the redesigned startup contract](cpu-control.md). Other methods remain open.
 
-- **PORT** `SelectVramBank_SelectsBank1_InCgbMode`, `SelectVramBank_IsInertOnDmg`: bank-1/VBK readback on CGB and no switch on DMG.
-- **PORT** `SetBackgroundColor_WritesPaletteRam_InCgbMode`, `SetBackgroundColor_WritesTheRequestedPaletteAndColorSlot`: little-endian RGB555 at exact palette/color slots (0/0 and 2/3).
+- **PORT, complete** `SelectVramBank_SelectsBank1_InCgbMode`, `SelectVramBank_IsInertOnDmg`: `driver::cgb_hal` checks bank-1/VBK readback, actual distinct bank contents and round trips on CGB; DMG stays in bank0 and makes no CGB-only MMIO writes.
+- **PORT, complete** `SetBackgroundColor_WritesPaletteRam_InCgbMode`, `SetBackgroundColor_WritesTheRequestedPaletteAndColorSlot`: `driver::cgb_hal` checks little-endian RGB555 at slots0/0 and2/3, all other BG/OBJ bytes, every valid slot and CPU write order. See [the quantified seven-method matrix](cgb-hal.md).
 
 Independent justification: public HAL register behavior and Game Boy mode differences. The harness starts at `Sm83Backend.CodeBase`, assumes Main first, reads HL and stops outside one section; replace those implementation assumptions. The source explicitly excludes real pending-interrupt speed-switch hazards and PLL relock timing: the emulator does not model them. These tests cannot prove physical hardware timing safety.
 

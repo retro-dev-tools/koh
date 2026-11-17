@@ -25,14 +25,16 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   [constrained calls](docs/rust-compiler/constrained-calls.md) now execute through
   the same native ABI. Broader constraints, constructed declaring layouts and
   boxing/runtime fallback remain unfinished; this is not full migration.
-  The current ledger has175/565 complete dispositions and390 partial/outstanding
-  (174 native replacements, one obsolete private-parser DELETE decision);
+  The current ledger has180/565 complete dispositions and385 partial/outstanding
+  (179 native replacements, one obsolete private-parser DELETE decision);
   five [IR construction/verifier methods](docs/rust-compiler/ir-construction.md)
   now have native validation, object round-trip and executed-loop replacements;
   the seven-method [IR round-trip group](docs/rust-compiler/ir-roundtrip.md)
   preserves useful data/entry/bitcast behavior with native tests;
   four [live-value preservation methods](docs/rust-compiler/liveness.md) now
   execute entry/diamond/signed-loop scenarios at16/32/64 bits before/after optimization;
+  all seven [CGB HAL methods](docs/rust-compiler/cgb-hal.md) now have native
+  replacements, including actual VRAM/palette contents and DMG no-write checks;
   binary32/binary64 [remainder](docs/rust-compiler/floating-remainder.md) now executes
   through an exact shared core with signed-zero/subnormal/special-value coverage.
   [Checked numeric casts](docs/rust-compiler/checked-casts.md) now validate all20

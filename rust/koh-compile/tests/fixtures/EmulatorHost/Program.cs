@@ -15,6 +15,7 @@ bool cpu = args.Length > 0 && args[0] == "--native-cpu";
 bool arena = args.Length > 0 && args[0] == "--native-arena";
 bool scroll = args.Length > 0 && args[0] == "--native-scroll";
 bool registers = args.Length > 0 && args[0] == "--native-registers";
+bool cgbHal = args.Length > 0 && args[0] == "--native-cgb-hal";
 bool video = frame || oamMode || rawOam || maps || (args.Length > 0 && args[0] == "--native-video");
 bool heap =
     video
@@ -22,6 +23,7 @@ bool heap =
     || arena
     || scroll
     || registers
+    || cgbHal
     || fillCost
     || fillWrap
     || copyWrap
@@ -52,6 +54,26 @@ foreach (
     var timing = new VideoTiming(gb, oamMode);
     var fillWrites = new WrapTrace(copyWrap);
     var rasterTrace = new RasterTrace(gb);
+    var halTrace = new HalTrace(gb);
+    if (cgbHal)
+    {
+        gb.Mmu.DebugWrite(0xff40, 0);
+        gb.Mmu.Banking.VramBank = 0;
+        gb.Mmu.VramArray.AsSpan(0, 0x2000).Fill(0xA7);
+        if (color)
+            gb.Mmu.VramArray.AsSpan(0x2000, 0x2000).Fill(0xB8);
+        if (color)
+        {
+            for (int palette = 0; palette < 8; palette++)
+            for (int slot = 0; slot < 4; slot++)
+            {
+                gb.Ppu.BgPalette.SetColor(palette, slot, 0x3D3D);
+                gb.Ppu.ObjPalette.SetColor(palette, slot, 0x6C6C);
+            }
+            gb.Ppu.BgPalette.IndexRegister = 0x2A;
+            gb.Ppu.ObjPalette.IndexRegister = 0x15;
+        }
+    }
     if (video)
     {
         gb.Mmu.OamArray.AsSpan().Fill(0xC9);
@@ -93,6 +115,8 @@ foreach (
         gb.Mmu.Hook = fillWrites;
     if (raster)
         gb.Mmu.Hook = rasterTrace;
+    if (cgbHal)
+        gb.Mmu.Hook = new Koh.Emulator.Debug.CompositeMemoryHook(videoGuard, halTrace);
     int steps = 0;
     int dmaInstructions = 0;
     bool? controlIme = null;
@@ -240,6 +264,17 @@ foreach (
         if (registers)
             snapshot +=
                 $" {gb.Mmu.DebugRead(0xff42):X2}{gb.Mmu.DebugRead(0xff43):X2}{gb.Mmu.DebugRead(0xff47):X2}{gb.Mmu.DebugRead(0xff4a):X2}";
+        if (cgbHal)
+            snapshot +=
+                $" {gb.Mmu.Banking.VramBank:X2}:{(color ? gb.Mmu.DebugRead(0xff4f).ToString("X2") : "-")}:{(color ? gb.Ppu.BgPalette.IndexRegister.ToString("X2") : "-")}:{(gb.KeyOne.DoubleSpeed ? 1 : 0)}"
+                + (
+                    color
+                        ? $" {Convert.ToHexString(gb.Ppu.BgPalette.RawData)} {Convert.ToHexString(gb.Ppu.ObjPalette.RawData)}"
+                        : " - -"
+                )
+                + $" {gb.Mmu.VramArray[0]:X2}"
+                + (color ? $"{gb.Mmu.VramArray[0x2000]:X2}" : "")
+                + $" {string.Join(',', halTrace.Writes.DefaultIfEmpty("-"))}";
         if (fillCost)
             snapshot += $" {gb.Cpu.TotalTCycles}";
         if (fillWrap)
@@ -262,6 +297,21 @@ foreach (
         $"{gb.Mmu.DebugRead(0xC000):X2} {gb.Mmu.DebugRead(0xC001):X2} {Convert.ToHexString(result)} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}"
             + (cost ? $" {gb.Cpu.TotalTCycles}" : "")
     );
+}
+
+sealed class HalTrace(GameBoySystem gb) : Koh.Emulator.Debug.MemoryHook
+{
+    public List<string> Writes { get; } = [];
+
+    public override void OnRead(ushort address, byte value) { }
+
+    public override void OnWrite(ushort address, byte value)
+    {
+        if (address is 0xff4f or 0xff68 or 0xff69)
+            Writes.Add(
+                $"{address:X4}:{value:X2}:{((gb.Ppu.LCDC & 0x80) != 0 ? 1 : 0)}:{(byte)gb.Ppu.Mode}"
+            );
+    }
 }
 
 sealed class RasterTrace(GameBoySystem gb) : Koh.Emulator.Debug.MemoryHook

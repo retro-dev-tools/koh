@@ -1827,3 +1827,25 @@ builds remain. Next high-value candidate:remaining5 CgbHalTests contracts
 (realreferencedHALcompile,VRAMbankDMG/CGB,palette0/0and2/3)—inspect complete
 source/actualhardwaresemantics/hostsnapshot before implementation. Fullgoal
 active/incomplete; no permanentAPIbaseline/bugspec, no C#compilerfallback.
+
+Nextlocalunitafterb405992:CgbHalremaining5methods/8assertionsnativeported;
+all7sourceHALmethods/15assertionsnowmappedincludingpriorspeed2. NewCgbHal
+fixture6entryroots×4configs=24ROMs,fullBG/OBJ64bytechecks1536CGBbyteobservations,
+VRAMbank1+roundtrip,all32validpalettecolors,CPUFF4F/68/69writeorderandDMGzero
+writes. AddedEmulatorHostadapteronlyexplicitLCDoff/poison+snapshots/trace;no
+compiler/runtime/emulatorproductionchanges. ReviewremovednonphysicalDMGpalette
+backing/secondVRAMobservations;DMGsnapshotsomitabsentdevices.MainexecutesPpu
+pollswithexplicitLCDonandwaitsVBlankbeforeLCDoff. PrimaryPanDocsrawGitHub
+CGB_Registers.md/Palettes.mdjustifyhardwarebits/order/mode3preconditions,not
+constructorLCDC91defaults. Focused69862EXIT0,4/4pass18.397s. Pre-refinement
+5667EXIT0,26/26pass116.444s. FINAL45870EXIT0,26/26pass117.293s394unselected
+/tmp/koh-cgb-hal-mode-final.log,includesothermodegraphics/speed/CLIregressions.
+Rustfmt/CSharpier2files/diffPASS. Workspaceallfeaturesnextestdiscovery29166
+EXIT0,1592cases,all32newbatchcasesnonignored;existingunusedcubeshelperwarning.
+Initiallist-junsupportedcommandcorrectedCARGO_BUILD_JOBS=1(no-runtestclaim).
+Ledger180/565=179native+1obsoleteparserDELETEdecision,385outstanding,zero
+physicaldefinitionsretired. CI44016382427TERMINALSUCCESSexact54ab305:1560/1560
+Rust1715.064szeroskips;rustdoc4crates0cases; .NETfast564total/0fail/2UI-skips.
+Downloadedcompletedlog/tmp/koh-ci-54ab305-completed.logGH_EXIT0. Pushgatecleared.
+CommitHALthenONEbatchpush49cf1e2+2c9c676+b405992+HAL;updatePRcurrent180/newCI
+andverifyexactremotehead/draft/master. No localbuildsremain. Fullgoalactive.

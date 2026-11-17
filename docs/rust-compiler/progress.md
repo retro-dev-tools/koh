@@ -19,8 +19,10 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-175/565 dispositions complete (174 native replacements, one DELETE),390 outstanding,
+180/565 dispositions complete (179 native replacements, one DELETE),385 outstanding,
 including four [live-value preservation replacements](liveness.md).
+The remaining five [CGB HAL methods](cgb-hal.md) now check actual referenced
+code, both VRAM banks, all palette bytes and CGB-only CPU writes.
 See [float lowering contract and evidence](float-lowering.md).
 The [multiplication correction](softfloat-multiplication.md) replaces inherited
 subnormal flushing and missing special-value handling before enabling CIL `mul`.
