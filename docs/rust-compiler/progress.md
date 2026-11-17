@@ -14,12 +14,13 @@ baseline; authoring needs and hardware constraints determine the new contract.
 declaring arguments through inherited storage, including nested and referenced
 base types. [Inherited method references](closed-types.md#inherited-method-references)
 now bind caller scopes and exact closed base identities; field references retain
-their declaring-type requirement. Generic virtual/interface dispatch remains
-open; this does not close another legacy test disposition.
+their declaring-type requirement. [Closed reference dispatch](closed-types.md#closed-reference-dispatch)
+now supports nongeneric virtual/interface methods, overrides and retained virtual
+callbacks. Instantiated interface contracts and method-generic dispatch on closed
+reference owners remain open; this does not close another legacy disposition.
 Closed generic value receivers now support [constrained calls](constrained-calls.md#closed-generic-value-receivers)
 to nongeneric interface contracts, preserving caller mutation and explicit/generic
-method selection. Constructed reference dispatch and instantiated interfaces
-remain unfinished.
+method selection. Instantiated interface contracts remain unfinished.
 
 Current compiler increment adds distinct binary32 IR, explicit bit transport,
 float constants/calls/joins/byrefs/fields/arrays and metadata-selected software

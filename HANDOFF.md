@@ -1,5 +1,50 @@
 # Native compiler migration handoff
 
+## Latest closed-reference dispatch unit
+
+Published34a7e9b CI44104980515 ended failure after1361 Rust passes: obsolete
+generic value-constructor rejection. .NET fast job passed. Primary completed
+log /tmp/koh-ci-34a-completed.log,GH_EXIT0. Local ccacab2 (closed constrained
+values) already committed but unpushed; current unit and CI fix are ready to
+commit. Prior CI is terminal, so publish the batch after commits; never merge.
+
+Binder metadata reads normalize MethodDef/TypeDef identities; slot/cache/call
+identities retain closed owners. Scoped signatures reuse inherited binding;
+typed signatures preserve method instance context. Supports nongeneric virtual
+methods and nongeneric interface contracts on closed reference types, including
+explicit/inherited/default bodies, overrides, aggregate returns and captured
+virtual callbacks. MethodImpl inherited bodies bind the closed ancestor even for
+nongeneric leaves; unrelated bodies still reject. Methods with their own generic
+arguments dispatched on constructed reference owners and instantiated interfaces
+remain unfinished, with the former explicitly diagnosed in the new cases.
+
+Independent actual Roslyn/emulator checks retain byte/64-bit payloads, different
+counter effects, copies, default-method nested calls, constrained reference cells,
+foreign aggregate returns, receiver mutation after delegate binding, and valid/
+invalid inherited MethodImpl rows. ECMA II22.27 permits base-class bodies; do not
+use CLR rejection as an oracle or call that shape malformed. Initial basic4/4 red,
+basic4/4 pass32.510s; nongeneric leaf inherited-body red then8/8 pass56.467s.
+Final production Rust binder/library/interface/default/delegate/virtual/object
+run322/322 pass744.216s,exit0,357 excluded,
+/tmp/koh-closed-reference-regression.log. Later fixture-only extended consumer
+selection10/10 pass68.525s,exit0,450 excluded,
+/tmp/koh-closed-reference-consumers-final.log. No production Rust changes between
+those runs. GenericConstructor returns1 with a fully untouched managed heap;
+all four malformed constructor/private-local/readonly-store assertions remain.
+
+Rustfmt/CSharpier and separate workspace/all-feature rustdoc pass (4crates,0doc
+cases). Discovery1808,all4 new MethodImpl cases unignored. Existing unused cubes
+host warning remains. No builds live. Fixture hashes
+/tmp/koh-closed-reference-fixture.sha256; recheck after commit hooks. Ledger stays
+229/565 complete,336 outstanding. No source dispositions credited.
+
+Commit constructor acceptance (driver.rs,Structs fixture,aggregates.md), then
+closed-reference binder/fixtures/docs, then CI collect-all-failures change (same
+two jobs, same assertions, --no-fail-fast for workspace runs). Push queued batch
+and refresh concise draft PR55 checklist/current CI and vault handoff. Next:
+instantiated interfaces, method-generic dispatch on closed reference owners,
+variance/boxing, remaining runtime/storage/test/product/removal gates.
+
 ## Latest closed-value constrained unit
 
 Published head34a7e9b; CI44104980515 verified running on that head, .NET fast

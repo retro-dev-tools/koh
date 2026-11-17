@@ -55,7 +55,7 @@ impl Resolver<'_> {
             .map_or_else(Vec::new, |value| value.arguments))
     }
 
-    fn member_signatures_equal(
+    pub(crate) fn member_signatures_equal(
         &self,
         assembly: usize,
         left: &MethodSig,

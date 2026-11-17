@@ -107,8 +107,9 @@ impl<'r, 'a> Binder<'r, 'a> {
     }
 
     fn methods(&mut self, owner: Definition) -> Result<Vec<Definition>, String> {
-        let metadata = self.resolver.assembly(owner.assembly)?.metadata();
-        let index = (owner.token & 0xffffff)
+        let raw = self.resolver.type_definition(owner)?;
+        let metadata = self.resolver.assembly(raw.assembly)?.metadata();
+        let index = (raw.token & 0xffffff)
             .checked_sub(1)
             .ok_or("Invalid virtual owner")? as usize;
         let ty = metadata
@@ -127,17 +128,65 @@ impl<'r, 'a> Binder<'r, 'a> {
             return Err("Invalid virtual method range".into());
         }
         self.charge((end - ty.method_list) as usize + metadata.method_impls.len())?;
-        Ok((ty.method_list..end)
-            .map(|row| Definition {
-                assembly: owner.assembly,
+        let mut methods = Vec::new();
+        for row in ty.method_list..end {
+            let method = Definition {
+                assembly: raw.assembly,
                 token: 0x06000000 | row,
-            })
-            .collect())
+            };
+            methods.push(
+                if raw != owner && self.signature(method)?.generic_param_count == 0 {
+                    self.resolver.specialize_on(method, vec![], Some(owner))?
+                } else {
+                    method
+                },
+            );
+        }
+        Ok(methods)
+    }
+
+    fn raw(&self, method: Definition) -> Result<Definition, String> {
+        Ok(self
+            .resolver
+            .instance(method)?
+            .map_or(method, |instance| instance.method))
+    }
+
+    fn row(&self, method: Definition) -> Result<&'r clrmeta::MethodDefRow, String> {
+        let raw = self.raw(method)?;
+        self.resolver.assembly(raw.assembly)?.method(raw.token)
+    }
+
+    fn name(&self, method: Definition) -> Result<&'r str, String> {
+        let raw = self.raw(method)?;
+        self.resolver
+            .assembly(raw.assembly)?
+            .metadata()
+            .strings
+            .get(self.row(method)?.name)
+            .map_err(|e| e.to_string())
+    }
+
+    fn signatures_equal(&mut self, left: Definition, right: Definition) -> Result<bool, String> {
+        let a = self.signature(left)?;
+        let b = self.signature(right)?;
+        let left_owner = lower::owner_type(self.resolver, left)?;
+        let right_owner = lower::owner_type(self.resolver, right)?;
+        if self.resolver.type_instance(left_owner)?.is_some()
+            || self.resolver.type_instance(right_owner)?.is_some()
+        {
+            self.resolver
+                .member_signatures_equal(left.assembly, &a, left_owner, &b, right_owner)
+        } else {
+            self.resolver
+                .methods_equal(left.assembly, &a, right.assembly, &b, 0)
+        }
     }
 
     fn signature(&mut self, method: Definition) -> Result<clrmeta::MethodSig, String> {
-        let image = self.resolver.assembly(method.assembly)?;
-        let row = image.method(method.token)?;
+        let raw = self.raw(method)?;
+        let image = self.resolver.assembly(raw.assembly)?;
+        let row = image.method(raw.token)?;
         self.charge(
             image
                 .metadata()
@@ -147,7 +196,7 @@ impl<'r, 'a> Binder<'r, 'a> {
                 .len()
                 + 1,
         )?;
-        image.method_signature(method.token)
+        image.method_signature(raw.token)
     }
 
     fn mappings(&mut self, owner: Definition) -> Result<Vec<(Definition, Definition)>, String> {
@@ -156,7 +205,12 @@ impl<'r, 'a> Binder<'r, 'a> {
             self.charge(result.len())?;
             return Ok(result);
         }
-        let metadata = self.resolver.assembly(owner.assembly)?.metadata();
+        let raw = self.resolver.type_definition(owner)?;
+        let metadata = self.resolver.assembly(raw.assembly)?.metadata();
+        let type_arguments = self
+            .resolver
+            .type_instance(owner)?
+            .map_or_else(Vec::new, |value| value.arguments);
         self.charge(metadata.method_impls.len())?;
         let class = lower::class_type(self.resolver, owner)?;
         let chain = self.chain(class)?;
@@ -164,7 +218,7 @@ impl<'r, 'a> Binder<'r, 'a> {
         for row in metadata
             .method_impls
             .iter()
-            .filter(|row| row.class == owner.token & 0xffffff)
+            .filter(|row| row.class == raw.token & 0xffffff)
         {
             let mut targets = Vec::new();
             for token in [row.method_declaration, row.method_body] {
@@ -176,16 +230,32 @@ impl<'r, 'a> Binder<'r, 'a> {
                 {
                     return Err("MethodImpl requires MethodDef or MemberRef".into());
                 }
-                let resolved = self
-                    .resolver
-                    .resolve_method(owner.assembly, ((table as u32) << 24) | token.row)?;
-                if resolved.declaring.is_some()
-                    || !resolved.type_arguments.is_empty()
-                    || !resolved.method_arguments.is_empty()
-                {
-                    return Err("Generic MethodImpl requires instantiated binding".into());
+                let resolved = self.resolver.resolve_method_in(
+                    raw.assembly,
+                    ((table as u32) << 24) | token.row,
+                    &[],
+                    &type_arguments,
+                )?;
+                let template = lower::owner_type(self.resolver, resolved.definition)?;
+                let mut declaring = None;
+                for &base in &chain {
+                    if self.resolver.type_definition(base)? == template
+                        && self.resolver.type_instance(base)?.is_some()
+                    {
+                        declaring = Some(base);
+                        break;
+                    }
                 }
-                targets.push(resolved.definition);
+                let bound = declaring.is_some()
+                    || resolved.declaring.is_some()
+                    || !resolved.type_arguments.is_empty()
+                    || !resolved.method_arguments.is_empty();
+                targets.push(if bound {
+                    if self.signature(resolved.definition)?.generic_param_count != 0 {
+                        return Err("Generic MethodImpl methods on constructed reference types are unfinished".into());
+                    }
+                    self.resolver.instantiate_in(&resolved, &[], &type_arguments, Some(declaring.unwrap_or(owner)))?
+                } else { resolved.definition });
             }
             let (declaration, body) = (targets[0], targets[1]);
             let declared_owner = lower::owner_type(self.resolver, declaration)?;
@@ -200,11 +270,8 @@ impl<'r, 'a> Binder<'r, 'a> {
             {
                 return Err("MethodImpl body/declaration is outside the class inheritance or interface contract".into());
             }
-            let declaration_row = self
-                .resolver
-                .assembly(declaration.assembly)?
-                .method(declaration.token)?;
-            let body_row = self.resolver.assembly(body.assembly)?.method(body.token)?;
+            let declaration_row = self.row(declaration)?;
+            let body_row = self.row(body)?;
             let reabstract = class.is_interface() && body_row.flags & 0x400 != 0;
             if class.is_interface() && body_row.flags & 0x170 != 0x60 {
                 return Err(
@@ -237,13 +304,7 @@ impl<'r, 'a> Binder<'r, 'a> {
             let body_sig = self.signature(body)?;
             if !declaration_sig.calling_convention.has_this()
                 || !body_sig.calling_convention.has_this()
-                || !self.resolver.methods_equal(
-                    declaration.assembly,
-                    &declaration_sig,
-                    body.assembly,
-                    &body_sig,
-                    0,
-                )?
+                || !self.signatures_equal(declaration, body)?
             {
                 return Err(
                     "MethodImpl signatures differ; covariant or generic adaptation is unsupported"
@@ -264,17 +325,18 @@ impl<'r, 'a> Binder<'r, 'a> {
         owner: Definition,
         interface: Definition,
     ) -> Result<bool, String> {
-        let metadata = self.resolver.assembly(owner.assembly)?.metadata();
+        let raw = self.resolver.type_definition(owner)?;
+        let metadata = self.resolver.assembly(raw.assembly)?.metadata();
         self.charge(metadata.interface_impls.len())?;
         for row in metadata
             .interface_impls
             .iter()
-            .filter(|row| row.class == owner.token & 0xffffff)
+            .filter(|row| row.class == raw.token & 0xffffff)
         {
             let table = row.interface.table.ok_or("Null InterfaceImpl")?;
             let id = self
                 .resolver
-                .resolve_type(owner.assembly, ((table as u32) << 24) | row.interface.row)?;
+                .resolve_type(raw.assembly, ((table as u32) << 24) | row.interface.row)?;
             if id == interface || crate::layout::implements(self.resolver, id, interface)? {
                 return Ok(true);
             }
@@ -295,23 +357,10 @@ impl<'r, 'a> Binder<'r, 'a> {
             return Ok(None);
         }
         self.slot(method)?;
-        if self
-            .resolver
-            .assembly(method.assembly)?
-            .method(method.token)?
-            .flags
-            & 0x20
-            != 0
-        {
+        if self.row(method)?.flags & 0x20 != 0 {
             return Ok(Some(method));
         }
-        let signature = self.signature(method)?;
-        let image = self.resolver.assembly(method.assembly)?;
-        let name = image
-            .metadata()
-            .strings
-            .get(image.method(method.token)?.name)
-            .map_err(|e| e.to_string())?;
+        let name = self.name(method)?;
         let chain = self.chain(class)?;
         for (index, &owner) in chain.iter().enumerate() {
             let explicit = self.mappings(owner)?;
@@ -335,7 +384,7 @@ impl<'r, 'a> Binder<'r, 'a> {
                 let mut candidate = None;
                 for target in self.methods(base)? {
                     let image = self.resolver.assembly(target.assembly)?;
-                    let row = image.method(target.token)?;
+                    let row = self.row(target)?;
                     if row.flags & 0x57 != 0x46
                         || image
                             .metadata()
@@ -346,14 +395,7 @@ impl<'r, 'a> Binder<'r, 'a> {
                     {
                         continue;
                     }
-                    let other = self.signature(target)?;
-                    if self.resolver.methods_equal(
-                        method.assembly,
-                        &signature,
-                        target.assembly,
-                        &other,
-                        0,
-                    )? {
+                    if self.signatures_equal(method, target)? {
                         if candidate.replace(target).is_some() {
                             return Err("Ambiguous interface implementation".into());
                         }
@@ -375,14 +417,7 @@ impl<'r, 'a> Binder<'r, 'a> {
     ) -> Result<Definition, String> {
         let owner = lower::owner_type(self.resolver, method)?;
         let mut candidates = Vec::new();
-        if self
-            .resolver
-            .assembly(method.assembly)?
-            .method(method.token)?
-            .flags
-            & 0x400
-            == 0
-        {
+        if self.row(method)?.flags & 0x400 == 0 {
             candidates.push((owner, method));
         }
         let layout = crate::layout::class(self.resolver, class)?;
@@ -409,14 +444,7 @@ impl<'r, 'a> Binder<'r, 'a> {
             }
         }
         let selected = selected.ok_or("Interface slot has no implementation")?;
-        if self
-            .resolver
-            .assembly(selected.assembly)?
-            .method(selected.token)?
-            .flags
-            & 0x400
-            != 0
-        {
+        if self.row(selected)?.flags & 0x400 != 0 {
             return Err("Re-abstracted interface slot has no concrete implementation".into());
         }
         Ok(selected)
@@ -427,8 +455,7 @@ impl<'r, 'a> Binder<'r, 'a> {
             return Ok(*slot);
         }
         self.charge(1)?;
-        let image = self.resolver.assembly(method.assembly)?;
-        let flags = image.method(method.token)?.flags;
+        let flags = self.row(method)?.flags;
         let signature = self.signature(method)?;
         if flags & 0x50 != 0x40 || !signature.calling_convention.has_this() {
             return Err("Virtual slot must be an instance virtual method".into());
@@ -456,18 +483,14 @@ impl<'r, 'a> Binder<'r, 'a> {
             self.slots.insert(method, method);
             return Ok(method);
         }
-        let name = image
-            .metadata()
-            .strings
-            .get(image.method(method.token)?.name)
-            .map_err(|e| e.to_string())?;
+        let name = self.name(method)?;
         let mut slot = method;
         if flags & 0x100 == 0 {
             for base in self.chain(class)?.into_iter().skip(1) {
                 let mut matched = None;
                 for candidate in self.methods(base)? {
                     let other = self.resolver.assembly(candidate.assembly)?;
-                    let row = other.method(candidate.token)?;
+                    let row = self.row(candidate)?;
                     if row.flags & 0x50 != 0x40
                         || other
                             .metadata()
@@ -478,14 +501,7 @@ impl<'r, 'a> Binder<'r, 'a> {
                     {
                         continue;
                     }
-                    let other_signature = self.signature(candidate)?;
-                    if !self.resolver.methods_equal(
-                        method.assembly,
-                        &signature,
-                        candidate.assembly,
-                        &other_signature,
-                        0,
-                    )? {
+                    if !self.signatures_equal(method, candidate)? {
                         continue;
                     }
                     if matched.replace(candidate).is_some() {
@@ -519,23 +535,18 @@ impl<'r, 'a> Binder<'r, 'a> {
         method: Definition,
         class: ClassType,
     ) -> Result<Option<Definition>, String> {
-        if class
-            .identity()
-            .map(|id| self.resolver.type_instance(id))
-            .transpose()?
-            .flatten()
-            .is_some()
-        {
-            return Err("Constructed generic dispatch is unfinished".into());
-        }
         if let Some(instance) = self.resolver.instance(method)? {
-            if instance.declaring.is_some() {
-                return Err("Constructed generic dispatch is unfinished".into());
+            if instance.declaring.is_none() {
+                return self
+                    .implementation(instance.method, class)?
+                    .map(|target| self.resolver.specialize(target, instance.arguments))
+                    .transpose();
             }
-            return self
-                .implementation(instance.method, class)?
-                .map(|target| self.resolver.specialize(target, instance.arguments))
-                .transpose();
+            if !instance.arguments.is_empty() {
+                return Err(
+                    "Generic methods on constructed reference dispatch are unfinished".into(),
+                );
+            }
         }
         if self.active.len() >= 64 || !self.active.insert((method, class)) {
             return Err("Virtual/MethodImpl binding cycle or depth exceeds64".into());
@@ -560,13 +571,7 @@ impl<'r, 'a> Binder<'r, 'a> {
             return Ok(None);
         }
         let slot = self.slot(method)?;
-        let signature = self.signature(method)?;
-        let image = self.resolver.assembly(method.assembly)?;
-        let name = image
-            .metadata()
-            .strings
-            .get(image.method(method.token)?.name)
-            .map_err(|e| e.to_string())?;
+        let name = self.name(method)?;
         for owner in chain {
             for (declaration, body) in self.mappings(owner)? {
                 if lower::class_type(
@@ -587,7 +592,7 @@ impl<'r, 'a> Binder<'r, 'a> {
             let mut implementation = None;
             for candidate in self.methods(owner)? {
                 let image = self.resolver.assembly(candidate.assembly)?;
-                let row = image.method(candidate.token)?;
+                let row = self.row(candidate)?;
                 if image
                     .metadata()
                     .strings
@@ -597,14 +602,7 @@ impl<'r, 'a> Binder<'r, 'a> {
                 {
                     continue;
                 }
-                let candidate_signature = self.signature(candidate)?;
-                if !self.resolver.methods_equal(
-                    method.assembly,
-                    &signature,
-                    candidate.assembly,
-                    &candidate_signature,
-                    0,
-                )? {
+                if !self.signatures_equal(method, candidate)? {
                     continue;
                 }
                 if row.flags & 0x50 == 0x40 && self.slot(candidate)? == slot {
@@ -628,7 +626,7 @@ impl<'r, 'a> Binder<'r, 'a> {
             let signature = self.signature(instance.method)?;
             return Ok(crate::generics::method_types(
                 self.resolver,
-                instance.method,
+                method,
                 &signature,
                 &instance.arguments,
             )?
@@ -651,11 +649,7 @@ impl<'r, 'a> Binder<'r, 'a> {
         for &interface in &layout.interfaces {
             let mappings = self.mappings(interface)?;
             for method in self.methods(interface)? {
-                let flags = self
-                    .resolver
-                    .assembly(method.assembly)?
-                    .method(method.token)?
-                    .flags;
+                let flags = self.row(method)?.flags;
                 if flags & 0x50 == 0x50 {
                     return Err("Static virtual interface contracts are unsupported".into());
                 }
@@ -677,16 +671,10 @@ impl<'r, 'a> Binder<'r, 'a> {
         method: Definition,
         classes: &[ClassType],
     ) -> Result<Function, String> {
-        if self
-            .resolver
-            .instance(method)?
-            .is_some_and(|instance| instance.declaring.is_some())
-        {
-            return Err("Constructed generic dispatch is unfinished".into());
-        }
         self.slot(
             self.resolver
                 .instance(method)?
+                .filter(|instance| instance.declaring.is_none())
                 .map_or(method, |instance| instance.method),
         )?;
         let signature = self.typed_signature(method)?;

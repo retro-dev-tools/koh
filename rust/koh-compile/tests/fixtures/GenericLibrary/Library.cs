@@ -92,3 +92,17 @@ public struct RemoteReadValue<T> : IRemoteMarker
         return Calls + 70;
     }
 }
+
+public class RemoteDispatchCell<T> : IRemoteMarker
+{
+    public T Payload = default!;
+    public int Calls;
+
+    public int Read()
+    {
+        Calls++;
+        return Calls + 70;
+    }
+
+    public virtual T ReadValue() => Payload;
+}

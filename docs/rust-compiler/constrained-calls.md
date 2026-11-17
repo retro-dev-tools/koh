@@ -1,8 +1,9 @@
 # Closed constrained interface calls
 
 The Rust frontend supports `constrained. thisType; callvirt` for supported closed
-class/interface receivers on nongeneric declaring types and nongeneric or closed
-generic struct receivers implementing nongeneric interface contracts. Standard C#
+class/interface and nongeneric or closed generic struct receivers implementing
+nongeneric interface contracts. Closed generic reference receivers use the
+[closed dispatch contract](closed-types.md#closed-reference-dispatch). Standard C#
 generic constraints and `ref T` arguments produce this CIL; authors need no Koh
 attribute or alternative API.
 
@@ -25,8 +26,9 @@ Prefix/call pairs are validated before stack lowering. Branches cannot enter the
 call after its prefix. Dangling prefixes and wrong type tokens diagnose with IL
 offsets. Modern constrained static-interface call/ldftn extensions diagnose as
 unfinished support, rather than malformed metadata. Boxing-dependent base methods,
-default-interface value fallback, primitive receiver runtimes, constructed generic
-reference dispatch and instantiated interface contracts remain unfinished. Closed declaring layouts and static
+default-interface value fallback, primitive receiver runtimes, method-generic
+dispatch on constructed reference owners and instantiated interface contracts
+remain unfinished. Closed declaring layouts and static
 storage are implemented separately; see [closed types](closed-types.md).
 None of the unfinished dispatch behavior is approved for retirement.
 

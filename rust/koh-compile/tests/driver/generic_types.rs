@@ -15,6 +15,117 @@ fn managed() -> Host {
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
+fn closed_methodimpl_bodies_keep_the_inherited_declaring_scope(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "ClosedTypes");
+    let library = std::fs::read(
+        directory
+            .path()
+            .join(format!("bin/{configuration}/net10.0/GenericLibrary.dll")),
+    )
+    .unwrap();
+    let resolver = Resolver::new(&[&images[0], &images[1], &library]).unwrap();
+    let image = resolver.assembly(0).unwrap();
+    let error = compile::object(
+        &resolver,
+        Some("Program::UnsupportedGenericReferenceMethod"),
+    )
+    .err()
+    .expect("Method-generic dispatch on constructed reference owners remains unfinished");
+    assert!(
+        error.contains("Generic methods on constructed reference dispatch")
+            && error.contains("unfinished")
+            && error.contains("IL_"),
+        "{error}"
+    );
+    let data = image.metadata();
+    let owners = ["MappedCell`1", "FixedMappedCell"].map(|name| {
+        data.type_defs
+            .iter()
+            .position(|row| data.strings.get(row.type_name).unwrap() == name)
+            .unwrap() as u32
+            + 1
+    });
+    let mappings: Vec<_> = data
+        .method_impls
+        .iter()
+        .enumerate()
+        .filter_map(|(index, row)| owners.contains(&row.class).then_some(index))
+        .collect();
+    assert_eq!(mappings.len(), 2);
+    for (name, valid) in [
+        ("VirtualCell`1::Read", true),
+        ("InterfaceCell`1::Read", false),
+    ] {
+        let body = (1..=data.method_defs.len())
+            .map(|row| 0x06000000 | row as u32)
+            .find(|&token| image.method_name(token).unwrap() == name)
+            .unwrap();
+        let mut bytes = images[0].clone();
+        for &mapping in &mappings {
+            let (offset, context) =
+                metadata::table_row(&bytes, clrmeta::TableId::MethodImpl, mapping);
+            let offset = offset + context.table_index_size(clrmeta::TableId::TypeDef);
+            let width = context.coded_index_size(clrmeta::CodedIndexKind::MethodDefOrRef);
+            bytes[offset..offset + width]
+                .copy_from_slice(&((body & 0xffffff) << 1).to_le_bytes()[..width]);
+        }
+        let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
+        let result = compile::object(&changed, Some("Program::InheritedClosedBody"));
+        if !valid {
+            let error = result
+                .err()
+                .expect("MethodImpl cannot borrow a body outside its closed ancestry");
+            assert!(
+                error.contains("outside the class inheritance") && error.contains("IL_"),
+                "{error}"
+            );
+            continue;
+        }
+        let mut object = result.unwrap();
+        let mut bank = 1;
+        for section in &mut object.sections {
+            if section.name.starts_with(".text.__koh_a") {
+                section.bank = Some(bank);
+                bank += 1;
+            }
+        }
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"]);
+        if color {
+            super::assert_heap_snapshot(fields[5], &[0x6b; 4096], name);
+        }
+    }
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
 fn inherited_member_references_bind_the_closed_base(
     host: &Host,
     managed: &Host,
@@ -250,6 +361,7 @@ fn closed_types_preserve_layouts_and_static_initialization(
         "Values",
         "Inheritance",
         "ConstrainedDispatch",
+        "InterfaceDispatch",
         "Objects",
         "Statics",
         "TypeOnly",
@@ -362,17 +474,6 @@ fn closed_types_preserve_layouts_and_static_initialization(
         }
     }
     let image = resolver.assembly(0).unwrap();
-    for entry in ["InterfaceDispatch"] {
-        let error = compile::object(&resolver, Some(&format!("Program::{entry}")))
-            .err()
-            .expect("Constructed declaring dispatch remains unfinished");
-        assert!(
-            error.contains("Constructed generic")
-                && error.contains("unfinished")
-                && error.contains("IL_"),
-            "{entry}: {error}"
-        );
-    }
     let data = image.metadata();
     let explicit_value = data
         .type_defs

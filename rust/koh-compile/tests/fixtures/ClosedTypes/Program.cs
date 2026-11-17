@@ -2,6 +2,34 @@ using System.Runtime.InteropServices;
 
 public static class Program
 {
+    public static int UnsupportedGenericReferenceMethod() =>
+        new GenericVirtualReference<byte>().Forward(42);
+
+    public static int InheritedClosedBody()
+    {
+        var small = new MappedCell<byte> { Payload = 245 };
+        var wide = new MappedCell<ulong> { Payload = 0xFEDCBA9876543210UL, Calls = 10 };
+        IClosedRead left = small;
+        IClosedRead right = wide;
+        int a = left.Read();
+        int b = right.Read();
+        var fixedCell = new FixedMappedCell { Payload = 0x123456789ABCDEF0UL };
+        IClosedRead fixedRead = fixedCell;
+        int c = fixedRead.Read();
+        return
+            a == 72
+            && b == 82
+            && small.Calls == 2
+            && wide.Calls == 12
+            && small.Payload == 245
+            && wide.Payload == 0xFEDCBA9876543210UL
+            && c == 72
+            && fixedCell.Calls == 2
+            && fixedCell.Payload == 0x123456789ABCDEF0UL
+            ? 42
+            : 0;
+    }
+
     public static int InheritedRemoteMembers()
     {
         var cell = new LocalDerived<Payload>(new Payload { Tag = 17, Value = 60000 });
@@ -125,7 +153,101 @@ public static class Program
             : 0;
     }
 
-    public static int InterfaceDispatch() => new InterfaceCell<byte>().Read();
+    public static int InterfaceDispatch()
+    {
+        var small = new InterfaceCell<byte> { Payload = 245 };
+        var wide = new InterfaceCell<ulong> { Payload = 0xFEDCBA9876543210UL, Calls = 10 };
+        IClosedRead left = small;
+        IClosedRead right = wide;
+        int first = left.Read();
+        int second = right.Read();
+        int third = left.Read();
+        var explicitCell = new ExplicitInterfaceCell<Payload>
+        {
+            Payload = new Payload { Tag = 17, Value = 60000 },
+        };
+        IClosedRead explicitRead = explicitCell;
+        int fourth = explicitRead.Read();
+        int fifth = explicitRead.Read();
+        var overridden = new OverrideCell<ulong> { Payload = 0xFEDCBA9876543210UL, Calls = 4 };
+        VirtualCell<ulong> virtualRead = overridden;
+        int sixth = virtualRead.Read();
+        IClosedRead inheritedRead = overridden;
+        int seventh = inheritedRead.Read();
+        var plain = new VirtualCell<byte> { Payload = 245 };
+        int eighth = plain.Read();
+        VirtualCell<Payload> aggregate = new OverrideCell<Payload>
+        {
+            Payload = new Payload { Tag = 7, Value = 60000 },
+        };
+        Payload copied = aggregate.ReadValue();
+        copied.Value = 17;
+        Getter<Payload> capturedRead = aggregate.ReadValue;
+        Payload capturedCopy = capturedRead();
+        aggregate.Payload.Value = 30600;
+        Payload changedCopy = capturedRead();
+        VirtualCell<ulong> fixedRead = new FixedOverride { Payload = 0x123456789ABCDEF0UL };
+        int ninth = fixedRead.Read();
+        var remote = new RemoteDispatchCell<Payload>
+        {
+            Payload = new Payload { Tag = 14, Value = 60000 },
+            Calls = 7,
+        };
+        IRemoteMarker remoteRead = remote;
+        int tenth = remoteRead.Read();
+        Payload remoteCopy = remote.ReadValue();
+        remoteCopy.Value = 17;
+        int thirteenth = ReadGeneric(ref small);
+        var defaultCell = new DefaultReadCell<byte> { Payload = 245 };
+        IClosedDefault defaultRead = defaultCell;
+        int eleventh = defaultRead.Read();
+        int twelfth = defaultRead.Read();
+        return
+            first == 42
+            && second == 52
+            && third == 43
+            && small.Calls == 3
+            && thirteenth == 44
+            && wide.Calls == 11
+            && small.Payload == 245
+            && wide.Payload == 0xFEDCBA9876543210UL
+            && fourth == 103
+            && fifth == 106
+            && explicitCell.Read() == -1
+            && explicitCell.Calls == 6
+            && explicitCell.Payload.Tag == 17
+            && explicitCell.Payload.Value == 60000
+            && sixth == 76
+            && seventh == 78
+            && overridden.Calls == 8
+            && overridden.Payload == 0xFEDCBA9876543210UL
+            && eighth == 11
+            && plain.Calls == 1
+            && plain.Payload == 245
+            && copied.Tag == 7
+            && copied.Value == 17
+            && aggregate.Payload.Value == 30600
+            && aggregate.Calls == 15
+            && capturedCopy.Tag == 7
+            && capturedCopy.Value == 60000
+            && changedCopy.Tag == 7
+            && changedCopy.Value == 30600
+            && ninth == 93
+            && fixedRead.Calls == 3
+            && fixedRead.Payload == 0x123456789ABCDEF0UL
+            && tenth == 78
+            && remote.Calls == 8
+            && remote.Payload.Tag == 14
+            && remote.Payload.Value == 60000
+            && remoteCopy.Tag == 14
+            && remoteCopy.Value == 17
+            && eleventh == 6
+            && twelfth == 7
+            && defaultCell.Calls == 2
+            && defaultCell.Payload == 245
+            ? 42
+            : 0;
+    }
 
     static int ReadGeneric<T>(ref T value)
         where T : IClosedRead => value.Read();
@@ -435,7 +557,108 @@ public interface IClosedRead
 
 public sealed class InterfaceCell<T> : IClosedRead
 {
-    public int Read() => 42;
+    public T Payload;
+    public int Calls;
+
+    public int Read()
+    {
+        Calls++;
+        return Calls + 41;
+    }
+}
+
+public sealed class ExplicitInterfaceCell<T> : IClosedRead
+{
+    public T Payload;
+    public int Calls;
+
+    int IClosedRead.Read()
+    {
+        Calls += 3;
+        return Calls + 100;
+    }
+
+    public int Read() => -1;
+}
+
+public class VirtualCell<T> : IClosedRead
+{
+    public T Payload;
+    public int Calls;
+
+    public virtual int Read()
+    {
+        Calls++;
+        return Calls + 10;
+    }
+
+    public virtual T ReadValue()
+    {
+        Calls++;
+        return Payload;
+    }
+}
+
+public class OverrideCell<T> : VirtualCell<T>
+{
+    public override int Read()
+    {
+        Calls += 2;
+        return Calls + 70;
+    }
+
+    public override T ReadValue()
+    {
+        Calls += 5;
+        return Payload;
+    }
+}
+
+public sealed class FixedOverride : OverrideCell<ulong>
+{
+    public override int Read()
+    {
+        Calls += 3;
+        return Calls + 90;
+    }
+}
+
+public sealed class MappedCell<T> : OverrideCell<T>, IClosedRead
+{
+    int IClosedRead.Read()
+    {
+        Calls += 20;
+        return Calls + 200;
+    }
+}
+
+public sealed class FixedMappedCell : OverrideCell<ulong>, IClosedRead
+{
+    int IClosedRead.Read()
+    {
+        Calls += 30;
+        return Calls + 300;
+    }
+}
+
+public class GenericVirtualReference<T>
+{
+    public virtual U Forward<U>(U value) => value;
+}
+
+public interface IClosedDefault
+{
+    int Next();
+
+    int Read() => Next() + 5;
+}
+
+public sealed class DefaultReadCell<T> : IClosedDefault
+{
+    public T Payload;
+    public int Calls;
+
+    public int Next() => ++Calls;
 }
 
 public struct InterfaceValue<T> : IClosedRead, IClosedForward

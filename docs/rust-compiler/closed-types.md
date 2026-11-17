@@ -129,14 +129,14 @@ current full-workspace pass.
 
 ## Remaining work
 
-Constructed generic reference-type virtual/interface dispatch, instantiated
-interface contracts,
+Instantiated interface contracts, method-generic dispatch on constructed reference
+owners,
 variance-aware assignability and boxing-dependent fallback remain unfinished.
 
 Closed generic value receivers now execute through the existing
 [constrained call contract](constrained-calls.md#closed-generic-value-receivers),
 including explicit implementations and generic interface methods. This does not
-establish constructed generic reference dispatch or instantiated interfaces.
+establish instantiated interface contracts.
 This increment does not approve their retirement or classify valid unsupported
 CLI shapes as malformed. Existing C# compiler/test definitions remain until full
 migration acceptance. No extra legacy dispositions are claimed:198/565 complete,
@@ -207,7 +207,7 @@ bad test expectation, not evidence for retiring a valid generic capability or
 calling well-formed but unresolved metadata structurally malformed. The earlier
 native acceptance of that field shape was removed. The corrected eight-case
 checkpoint passes65.825s in `/tmp/koh-inherited-members-declaring-final.log`.
-Nested open generic method-signature shapes and general constructed dispatch
+Nested open generic method-signature shapes and general instantiated-interface dispatch
 still need broader acceptance; this increment does not claim their completion.
 
 Final owned selection:249/249 pass262.796s, exit0,436 excluded,
@@ -220,3 +220,54 @@ not a reason to remove the collision checks. Final Rustfmt, CSharpier and separa
 workspace/all-feature rustdoc pass (four crates, zero doc cases). Workspace
 discovery lists1,804 tests; all eight new cases are unignored. Discovery is not
 full-suite execution. No legacy source disposition credit is added.
+
+## Closed reference dispatch
+
+Nongeneric virtual methods on closed reference types retain their declaring
+identity through slot selection, signature checking, method enumeration and the
+existing dispatch IR. Metadata rows and names come from the underlying MethodDef;
+they are not indexed with a compilation-local method identity. Scoped signature
+comparison reuses the inherited-member binding path, and typed call signatures
+retain the complete specialized method rather than dropping its closed owner.
+No new dispatch runtime, object header or calling convention is introduced.
+
+Nongeneric interface contracts support implicit, explicit, inherited and default
+implementations on these receivers. MethodImpl bodies bind to the matching closed
+ancestor even when the implementing leaf is nongeneric. This follows the body
+ownership rule in [ECMA-335 II.22.27](https://ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf);
+the same slot rules still select overriding implementations. A body from another
+class is rejected. Runtime rejection of an inherited body is not an acceptance
+oracle or a reason to retire that valid shape.
+
+The existing four-mode driver adds byte/64-bit receivers, explicit versus public
+implementations, overrides on generic classes, a nongeneric leaf, aggregate copy returns,
+default methods with observable nested calls, a referenced class returning a local
+packed value, constrained reference cells and captured virtual delegates. Counter
+effects and complete payload values distinguish the implementations; changing a
+receiver's payload after binding tests retained reference identity. The existing banked ELF,
+PDB, heap/stack and resolver-history checks remain.
+
+Four new rstest cases in
+`driver::generic_types::closed_methodimpl_bodies_keep_the_inherited_declaring_scope`
+edit real Roslyn MethodImpl rows. Closed generic owners and nongeneric leaves use
+an inherited generic-base body, execute independently expected counter values and
+reject an unrelated body with IL context. A method with its own generic arguments
+on a constructed reference owner still diagnoses unfinished support; instantiated
+interface contracts and variance also remain unfinished. No feature retirement
+or additional legacy disposition closure is claimed.
+
+Evidence: the original guard rejects4/4 in
+`/tmp/koh-closed-reference-red.log`; basic interface execution passes4/4 in32.510s.
+Extended fields/overrides pass4/4 in32.876s. The nongeneric-leaf inherited-body
+case first fails in `/tmp/koh-closed-reference-fixed-body-red.log`, then the
+corrected eight-case selection passes56.467s. Broader binder/library/interface/
+default/delegate/virtual/object regression passes322/322 in744.216s
+(`/tmp/koh-closed-reference-regression.log`),357 outside the selection. After
+adding the final callback/reference-cell/foreign-return cases and constructor
+acceptance,10/10 pass68.525s (`/tmp/koh-closed-reference-consumers-final.log`),450
+outside the selection. Production Rust code did not change between those runs.
+
+Rustfmt, CSharpier and separate workspace/all-feature rustdoc pass (four crates,
+zero doc cases). Workspace discovery lists1,808 tests; all four new cases are
+unignored. The existing unused cubes-host warning remains. Full current-head
+hosted validation is still required; source dispositions stay229/565 complete.
