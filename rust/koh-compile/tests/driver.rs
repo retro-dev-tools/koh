@@ -4637,23 +4637,22 @@ fn static_fields_and_byref_aliases_execute(host: &Host, #[case] configuration: &
         error.contains("static storage") && error.contains("capacity"),
         "{error}"
     );
-    let initialized = compile::object(&resolver, Some("Program::NeedsInitialization")).unwrap();
-    let linked = koh_link::link(&[initialized], &koh_link::LinkOptions::default()).unwrap();
-    assert_eq!(
-        execute_mode(
-            host,
-            directory.path(),
-            &linked,
-            "__koh_exit",
-            "--native-poison"
-        ),
-        "00 00000011 D000 OK"
-    );
-    for (entry, diagnostic) in [("NeedsGenericStorage", "Generic")] {
-        let error = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap_err();
-        assert!(
-            error.contains(diagnostic) && error.contains("IL_"),
-            "{error}"
+    for (entry, expected) in [
+        ("NeedsInitialization", "00 00000011 D000 OK"),
+        ("NeedsGenericStorage", "00 00000000 D000 OK"),
+    ] {
+        let object = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap();
+        let linked = koh_link::link(&[object], &koh_link::LinkOptions::default()).unwrap();
+        assert_eq!(
+            execute_mode(
+                host,
+                directory.path(),
+                &linked,
+                "__koh_exit",
+                "--native-poison"
+            ),
+            expected,
+            "{entry}"
         );
     }
 }
