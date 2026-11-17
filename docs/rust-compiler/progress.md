@@ -17,7 +17,9 @@ conversions; checked arithmetic and bare internal-F expressions remain unsupport
 remainder now executes through the [exact shared runtime core](floating-remainder.md). All22 methods in the legacy CilFloatTests group now have
 native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
-native replacements; the current ledger is164/565 complete,401 outstanding.
+native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
+replacements and one obsolete private-parser decision. The current ledger is
+171/565 dispositions complete (170 native replacements, one DELETE),394 outstanding.
 See [float lowering contract and evidence](float-lowering.md).
 The [multiplication correction](softfloat-multiplication.md) replaces inherited
 subnormal flushing and missing special-value handling before enabling CIL `mul`.

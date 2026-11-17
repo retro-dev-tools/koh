@@ -69,3 +69,23 @@ fn malformed_construction_is_rejected_before_emission(#[case] fault: &str) {
     assert!(error.contains(diagnostic), "{fault}: {error}");
     assert!(sm83::emit(&function).is_err());
 }
+
+#[rstest]
+#[case(Type::Native, Type::I32)]
+#[case(Type::I32, Type::Native)]
+#[case(Type::I32, Type::F64)]
+#[case(Type::I64, Type::F32)]
+fn size_changing_bitcasts_are_rejected(#[case] source: Type, #[case] target: Type) {
+    let mut function = fixture::sum(source);
+    function.blocks.truncate(1);
+    function.returns = Some(target);
+    function.blocks[0].instructions = vec![Instruction {
+        result: Some((1, target)),
+        op: Op::Reinterpret(0),
+        il_offset: 42,
+    }];
+    function.blocks[0].terminator.kind = Control::Return(Some(1));
+    let error = verify(&function).unwrap_err();
+    assert!(error.contains("matching integer/float widths"), "{error}");
+    assert!(sm83::emit(&function).is_err());
+}

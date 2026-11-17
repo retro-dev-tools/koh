@@ -12,7 +12,8 @@ the pointer-residency “OnHardware” tests instantiate `Koh.Emulator`.
 PORT means retain the externally meaningful assertion and input in native acceptance.
 REPLACE means retain the justified behavior/boundary while replacing private C# IR,
 allocation, byte-shape, helper or harness assertions. DELETE would mean removing a
-test with no independent requirement left; none is proposed here. No compiler-owned
+test with no independent requirement left; the private numeric text-parser case
+below now has that disposition. No compiler-owned
 case is deferred to another migration. Unless explicitly marked complete, paths
 below are **proposed future Rust test locations**, not implemented coverage. A PORT disposition does not require
 the C# ABI to be copied.
@@ -406,17 +407,19 @@ Proposed future location: `rust/koh-compiler/tests/liveness.rs` (not implemented
 
 Classification: Private textual IR and verifier rules. Text syntax is not a published source-to-ROM interface; representation stability matters only if the replacement exposes it. Equal-sized bit reinterpretation is independently necessary.
 
-Proposed future location: `rust/koh-compiler/tests/ir_validation.rs` (not implemented).
+Complete dispositions and quantified evidence: [IR round-trip migration](ir-roundtrip.md).
+Native cases are discoverable in `driver::ir_contracts`, the native CLI entry
+test and `ir::construction`; one parser-only case is intentionally obsolete.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `Canonical_ParsesAndVerifiesClean` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
-| `Canonical_HasExpectedStructure` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
-| `Print_Parse_Print_IsStable` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
-| `EntryFlag_RoundTrips` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
-| `Bitcast_RoundTripsAndVerifies` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
-| `Parser_RejectsNumericOpToken` | Detail | REPLACE | Check replacement IR structure/validation or its own optional round trip; do not preserve C# text syntax. |
-| `Bitcast_RejectsMismatchedSize` | Requirement | PORT | Reject size-changing bit reinterpretation. |
+| `Canonical_ParsesAndVerifiesClean` | Detail | REPLACE, complete | Compile actual Debug/Release CIL and execute banked control flow, calls and initialized data. |
+| `Canonical_HasExpectedStructure` | Detail | REPLACE, complete | Assert actual table1/2/3, counter1, branch/call results and switch outcomes; drop private module/member counts. |
+| `Print_Parse_Print_IsStable` | Detail | REPLACE, complete | Deterministic canonical ELF compilation and read/write round-trip, followed by ROM execution. |
+| `EntryFlag_RoundTrips` | Detail | REPLACE, complete | Main after another method and explicit alternate roots execute from Debug/Release DLL/EXE inputs. |
+| `Bitcast_RoundTripsAndVerifies` | Detail | REPLACE, complete | Execute all16 pointer bits across six unsigned patterns; verify same-width float/integer transport independently. |
+| `Parser_RejectsNumericOpToken` | Detail | DELETE, complete decision | Private text parser has no production caller; native input is PE/CIL, so no numeric text-enum boundary survives. |
+| `Bitcast_RejectsMismatchedSize` | Requirement | PORT, complete | Reject native16↔I32 and mismatched integer/float bit reinterpretation before emission. |
 
 ### Ir/LoopInvariantCodeMotionTests.cs (6)
 

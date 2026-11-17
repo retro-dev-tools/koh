@@ -1790,3 +1790,23 @@ loopROMsincluded. Ledger164/565401outstandingnowverifiedagainstsource5methods/
 5assertions. Tests-onlyincrement,no productionchanges. Rustfmt/diffchecksPASS.
 Commitunitlocally;published54ab305CI44016382427stillrequiresprimaryterminal
 evidencebeforebatchpush. Broad7-methodIRroundtripgroupleftopenexplicitly.
+
+Nextlocalunitafter49cf1e2:remaining7IrRoundTripTests/20assertionsaudited.
+6nativeREPLACE/PORT +1DELETEprivateEnum.TryParsetextparsercase(no production
+IrParser.Parse callers);game-facingbehaviorretained. NewIrContractsfixture
+executesinitialized1/2/3table,mutablecounter1,call/branchresults10/260,switch
+11/22/33andushort-pointer-ushortbits0/1/7fff/8000/c000/ffff. Twoentries×4
+configs=8ROMs,all60packetwordsbytechecked/SP/frame/CGBbank2guard. Eachroot
+assertsmultiplemanagedcodebanks. CLIfixtureBeforeEntrybeforeMain; existing
+native_drivercasesassertdefaultrootrowisnotfirstandexecuteexplicitroots
+inDebug/ReleaseDLL/EXE. New4width-mismatchIRcasesrejectbeforeemission.
+First37756EXIT101testfieldnameerrorcorrectedtype_name;72903EXIT100unsigned
+pointer-to-intexpectationunjustified(C#24.5implementation-defined). Fixture
+nowexplicitushort/nuintbeforeI32widen,expected0000DFE0unchanged;packetasserts
+notweakened,no compiler/emulatorchange.40/40selectedpass91.011s744unselected
+/tmp/koh-ir-contracts-final.log22090EXIT0. Bankfollowup80004EXIT0,4/4pass
+15.755s412unselected. CSharpier2filespass. Rustfmtfinalassertlinewrapfixed,
+thencheckEXIT0. Ledger171/565dispositionscomplete=170nativereplacements+1
+obsoleteparserDELETEdecision;394outstanding;zerophysicaldefinitionsretired.
+CurrentCI44016382427stillinprogress(.NETfastsuccess,Rustlive). Commitlocal
+andbatchwith49cf1e2aftersameCIterminal;nevercancel/restart. No buildsremain.

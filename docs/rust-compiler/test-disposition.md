@@ -31,9 +31,10 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Native behavioral replacements: 164 legacy methods; zero physically retired.**
+**Complete dispositions:171/565 methods (170 native behavioral replacements,
+one obsolete private-parser DELETE decision); zero physically retired.**
 The switch, alignment, tile-copy, initialization and value-copy groups are detailed below.
-The remaining 401 methods still have
+The remaining 394 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -42,6 +43,8 @@ merely because they are documented.
 Five additional IR construction/verifier methods now have complete native
 replacements, including deterministic canonical objects, malformed IR and36
 executed loop ROMs. See the [source-by-source matrix](ir-construction.md).
+The seven-method/20-assertion [IR round-trip matrix](ir-roundtrip.md) additionally
+replaces useful data/entry/bitcast behavior and records the obsolete parser case.
 
 ## Floating negation replacements
 

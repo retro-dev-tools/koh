@@ -1,5 +1,7 @@
 public static class Program
 {
+    public static int BeforeEntry() => -77;
+
 #if !NESTED
     [KohIntrinsic("halt")]
     public static int Main() => Sum(6) + 21;

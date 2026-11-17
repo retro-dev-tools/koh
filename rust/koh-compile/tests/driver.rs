@@ -1,5 +1,7 @@
 #[path = "driver/checked_casts.rs"]
 mod checked_casts;
+#[path = "driver/ir_contracts.rs"]
+mod ir_contracts;
 use koh_compile::{compile, resolve::Resolver};
 use rstest::rstest;
 use std::path::{Path, PathBuf};
@@ -3475,6 +3477,17 @@ fn native_driver_emits_one_linkable_deterministic_elf(
     let assembly_path = build(directory.path(), configuration, output, false);
     let bytes = std::fs::read(&assembly_path).unwrap();
     let resolver = Resolver::new(&[bytes.as_slice()]).unwrap();
+    let image = resolver.assembly(0).unwrap();
+    let first = image
+        .metadata()
+        .type_defs
+        .iter()
+        .find(|ty| image.metadata().strings.get(ty.type_name).unwrap() == "Program")
+        .unwrap()
+        .method_list;
+    let entry = compile::entry(&resolver, None).unwrap();
+    assert!(entry.token > (0x06000000 | first));
+    assert_eq!(image.method_name(entry.token).unwrap(), "Program::Main");
     let object = compile::object(&resolver, None).unwrap();
     let elf = koh_objects::write_elf(&object).unwrap();
     assert_eq!(
