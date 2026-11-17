@@ -236,3 +236,6 @@ signatures distinguish signed integers from raw unsigned bits; IR transport uses
 `I32`. Native16 operands extend with the selected instruction signedness. See
 [conversion semantics](float-conversions.md) for unchecked overflow/NaN and
 narrowing choices; this does not change the calling convention.
+Binary32/integer64 conversion uses eight-byte arguments or results on the integer
+side and the same existing integer64 caller storage. No binary64 value or
+intermediate is introduced by those helpers.

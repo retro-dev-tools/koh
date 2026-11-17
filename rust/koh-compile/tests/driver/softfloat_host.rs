@@ -27,6 +27,11 @@ fn runtime() -> Host {
 #[case::f32_conversion_sweep1("f32-conversions-sweep-1", 256)]
 #[case::f32_conversion_sweep2("f32-conversions-sweep-2", 256)]
 #[case::f32_conversion_sweep3("f32-conversions-sweep-3", 256)]
+#[case::f32_wide_boundaries("f32-wide", 48)]
+#[case::f32_wide_sweep0("f32-wide-sweep-0", 256)]
+#[case::f32_wide_sweep1("f32-wide-sweep-1", 256)]
+#[case::f32_wide_sweep2("f32-wide-sweep-2", 256)]
+#[case::f32_wide_sweep3("f32-wide-sweep-3", 256)]
 fn software_runtime_matches_independent_numeric_oracles(
     runtime: &Host,
     #[case] group: &str,
@@ -43,6 +48,60 @@ fn software_runtime_matches_independent_numeric_oracles(
         expected.push(result);
     };
     match group {
+        "f32-wide" => {
+            for x in [
+                0i64,
+                5,
+                -5,
+                16777217,
+                -16777217,
+                i64::MIN,
+                i64::MAX,
+                0x4000004000000001,
+            ] {
+                add("FromI64F32", &[x as u64], u64::from((x as f32).to_bits()));
+            }
+            for x in [
+                0u64,
+                5,
+                16777219,
+                1 << 63,
+                u64::MAX,
+                0x8000007fffffffff,
+                0x8000008000000000,
+                0x8000008000000001,
+            ] {
+                add("FromU64F32", &[x], u64::from((x as f32).to_bits()));
+            }
+            for bits in [
+                0u32, 0x80000000, 1, 0x80000001, 0x406ccccd, 0xc06ccccd, 0x7fc12345, 0xffc12345,
+                0x7f800000, 0xff800000, 0x5f000000, 0xdf000000, 0x5f7fffff, 0x5effffff, 0x5f800000,
+                0xdf000001,
+            ] {
+                let x = f32::from_bits(bits);
+                add("ToI64F32", &[u64::from(bits)], x as i64 as u64);
+                add("ToU64F32", &[u64::from(bits)], x as u64);
+            }
+        }
+        group if group.starts_with("f32-wide-sweep-") => {
+            let start = group.rsplit('-').next().unwrap().parse::<u32>().unwrap() * 64;
+            let mut seed = 0x91e10da5c79e7b1du64 ^ u64::from(start);
+            for exponent in start..start + 64 {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let bits = (seed as u32 & 0x807fffff) | (exponent << 23);
+                let x = f32::from_bits(bits);
+                add(
+                    "FromI64F32",
+                    &[seed],
+                    u64::from((seed as i64 as f32).to_bits()),
+                );
+                add("FromU64F32", &[seed], u64::from((seed as f32).to_bits()));
+                add("ToI64F32", &[u64::from(bits)], x as i64 as u64);
+                add("ToU64F32", &[u64::from(bits)], x as u64);
+            }
+        }
         "f32-conversions" => {
             for x in [0i32, 5, -5, 1000000, 16777217, i32::MIN, i32::MAX] {
                 add(

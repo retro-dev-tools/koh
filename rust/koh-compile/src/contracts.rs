@@ -427,12 +427,16 @@ pub(crate) fn float_binary(resolver: &Resolver<'_>, key: &str) -> Result<Definit
 }
 
 pub(crate) fn float_conversion(resolver: &Resolver<'_>, key: &str) -> Result<Definition, String> {
-    use clrmeta::ElementType::{I4, U4};
+    use clrmeta::ElementType::{I4, I8, U4, U8};
     let (parameter, returns, expected) = match key {
         "i32.toF32" => (I4, U4, "uint(int)"),
         "u32.toF32" => (U4, U4, "uint(uint)"),
         "f32.toI32" => (U4, I4, "int(uint)"),
         "f32.toU32" => (U4, U4, "uint(uint)"),
+        "i64.toF32" => (I8, U4, "uint(long)"),
+        "u64.toF32" => (U8, U4, "uint(ulong)"),
+        "f32.toI64" => (U4, I8, "long(uint)"),
+        "f32.toU64" => (U4, U8, "ulong(uint)"),
         _ => return Err(format!("Unsupported runtime conversion {key}")),
     };
     let definition = runtime_method(resolver, key)?;

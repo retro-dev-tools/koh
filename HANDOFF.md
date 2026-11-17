@@ -1445,3 +1445,35 @@ checkEXIT0(6.46s existingunusedcubeshelperwarning),separaterustdocEXIT0zerocases
 No productioneditafter619run. Rustfmt/diff/CSharpierchecksEXIT0. Readycommitthen
 batchpushlocal73ed932+2cc8e98+conversion. Baselinef8CIgateclearedasabove. No live
 localbuilds, parentownsfiles. Nextwideintegerconversion/binary64/checked work.
+
+2026-11-17 dirtywideinteger/F32unitafterpushedbc1598a: newmetadatakeys i64.toF32,
+u64.toF32,f32.toI64,f32.toU64 checkedrawsignedness/width; BuildertransportsI64
+arguments/results with existingABI. GameBoynewordinaryILhelpersFromU64F32/
+FromI64F32normalize64bitmagnitude,retain24+40bits,RNEonce; noF64intermediate.
+ToU64F32/ToI64F32 truncate/clamp at64limits,NaN0, boundedshifts0..40. No newIRtype.
+94984redEXIT1006/6fail16.505s missinghelpers/unsupported64. 40210firstEXIT0
+13/13pass59.771s. Addedwideunsignedargument/signedreturnmetadata negativeprobes;
+69446EXIT0 4/4pass24.789s. Former2temporary64diagnosticcases nowactualpositive
+WideInput/WideOutput; checkedcastdiagnosticsretained. No legacycase retired.
+Newconversiongroups50entries×4=200ROMs,16fullI64storeprobes assertall8bytes plus
+entireheap/bank2/stackguards. IncludesULongHalfAbove2^63+2^39+1→5F000001 (F64
+intermediatewoulddouble-round). Hostadds48boundary+1024sweepobservations,
+softwarehosttotal3118. Ledger148unchanged;binary64/checked/remexecutionstillopen.
+CURRENT18562active /tmp/koh-float-wide-final.log selected632 allLib/IR/lowering+
+float32/comparison/conversion/runtime/arraycases. Last206pass. Finishterminal,
+checkworkspace/rustdoc/fmt,logicalcommitlocally. bc1598aCI43991609562stilllive;
+holdpushuntilitsfullrunfinishes. Parentownsallsource/builds; no concurrentcargo.
+Read-onlyreview assignmentexistingbackend_audit: inspectwideconversiondiff only,
+noedits/builds/tests/commits ornewagents. Returnconfirmeddefects/coveragegaps.
+18562TERMINAL EXIT0 632/632pass253.196s292unselected. All200conversionROMs,
+3118softwarehostnumericobservations +priorarithmetic/comparison/arraygroups.
+36317TERMINALworkspacealltargets/allfeaturescheckEXIT0(5.50s existingunused
+cubeshelperwarning), separaterustdocEXIT0zerocases. Fmt/diff/CSharpierpass.
+Read-onlybackend_auditnoconfirmeddefects: RNE/bounds/signedminimum/metadata/
+full8byteABI anddouble-roundcounterexamplecovered. Noproductioneditsafter632run.
+Readylogicalcommitlocally, holdpushwhilebc1598aCI43991609562in_progress.
+Nextbinary64 mustpreservecurrentdirectu64→F32counterexample: addingF64internal
+supportmustnotunconditionallyroundconv.r.unthroughF64beforeconv.r4. Inspect
+actualRoslynconv.r.un+conv.r4/r8shapes andnominalprecision/merges; documentvalid
+unsupportedCILshapes ratherthanlabelmalformed. CurrentR8stillrejects. Checked
+casts andremexecutionalsoopen;nooverallmigrationcompletionclaim.

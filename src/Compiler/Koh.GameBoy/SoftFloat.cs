@@ -464,6 +464,72 @@ public static class SoftFloat
         return (int)u;
     }
 
+    [KohRuntime("u64.toF32")]
+    public static uint FromU64F32(ulong mag)
+    {
+        if (mag == 0)
+            return 0;
+        int exponent = 63;
+        while ((mag & 0x8000000000000000) == 0)
+        {
+            mag <<= 1;
+            exponent--;
+        }
+        uint sig = (uint)(mag >> 40);
+        ulong rem = mag & 0xffffffffff;
+        ulong half = (ulong)1 << 39;
+        if (rem > half || (rem == half && (sig & 1) != 0))
+        {
+            sig++;
+            if (sig >= 0x1000000)
+            {
+                sig >>= 1;
+                exponent++;
+            }
+        }
+        return ((uint)(exponent + 127) << 23) | (sig & 0x7fffff);
+    }
+
+    [KohRuntime("i64.toF32")]
+    public static uint FromI64F32(long value)
+    {
+        if (value < 0)
+            return 0x80000000 | FromU64F32(unchecked((ulong)-value));
+        return FromU64F32((ulong)value);
+    }
+
+    [KohRuntime("f32.toU64")]
+    public static ulong ToU64F32(uint bits)
+    {
+        if ((bits & 0x7fffffff) > 0x7f800000 || (bits >> 31) != 0)
+            return 0;
+        int exponent = (int)((bits >> 23) & 255) - 127;
+        if (exponent < 0)
+            return 0;
+        if (exponent >= 64)
+            return ulong.MaxValue;
+        ulong sig = (bits & 0x7fffff) | 0x800000;
+        if (exponent >= 23)
+            return sig << (exponent - 23);
+        return sig >> (23 - exponent);
+    }
+
+    [KohRuntime("f32.toI64")]
+    public static long ToI64F32(uint bits)
+    {
+        ulong mag = ToU64F32(bits & 0x7fffffff);
+        ulong sign = (ulong)1 << 63;
+        if ((bits >> 31) != 0)
+        {
+            if (mag > sign)
+                return long.MinValue;
+            return unchecked(-(long)mag);
+        }
+        if (mag >= sign)
+            return long.MaxValue;
+        return (long)mag;
+    }
+
     // ---- Koh softfloat (IEEE-754 double precision) ----------------------------
     // Same algorithms as the single-precision family, widened to 64-bit (11-bit exponent, bias 1023,
     // 52-bit mantissa) over ulong, using UInt128 for the 53x53 product and the division numerator.

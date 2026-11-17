@@ -24,8 +24,11 @@ multiplication executions. Subsequent [division work](softfloat-division.md) add
 another26+256 numeric observations and64 division ROMs, closes the mixed arithmetic
 rows and preserves the unsupported-remainder diagnostic. Conversions/binary64
 remain unfinished; no floating feature has been retired. [32-bit conversions](float-conversions.md)
-now cover signed/unsigned and16-bit-native inputs, with explicit clamping/NaN
-choices and narrower integer truncation.64-bit and checked casts remain open.
+now cover signed/unsigned32/64-bit and16-bit-native inputs, with explicit
+clamping/NaN choices and narrower integer truncation. Wide conversion rounds
+once without binary64 intermediates and verifies all eight returned bytes in
+WRAM. Checked casts remain open; the148-method ledger is unchanged by this
+additional width coverage.
 Final comparison regression passes606/606 selected tests156.717s, exit0;
 workspace all-target/all-feature check and separate rustdoc pass. Hosted
 cceba4c run43981727648 stopped after1073 passes on an obsolete `FloatArray`

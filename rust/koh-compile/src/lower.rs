@@ -697,20 +697,25 @@ impl Builder<'_, '_> {
                     signed: key == "i32.toF32",
                 },
             )?,
-            Type::I32 => value,
+            Type::I32 | Type::I64 => value,
             _ => return Err("Unsupported float32 conversion operand".into()),
         };
         let resolver = self
             .resolver
             .ok_or("float32 conversion requires runtime metadata")?;
         let target = crate::contracts::float_conversion(resolver, key)?;
+        let returns = if matches!(key, "f32.toI64" | "f32.toU64") {
+            Type::I64
+        } else {
+            Type::I32
+        };
         self.value(
-            Type::I32,
+            returns,
             Op::Call {
                 target,
                 signature: Signature {
-                    parameters: vec![Type::I32],
-                    returns: Some(Type::I32),
+                    parameters: vec![value.1],
+                    returns: Some(returns),
                 },
                 arguments: vec![value.0],
             },
@@ -2970,22 +2975,18 @@ fn translate(
                 value
             } else {
                 match value.1 {
-                    Type::I32 | Type::Native => {}
-                    Type::I64 => {
-                        return Err(
-                            "64-bit integer to float32 conversion is not implemented".into()
-                        );
-                    }
+                    Type::I32 | Type::I64 | Type::Native => {}
                     _ => {
                         return Err(
                             "Floating conversion requires a supported integer operand".into()
                         );
                     }
                 }
-                let key = if i.opcode == 0x76 {
-                    "u32.toF32"
-                } else {
-                    "i32.toF32"
+                let key = match (value.1 == Type::I64, i.opcode == 0x76) {
+                    (true, true) => "u64.toF32",
+                    (true, false) => "i64.toF32",
+                    (false, true) => "u32.toF32",
+                    (false, false) => "i32.toF32",
                 };
                 let bits = b.float_conversion(key, value)?;
                 b.value(Type::F32, Op::Reinterpret(bits.0))?
@@ -3008,11 +3009,13 @@ fn translate(
             };
             let mut value = b.pop()?;
             if value.1 == Type::F32 {
-                if bits == 64 {
-                    return Err("float32 to 64-bit integer conversion is not implemented".into());
-                }
-                value =
-                    b.float_conversion(if signed { "f32.toI32" } else { "f32.toU32" }, value)?;
+                let key = match (bits == 64, signed) {
+                    (true, true) => "f32.toI64",
+                    (true, false) => "f32.toU64",
+                    (false, true) => "f32.toI32",
+                    (false, false) => "f32.toU32",
+                };
+                value = b.float_conversion(key, value)?;
             }
             let value = b.value(
                 ty,

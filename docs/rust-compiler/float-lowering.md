@@ -51,9 +51,9 @@ payload bits without a call. Requiring the old `NegF32` helper would add a stack
 frame to a bit operation without improving semantics. The game library helper
 remains available for raw-bit callers; its historical use is not an ABI rule.
 
-Remainder,64-bit integer/float conversions, checked casts and binary64 lowering
+Remainder, checked casts and binary64 lowering
 remain unfinished and explicitly reject; remainder diagnostics name `f32.rem`.
-The [32-bit conversion contract](float-conversions.md) documents signedness,
+The [integer conversion contract](float-conversions.md) documents signedness,
 rounding and the selected unchecked overflow/NaN policy.
 This increment does not retire those requirements or claim general .NET float
 compatibility. The separate addition arithmetic tests cover subnormals, rounding,
