@@ -1810,3 +1810,20 @@ thencheckEXIT0. Ledger171/565dispositionscomplete=170nativereplacements+1
 obsoleteparserDELETEdecision;394outstanding;zerophysicaldefinitionsretired.
 CurrentCI44016382427stillinprogress(.NETfastsuccess,Rustlive). Commitlocal
 andbatchwith49cf1e2aftersameCIterminal;nevercancel/restart. No buildsremain.
+
+Nextlocalunitafter2c9c676:livenesstestmigration4methods/15Assert.Thatcalls
+primarysourcecrosschecked. Sharedsupport/liveness.rs+9rstestsm83casesexecute
+186ROMs:72entry/constants1and7,72diamond(false/highbittrue),42signedloop
+bounds0/1/2/10/64/min/-1,16/32/64bitsbefore/afteropt. All8returnbytes/SP/
+reservedguardsobserved. Olddiamonddeadarmarithmeticnowreturnedthroughphi;
+privateLiveIn/LiveOut/IsTrackablesetsreplacedwithactualbitpreservation,not
+newanalysisframework. No compilerproductionchanges. Focused78027EXIT0,9/9
+18.892s. Full15782TERMINALEXIT0,467/467208.909szeroskips primarylog
+/tmp/koh-liveness-final.log. Rustfmt/diffPASS. Newliveness.md source-by-source
+matrix;ledger175/565=174native+1obsoleteparserDELETEdecision,390outstanding,
+zerophysicalretirements. Commitlocalandbatch49cf1e2+2c9c676+thisunitafter
+CI44016382427terminal;lastRusttestsconfirmedlive/.NETfastsuccess. No local
+builds remain. Next high-value candidate:remaining5 CgbHalTests contracts
+(realreferencedHALcompile,VRAMbankDMG/CGB,palette0/0and2/3)—inspect complete
+source/actualhardwaresemantics/hostsnapshot before implementation. Fullgoal
+active/incomplete; no permanentAPIbaseline/bugspec, no C#compilerfallback.

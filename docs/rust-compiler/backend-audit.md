@@ -394,14 +394,16 @@ See [quantified construction dispositions](ir-construction.md).
 
 Classification: Dataflow safety with private set representation. Entry parameters, branch uses and backedges must not be overwritten while live. Constants do not need writable storage.
 
-Proposed future location: `rust/koh-compiler/tests/liveness.rs` (not implemented).
+Complete native location: `tests/sm83.rs::live_values_survive_entry_branches_and_backedges`
+with `tests/support/liveness.rs`, under `rust/koh-compile`; discoverable by nextest.
+See the [source matrix and independent oracles](liveness.md).
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `Liveness_ParameterIsLiveInAtEntry` | Mixed | REPLACE | Express the named entry/edge/backedge/constant case in replacement IR and verify live-value preservation. |
-| `Liveness_ValueLiveAcrossBranches` | Mixed | REPLACE | Express the named entry/edge/backedge/constant case in replacement IR and verify live-value preservation. |
-| `Liveness_LoopCarriedValuesLiveAroundBackEdge` | Mixed | REPLACE | Express the named entry/edge/backedge/constant case in replacement IR and verify live-value preservation. |
-| `Liveness_ConstantsAreNotTracked` | Mixed | REPLACE | Express the named entry/edge/backedge/constant case in replacement IR and verify live-value preservation. |
+| `Liveness_ParameterIsLiveInAtEntry` | Mixed | REPLACE, complete | Execute `(n+1)+n` before/after optimization with full-width results and guards. |
+| `Liveness_ValueLiveAcrossBranches` | Mixed | REPLACE, complete | Execute both diamond arms with an entry-defined live value and observed block-parameter result. |
+| `Liveness_LoopCarriedValuesLiveAroundBackEdge` | Mixed | REPLACE, complete | Execute signed-bound induction loops, preserving bound/backedge values and checking negative/empty bounds. |
+| `Liveness_ConstantsAreNotTracked` | Mixed | REPLACE, complete | Execute live-parameter expressions with constants1/7; preserve results without requiring private trackability sets. |
 
 ### Ir/IrRoundTripTests.cs (7)
 

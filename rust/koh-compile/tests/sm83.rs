@@ -2,12 +2,78 @@ use koh_compile::{ir::*, resolve::Definition, sm83};
 use koh_objects::*;
 use rstest::fixture;
 use std::path::Path;
+#[path = "support/liveness.rs"]
+mod liveness;
 #[path = "support/recursion.rs"]
 mod recursion_fixture;
 #[path = "support/sum_loop.rs"]
 mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case(Type::Native, "entry")]
+#[case(Type::I32, "entry")]
+#[case(Type::I64, "entry")]
+#[case(Type::Native, "branch")]
+#[case(Type::I32, "branch")]
+#[case(Type::I64, "branch")]
+#[case(Type::Native, "loop")]
+#[case(Type::I32, "loop")]
+#[case(Type::I64, "loop")]
+fn live_values_survive_entry_branches_and_backedges(
+    host: &Host,
+    #[case] ty: Type,
+    #[case] shape: &str,
+) {
+    let mask = u64::MAX >> (64 - ty.bits());
+    let sign = 1u64 << (ty.bits() - 1);
+    let mut cases = Vec::new();
+    let mut add = |function: Function, arguments: Vec<u64>, expected: u64| {
+        verify(&function).unwrap();
+        let mut optimized = function.clone();
+        koh_compile::optimize::simplify(&mut optimized).unwrap();
+        verify(&optimized).unwrap();
+        cases.push((function, arguments.clone(), Ok(expected)));
+        cases.push((optimized, arguments, Ok(expected)));
+    };
+    match shape {
+        "entry" => {
+            for constant in [1, 7] {
+                for n in [0, 1, 127, 0xffff, sign, mask] {
+                    add(
+                        liveness::entry(ty, constant),
+                        vec![n],
+                        n.wrapping_mul(2).wrapping_add(constant) & mask,
+                    );
+                }
+            }
+        }
+        "branch" => {
+            for condition in [0, 0x8000_0000] {
+                for n in [0, 1, 127, 0xffff, sign, mask] {
+                    add(
+                        liveness::branch(ty),
+                        vec![condition, n],
+                        n.wrapping_add(if condition == 0 { 3 } else { 2 }) & mask,
+                    );
+                }
+            }
+        }
+        "loop" => {
+            for n in [0, 1, 2, 10, 64, sign, mask] {
+                add(
+                    liveness::loop_count(ty),
+                    vec![n],
+                    if n & sign == 0 { n } else { 0 },
+                );
+            }
+        }
+        _ => unreachable!(),
+    }
+    assert_eq!(cases.len(), if shape == "loop" { 14 } else { 24 });
+    run(host, &cases);
+}
 
 #[rstest::rstest]
 #[case(Type::Native)]
