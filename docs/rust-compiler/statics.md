@@ -1,5 +1,10 @@
 # Static integer storage and primitive references
 
+Historical initial increment. Later [source-contract acceptance](static-contracts.md),
+[constructors](initializers.md), [aggregates](aggregates.md) and closed generic
+storage extend this scope. Pending statements below describe that initial checkpoint;
+the5000-byte capacity requirement is still genuinely open.
+
 Native lowering supports reachable, nongeneric static fields containing supported
 primitive integers or unmanaged pointers. `ldsfld` and `stsfld` become explicit
 width-aware memory operations. `ldsflda` yields a typed primitive managed reference.

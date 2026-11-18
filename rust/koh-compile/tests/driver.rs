@@ -73,6 +73,8 @@ mod softfloat_bits;
 mod softfloat_host;
 #[path = "driver/sprites.rs"]
 mod sprites;
+#[path = "driver/static_contracts.rs"]
+mod static_contracts;
 #[path = "driver/struct_returns.rs"]
 mod struct_returns;
 mod support;

@@ -10,6 +10,16 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Static storage source contracts
+
+Nine methods now have native replacements for29 assertion sites, with20 ROMs
+checking zero/init state, counter wrap, readonly-array mutation, array identity,
+literal storage and cached callback behavior. Affected64/64 passed94.287s, exit0.
+[Matrix, independent requirements and capacity evidence](static-contracts.md).
+The separate5000-byte array still faults05 in both modes, not the required16;
+its endpoint/capacity requirement remains open. Ledger530/565,35 outstanding.
+No capacity reduction is hidden behind test closure; full migration remains active.
+
 ### CGB prepared-map source ownership
 
 Debug and Release reproduced GDMA reading bank2 poison instead of the authored

@@ -373,20 +373,20 @@ Shadow sprites flush positions/tile/attributes with hardware offsets and clippin
 
 ### CilStaticsTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStaticsTests.cs`. Future Rust test group: `cil_statics`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStaticsTests.cs`. Native group: `driver::static_contracts`; nine complete, one capacity requirement open. [Full matrix and evidence](static-contracts.md).
 
 Mutable fields persist across calls, array initialization retains content, constant fields fold correctly and generated delegate caches do not re-run initialization. ROM placement of readonly references or mutable array dedicated allocation is not required by C# semantics.
 
-- **PORT** `MutableStaticCounter_IncrementedAcrossCallsAndReadBack`.
-- **PORT** `MutableStaticCounter_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `StaticReadonlyByteArray_LandsInRomWithInitialBytes`.
-- **PORT** `StaticReadonlyByteArray_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `ConstField_FoldedByRoslynWithNoBackingStorage`.
-- **PORT** `ConstField_DebugAndReleaseProduceIdenticalObservableState`.
-- **REPLACE** `MutableStaticArray_GetsDedicatedWramGlobalNotHeap` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
-- **PORT** `MutableStaticArray_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `MutableStaticArray_CrossesWramBoundaryAndRetainsEndpointWrites`.
-- **PORT** `NoCaptureLambda_DoesNotResurrectCompilerGeneratedCctor`.
+- **PORT, complete** `MutableStaticCounter_IncrementedAcrossCallsAndReadBack`.
+- **REPLACE, complete** `MutableStaticCounter_DebugAndReleaseProduceIdenticalObservableState` — independently verify5 and byte wrap in each mode.
+- **REPLACE, complete** `StaticReadonlyByteArray_LandsInRomWithInitialBytes` — authored bytes and legal element mutation; readonly references do not imply immutable ROM.
+- **REPLACE, complete** `StaticReadonlyByteArray_DebugAndReleaseProduceIdenticalObservableState` — independent initial/mutated values.
+- **PORT, complete** `ConstField_FoldedByRoslynWithNoBackingStorage`.
+- **REPLACE, complete** `ConstField_DebugAndReleaseProduceIdenticalObservableState` — independently verify42.
+- **REPLACE, complete** `MutableStaticArray_GetsDedicatedWramGlobalNotHeap` — mutation, replacement-array zeros and old-alias identity; no dedicated-placement requirement.
+- **REPLACE, complete** `MutableStaticArray_DebugAndReleaseProduceIdenticalObservableState` — independently check all result bytes.
+- **REPLACE, OPEN** `MutableStaticArray_CrossesWramBoundaryAndRetainsEndpointWrites` —5000-byte capacity remains required; absolute C000/header assertions are private. Native probe faults05 rather than returning16; not DEFER or accepted retirement.
+- **REPLACE, complete** `NoCaptureLambda_DoesNotResurrectCompilerGeneratedCctor` — actual6/6, one type initialization and two body calls replace constructor/cache omission.
 
 ### CilStoredDelegateTests.cs
 
