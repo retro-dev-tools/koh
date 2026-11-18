@@ -86,7 +86,7 @@ only the offered MIT alternative is selected.
 | [regex](https://docs.rs/crate/regex/1.13.1/source/Cargo.toml) | 1.13.1 | MIT OR Apache-2.0 | [MIT](rust-assembler/bitflags-MIT.txt) — crate archive `LICENSE-MIT` |
 | [regex-automata](https://docs.rs/crate/regex-automata/0.4.18/source/Cargo.toml) | 0.4.18 | MIT OR Apache-2.0 | [MIT](rust-assembler/bitflags-MIT.txt) — crate archive `LICENSE-MIT` |
 | [regex-syntax](https://docs.rs/crate/regex-syntax/0.8.11/source/Cargo.toml) | 0.8.11 | MIT OR Apache-2.0 | [MIT](rust-assembler/bitflags-MIT.txt) — crate archive `LICENSE-MIT` |
-| [relative-path](https://docs.rs/crate/relative-path/1.9.3/source/Cargo.toml) | 1.9.3 | MIT OR Apache-2.0 | [MIT](rust-assembler/bitflags-MIT.txt) — upstream commit `6d267fbd85b257e4416c9f020131c6da168e1d3d` (crate omits license file) |
+| [relative-path](https://docs.rs/crate/relative-path/1.9.3/source/Cargo.toml) | 1.9.3 | MIT OR Apache-2.0 | [MIT](rust-assembler/bitflags-MIT.txt) — [exact upstream LICENSE-MIT](https://github.com/udoprog/relative-path/blob/6d267fbd85b257e4416c9f020131c6da168e1d3d/LICENSE-MIT) (crate omits license file) |
 | [rstest](https://docs.rs/crate/rstest/0.28.0/source/Cargo.toml) | 0.28.0 | MIT OR Apache-2.0 | [MIT](rust-assembler/rstest-MIT.txt) — crate archive `LICENSE-MIT` |
 | [rstest_macros](https://docs.rs/crate/rstest_macros/0.28.0/source/Cargo.toml) | 0.28.0 | MIT OR Apache-2.0 | [MIT](rust-assembler/rstest-MIT.txt) — crate archive `LICENSE-MIT` |
 | [rustc_version](https://docs.rs/crate/rustc_version/0.4.1/source/Cargo.toml) | 0.4.1 | MIT OR Apache-2.0 | [MIT](rust-assembler/rustc_version-MIT.txt) — crate archive `LICENSE-MIT` |
