@@ -1,5 +1,75 @@
 public static unsafe class Program
 {
+    private static byte Touch(byte value) => (byte)(value + 5);
+
+    public static int LoopExit(int count, int other)
+    {
+        byte i = 0;
+        while (i < count)
+            i = (byte)(i + 1);
+        *(byte*)0xC100 = i;
+        return i;
+    }
+
+    public static int LoopCall(int count, int other)
+    {
+        byte i = 0;
+        while (i < count)
+            i = (byte)(i + 1);
+        byte value = Touch(i);
+        *(byte*)0xC100 = value;
+        return (i << 16) | value;
+    }
+
+    public static int LoopNested(int count, int inner)
+    {
+        byte total = 0;
+        for (byte i = 0; i < count; i++)
+        for (byte j = 0; j < inner; j++)
+            total = (byte)(total + 1);
+        *(byte*)0xC100 = total;
+        return total;
+    }
+
+    public static int LoopBreak(int count, int stop)
+    {
+        byte i = 0;
+        while (i < count)
+        {
+            if (i == stop)
+                break;
+            i = (byte)(i + 1);
+        }
+        *(byte*)0xC100 = i;
+        return i;
+    }
+
+    public static int LoopOld(int count, int other)
+    {
+        byte i = 0;
+        while (i < count)
+        {
+            byte old = i;
+            i = (byte)(i + 1);
+            *(byte*)0xC100 = old;
+        }
+        return i;
+    }
+
+    public static int LoopLast(int count, int other)
+    {
+        byte i = 0;
+        byte last = 0;
+        while (i < count)
+        {
+            byte old = i;
+            i = (byte)(i + 1);
+            last = old;
+        }
+        *(byte*)0xC101 = last;
+        return (i << 16) | last;
+    }
+
     private static ushort Drip(byte* dst, byte* src, ushort count, byte gate)
     {
         byte* start = dst;

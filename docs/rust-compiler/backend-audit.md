@@ -666,18 +666,18 @@ Three behavioral methods now run through [guarded/sequential native copies](guar
 
 Classification: Observable loop values, aliasing and target cycle budgets. Exited induction values, old SSA values, nested/sequential loops and overlapping forward copies must retain their language meaning.
 
-Proposed future location: `rust/koh-compiler/tests/loops.rs` (not implemented).
+Six exit/saved-value methods have [native real-CIL replacements](loop-exit-values.md). The other14 methods, including timing ceilings, remain open.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
 | `Baseline_CountedConstAddrStoreLoop` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
 | `CountedConstAddrStoreLoop_MeetsCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `InductionValueUsedAfterLoopExit` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `InductionValueUsedAfterLoopExit_WithInterveningClobber_StillCorrect` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `NestedLoops` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `EarlyBreakExitEdge` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `InductionValueSavedBeforeIncrement_UsedAfterIt` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `InductionValueSavedBeforeIncrement_ReadAfterLoopExit` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `InductionValueUsedAfterLoopExit` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
+| `InductionValueUsedAfterLoopExit_WithInterveningClobber_StillCorrect` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
+| `NestedLoops` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
+| `EarlyBreakExitEdge` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
+| `InductionValueSavedBeforeIncrement_UsedAfterIt` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
+| `InductionValueSavedBeforeIncrement_ReadAfterLoopExit` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
 | `PointerCopyLoop_RegressionSafe` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
 | `TwoPointerCopyLoop_MeetsCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
 | `SinglePointerFillLoop` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |

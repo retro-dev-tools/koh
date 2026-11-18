@@ -1,4 +1,10 @@
 pub const SHAPES: &[&str] = &[
+    "LoopExit",
+    "LoopCall",
+    "LoopNested",
+    "LoopBreak",
+    "LoopOld",
+    "LoopLast",
     "GuardedCopy",
     "SequentialCopy",
     "Adjacent",
@@ -28,6 +34,8 @@ pub const SHAPES: &[&str] = &[
     "WalkLinear",
     "WalkStore",
 ];
+pub const LOOP_INPUTS: &[(u32, u32)] = &[(0, 0), (1, 0), (10, 10), (50, 5), (100, 42), (16, 16)];
+pub const NESTED_INPUTS: &[(u32, u32)] = &[(0, 10), (10, 0), (1, 1), (10, 10), (16, 16), (17, 17)];
 pub const GUARD_INPUTS: &[(u32, u32)] = &[
     (148, 8),
     (200, 8),
@@ -91,6 +99,44 @@ pub fn expected(shape: &str, x: u32, y: u32) -> (u64, String) {
     let b = y as u8;
     let w = |address: u16, value: u8| format!("W{address:04X}:{value:02X}");
     let r = |address: u16| format!("R{address:04X}");
+    if shape.starts_with("Loop") {
+        let count = x as u8;
+        let (value, events) = match shape {
+            "LoopExit" => (u64::from(count), vec![w(0xc100, count)]),
+            "LoopCall" => {
+                let touched = count.wrapping_add(5);
+                (
+                    (u64::from(count) << 16) | u64::from(touched),
+                    vec![w(0xc100, touched)],
+                )
+            }
+            "LoopNested" => {
+                let total = x.wrapping_mul(y) as u8;
+                (u64::from(total), vec![w(0xc100, total)])
+            }
+            "LoopBreak" => {
+                let end = if y < x { y as u8 } else { count };
+                (u64::from(end), vec![w(0xc100, end)])
+            }
+            "LoopOld" => (u64::from(count), (0..count).map(|i| w(0xc100, i)).collect()),
+            "LoopLast" => {
+                let last = count.saturating_sub(1);
+                (
+                    (u64::from(count) << 16) | u64::from(last),
+                    vec![w(0xc101, last)],
+                )
+            }
+            _ => panic!("Unknown loop shape"),
+        };
+        return (
+            value,
+            if events.is_empty() {
+                "-".into()
+            } else {
+                events.join(",")
+            },
+        );
+    }
     if shape == "SequentialCopy" {
         let mut events = Vec::new();
         for i in 0..6 {

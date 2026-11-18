@@ -71,6 +71,17 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
     {
         let original = koh_compile::lower::assembly_method(&resolver, identity(shape)).unwrap();
         let inputs: Vec<_> = match shape {
+            _ if shape.starts_with("Loop") => {
+                let inputs = if shape == "LoopNested" {
+                    rewrites::NESTED_INPUTS
+                } else {
+                    rewrites::LOOP_INPUTS
+                };
+                inputs
+                    .iter()
+                    .map(|&(x, y)| (u64::from(x), u64::from(y)))
+                    .collect()
+            }
             "SequentialCopy" => rewrites::SEQUENTIAL_INPUTS
                 .iter()
                 .map(|&(x, y)| (u64::from(x), u64::from(y)))
@@ -123,6 +134,7 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
             ] {
                 let mut functions = vec![root];
                 for helper in match shape {
+                    "LoopCall" => &["Touch"][..],
                     "GuardedCopy" | "SequentialCopy" => &["Drip"][..],
                     "Call" => &["Change"][..],
                     "Tail" | "NotTail" | "ReturnJoin" | "IndexedDelayed" => &["Leaf"][..],
@@ -151,7 +163,7 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
         executions += cases.len();
         run_roms_observed(host, &cases, 0xd000, Some(&observed));
     }
-    assert_eq!(executions, 1080);
+    assert_eq!(executions, 1224);
 }
 
 #[rstest::rstest]

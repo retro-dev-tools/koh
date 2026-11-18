@@ -10,6 +10,19 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Loop exit and saved values
+
+Six Sm83LoopCodegenTests methods have [native replacements](loop-exit-values.md).
+288 added Debug/Release ROMs preserve original exit/call/nested/break/old-value
+observations and add zero trips and byte-total truncation. Every observed store
+and packed caller live value is independently checked; runtime and bound inputs
+run before/after optimization. The full rewrite fixture now runs2448 ROMs.
+Compiler-library plus fixture validation passed222/222 in27.956s, exit0,
+207 explicitly unselected (/tmp/koh-loop-values.log). Stable fmt, CSharpier and
+diff checks passed. Ledger464/565 (463 replacements, one DELETE),101 outstanding.
+Other14 loop-codegen methods, including190/740-dot ceilings, remain open.
+No production compiler/emulator changes or relaxed timing assertions.
+
 ### Guarded and sequential copies
 
 Three public RedundantCompareLoopTests methods now have [native replacements](guarded-copies.md):
@@ -492,7 +505,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-458/565 dispositions complete (457 native replacements, one DELETE),107 outstanding,
+464/565 dispositions complete (463 native replacements, one DELETE),101 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,
