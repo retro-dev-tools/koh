@@ -9,6 +9,149 @@ mod metadata;
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
+fn allow_ref_like_accepts_ordinary_arguments(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "Variance");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for entry in [
+        "Int",
+        "Long",
+        "Value",
+        "ClosedValue",
+        "Reference",
+        "Array",
+        "String",
+        "Class",
+    ] {
+        let object = compile::object(&resolver, Some(&format!("AntiRules::{entry}"))).unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+    }
+    for entry in ["RefMethod", "RefType", "ClosedRefMethod"] {
+        let error = compile::object(&resolver, Some(&format!("AntiRules::{entry}"))).unwrap_err();
+        assert!(
+            error.contains("Byref-like generic arguments require ref-safety validation")
+                && error.contains("IL_"),
+            "{entry}: {error}"
+        );
+    }
+    let data = resolver.assembly(0).unwrap().metadata();
+    let echo = data
+        .method_defs
+        .iter()
+        .position(|m| data.strings.get(m.name).unwrap() == "Echo")
+        .unwrap() as u32
+        + 1;
+    let parameter = data
+        .generic_params
+        .iter()
+        .position(|p| p.owner.table == Some(clrmeta::TableId::MethodDef) && p.owner.row == echo)
+        .unwrap();
+    let mut bytes = images[0].clone();
+    let (offset, _) = metadata::table_row(&bytes, clrmeta::TableId::GenericParam, parameter);
+    bytes[offset + 2..offset + 4].copy_from_slice(&0u16.to_le_bytes());
+    let changed = Resolver::new(&[&bytes, &images[1]]).unwrap();
+    let error = compile::object(&changed, Some("AntiRules::RefMethod")).unwrap_err();
+    assert!(
+        error.contains("Byref-like generic argument requires AllowByRefLike")
+            && error.contains("IL_"),
+        "{error}"
+    );
+    let owner = data
+        .type_defs
+        .iter()
+        .position(|r| data.strings.get(r.type_name).unwrap() == "StackValue")
+        .unwrap() as u32
+        + 1;
+    let marker = data
+        .custom_attributes
+        .iter()
+        .position(|a| {
+            if a.parent.table != Some(clrmeta::TableId::TypeDef)
+                || a.parent.row != owner
+                || a.attr_type.table != Some(clrmeta::TableId::MemberRef)
+            {
+                return false;
+            }
+            let ctor = &data.member_refs[a.attr_type.row as usize - 1];
+            ctor.class.table == Some(clrmeta::TableId::TypeRef)
+                && data
+                    .strings
+                    .get(data.type_refs[ctor.class.row as usize - 1].type_name)
+                    .unwrap()
+                    == "IsByRefLikeAttribute"
+        })
+        .unwrap();
+    let heap = data.blobs.data();
+    let locations: Vec<_> = images[0]
+        .windows(heap.len())
+        .enumerate()
+        .filter_map(|(offset, value)| (value == heap).then_some(offset))
+        .collect();
+    assert_eq!(locations.len(), 1);
+    let blob = data.custom_attributes[marker].value as usize;
+    assert_eq!(heap[blob], 4);
+    for payload in [[0u8, 0, 0, 0], [1, 0, 1, 0]] {
+        let mut bytes = images[0].clone();
+        bytes[locations[0] + blob + 1..locations[0] + blob + 5].copy_from_slice(&payload);
+        let changed = Resolver::new(&[&bytes, &images[1]]).unwrap();
+        let error = compile::object(&changed, Some("AntiRules::RefMethod")).unwrap_err();
+        assert!(
+            error.contains("Invalid IsByRefLike attribute contract") && error.contains("IL_"),
+            "{error}"
+        );
+    }
+    let other = data
+        .custom_attributes
+        .iter()
+        .enumerate()
+        .position(|(i, a)| {
+            i != marker
+                && a.parent.table == Some(clrmeta::TableId::TypeDef)
+                && a.parent.row == owner
+        })
+        .unwrap();
+    let mut bytes = images[0].clone();
+    let (source, context) = metadata::table_row(&bytes, clrmeta::TableId::CustomAttribute, marker);
+    let (target, _) = metadata::table_row(&bytes, clrmeta::TableId::CustomAttribute, other);
+    let size = context.row_size(clrmeta::TableId::CustomAttribute);
+    bytes.copy_within(source..source + size, target);
+    let changed = Resolver::new(&[&bytes, &images[1]]).unwrap();
+    let error = compile::object(&changed, Some("AntiRules::RefMethod")).unwrap_err();
+    assert!(
+        error.contains("Invalid IsByRefLike attribute contract") && error.contains("IL_"),
+        "{error}"
+    );
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
 fn exact_variant_interface_calls_execute(
     host: &Host,
     #[case] configuration: &str,

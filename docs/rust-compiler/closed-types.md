@@ -130,6 +130,10 @@ current full-workspace pass.
 ## Remaining work
 
 Variance-aware assignability and boxing-dependent fallback remain unfinished.
+[AllowByRefLike](allow-ref-like.md) now permits ordinary arguments; actual ref-like
+generic arguments still diagnose unsupported lifetime validation. The earlier
+Rust flag32 rejection assertion is replaced by native execution, without source
+ledger credit.
 
 [Exact variant interface binding](exact-variance.md) now supports nominal calls;
 cross-instantiation variance conversions and runtime tests remain unsupported.

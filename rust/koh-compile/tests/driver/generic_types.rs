@@ -780,14 +780,28 @@ fn closed_types_preserve_layouts_and_static_initialization(
         .unwrap();
     for (flags, expected) in [
         (4u16, "special constraints"),
-        (32, "Byref-like"),
+        (32, "AllowByRefLike"),
         (1, "parameter flags"),
     ] {
         let mut bytes = images[0].clone();
         let (offset, _) = metadata::table_row(&bytes, clrmeta::TableId::GenericParam, parameter);
         bytes[offset + 2..offset + 4].copy_from_slice(&flags.to_le_bytes());
         let changed = Resolver::new(&[&bytes, &images[1], &library]).unwrap();
-        let error = compile::object(&changed, Some("Program::Objects")).unwrap_err();
+        let result = compile::object(&changed, Some("Program::Objects"));
+        if flags == 32 {
+            let linked = koh_link::link(&[result.unwrap()], &Default::default()).unwrap();
+            let report = execute_mode(
+                host,
+                directory.path(),
+                &linked,
+                "__koh_exit",
+                "--native-heap",
+            );
+            let fields: Vec<_> = report.split_whitespace().collect();
+            assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"]);
+            continue;
+        }
+        let error = result.unwrap_err();
         assert!(
             error.contains(expected) && error.contains("IL_"),
             "{flags}: {error}"

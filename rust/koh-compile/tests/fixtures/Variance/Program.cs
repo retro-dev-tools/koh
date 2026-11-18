@@ -138,3 +138,68 @@ public static class Program
             : 1;
     }
 }
+
+[Demo.IsByRefLike]
+public struct OrdinaryValue
+{
+    public int Value;
+}
+
+public struct OrdinaryGeneric<T>
+{
+    public T Value;
+}
+
+[Demo.IsByRefLike]
+public ref struct StackValue
+{
+    public int Value;
+
+    public StackValue(int value) => Value = value;
+}
+
+public ref struct GenericStack<T>
+{
+    public int Value;
+
+    public GenericStack(int value) => Value = value;
+}
+
+public class AntiBox<T>
+    where T : allows ref struct
+{
+    public int Value = 42;
+}
+
+public static class AntiRules
+{
+    private static T Echo<T>(T value)
+        where T : allows ref struct => value;
+
+    public static int Int() => Echo(42);
+
+    public static int Long() => (int)(Echo(long.MinValue + 42) - long.MinValue);
+
+    public static int Value() => Echo(new OrdinaryValue { Value = 42 }).Value;
+
+    public static int ClosedValue() => Echo(new OrdinaryGeneric<int> { Value = 42 }).Value;
+
+    public static int Reference() => Echo(new Payload()).Value;
+
+    public static int Array() => Echo(new int[] { 42 })[0];
+
+    public static int String() => Echo("Koh").Length + 39;
+
+    public static int Class() => new AntiBox<OrdinaryValue>().Value;
+
+    public static int RefMethod() => Echo(new StackValue(42)).Value;
+
+    public static int RefType() => new AntiBox<StackValue>().Value;
+
+    public static int ClosedRefMethod() => Echo(new GenericStack<int>(42)).Value;
+}
+
+namespace Demo
+{
+    public sealed class IsByRefLikeAttribute : System.Attribute { }
+}

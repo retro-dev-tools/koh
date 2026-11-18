@@ -27,8 +27,9 @@ Conversions between different instantiations remain unsupported. Compile-time
 coercions diagnose; explicit castclass/isinst to a variant interface reject
 until variance-aware runtime matching exists. This prevents silently returning
 false for a valid covariant type test using only exact identity tables.
-Boxing, variance adaptation for delegates and AllowByRefLike/ref-safety are not
-implemented by this change.
+Boxing and variance adaptation for delegates are not implemented by this change.
+Subsequent [AllowByRefLike handling](allow-ref-like.md) admits ordinary closed
+arguments while actual ref-like arguments still require lifetime support.
 
 Rust cases in driver/variance.rs execute Debug/Release × DMG/CGB, with canonical
 ELF roundtrip and the existing C# emulator. Six entries cover exact producer and
@@ -41,8 +42,8 @@ heap guards and boxing rejection remain checked. Cross-instantiation conversion,
 type-test and cast probes must reject explicitly. No old compiler result is the
 execution oracle and no legacy source-method disposition receives new credit.
 
-The Steps iterator fixture now passes declaration variance and reaches the
-existing AllowByRefLike/ref-safety limitation in .NET10 interfaces. Its three
+The Steps iterator fixture now passes declaration variance and ordinary
+AllowByRefLike instantiation, reaching the exception-section limitation. Its three
 source methods remain outstanding; structured finally and generated state-machine
 runtime dependencies still require implementation and execution evidence.
 

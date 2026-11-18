@@ -110,14 +110,12 @@ fn named(
     )))
 }
 
-fn kind(
-    resolver: &Resolver<'_>,
-    assembly: usize,
+fn attribute_constructor(
+    metadata: &Metadata,
     attribute: &CustomAttributeRow,
-) -> Result<Option<Kind>, String> {
-    let metadata = resolver.assembly(assembly)?.metadata();
+) -> Result<(CodedIndex, u32, u32), String> {
     let constructor = attribute.attr_type;
-    let (parent, name, signature) = match constructor.table {
+    let result = match constructor.table {
         Some(TableId::MethodDef) => {
             let method = row(&metadata.method_defs, constructor.row)?;
             let owner = metadata
@@ -141,9 +139,56 @@ fn kind(
         }
         _ => return Err("Invalid attribute constructor table".into()),
     };
-    if metadata.strings.get(name).map_err(|e| e.to_string())? != ".ctor" {
+    if metadata.strings.get(result.1).map_err(|e| e.to_string())? != ".ctor" {
         return Err("Attribute constructor must name .ctor".into());
     }
+    Ok(result)
+}
+
+pub(crate) fn byref_like(resolver: &Resolver<'_>, owner: Definition) -> Result<bool, String> {
+    let owner = resolver.type_definition(owner)?;
+    let metadata = resolver.assembly(owner.assembly)?.metadata();
+    crate::generics::charge(&resolver.generic_work, metadata.custom_attributes.len())?;
+    let mut found = false;
+    for attribute in metadata.custom_attributes.iter().filter(|a| {
+        a.parent.table == Some(TableId::TypeDef) && a.parent.row == owner.token & 0xffffff
+    }) {
+        let (parent, _, signature) = attribute_constructor(metadata, attribute)?;
+        let Some((_, namespace, name)) = named(metadata, parent, 0)? else {
+            continue;
+        };
+        if (namespace, name) != ("System.Runtime.CompilerServices", "IsByRefLikeAttribute") {
+            continue;
+        }
+        let signature =
+            crate::signature::method(metadata.blobs.get(signature).map_err(|e| e.to_string())?)?;
+        if found
+            || signature.sentinel.is_some()
+            || signature.calling_convention.0 != 0x20
+            || signature.generic_param_count != 0
+            || !signature.params.is_empty()
+            || signature.return_type != TypeSig::Primitive(clrmeta::ElementType::Void)
+            || metadata
+                .blobs
+                .get(attribute.value)
+                .map_err(|e| e.to_string())?
+                != [1, 0, 0, 0]
+        {
+            return Err("Invalid IsByRefLike attribute contract".into());
+        }
+        found = true;
+    }
+    Ok(found)
+}
+
+fn kind(
+    resolver: &Resolver<'_>,
+    assembly: usize,
+    attribute: &CustomAttributeRow,
+) -> Result<Option<Kind>, String> {
+    let metadata = resolver.assembly(assembly)?.metadata();
+    let constructor = attribute.attr_type;
+    let (parent, _, signature) = attribute_constructor(metadata, attribute)?;
     let Some((token, namespace, name)) = named(metadata, parent, 0)? else {
         return Ok(None);
     };

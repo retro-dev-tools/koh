@@ -227,12 +227,20 @@ pub(crate) fn validate(
         super::variance::validate(resolver, method)?;
     }
     for (index, parameter) in parameters {
-        if parameter.flags & 0x20 != 0 {
-            return Err("Byref-like generic parameters require ref-safety validation".into());
-        }
         let argument = arguments
             .get(parameter.number as usize)
             .ok_or("Missing constrained generic argument")?;
+        if let TypeSig::ValueType(encoded) = argument.ty {
+            let owner = resolver.signature_type(argument.assembly, encoded)?;
+            if crate::contracts::byref_like(resolver, owner)? {
+                return Err(if parameter.flags & 0x20 != 0 {
+                    "Byref-like generic arguments require ref-safety validation"
+                } else {
+                    "Byref-like generic argument requires AllowByRefLike"
+                }
+                .into());
+            }
+        }
         let failed = parameter.flags & 4 != 0 && value(argument)
             || parameter.flags & 8 != 0 && !value(argument)
             || parameter.flags & 16 != 0 && !constructor(resolver, argument)?;

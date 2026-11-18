@@ -10,6 +10,23 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Ordinary AllowByRefLike arguments
+
+The anti-constraint now permits ordinary arguments instead of rejecting its
+presence. Actual ref-like arguments are detected through raw-definition metadata
+and reject with missing-permission or unsupported-lifetime diagnostics. Shared
+attribute constructor decoding retains Koh contracts; malformed/duplicate markers
+reject and an unrelated same-named attribute is not treated as the marker.
+Four new rstest cases execute32 Debug/Release × DMG/CGB ROMs across primitive,
+reference, array/string, value and closed generic value arguments. An earlier
+Rust mutation assertion wrongly rejecting flag32 on Cell<int> now executes the
+original Objects behavior instead. No source-method ledger credit is added.
+[Contract and evidence](allow-ref-like.md). Expanded308/308 passed133.153s, exit0;
+481 explicitly unselected. The real iterator now reaches exception sections;
+structured finally/disposal remains next. Ledger506/565,59 outstanding; full
+current-head hosted validation and legacy compiler deletion remain open. Fresh
+discovery1971 workspace/1794 compiler cases, zero ignored.
+
 ### Exact variant interface binding
 
 Valid exact nominal instantiations of covariant/contravariant interfaces now bind

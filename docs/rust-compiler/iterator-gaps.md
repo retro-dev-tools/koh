@@ -3,9 +3,8 @@
 The original three CilIteratorTests methods remain outstanding. A real Roslyn
 fixture now reproduces Steps(5), yielding0 through4, consumed by foreach with
 independently expected sum10. This is not yet a supported iterator acceptance
-test: exact variant interfaces now bind, but compilation still rejects the
-AllowByRefLike parameter flag on the .NET10 enumeration interfaces before
-reaching execution.
+test: exact variant interfaces and ordinary AllowByRefLike arguments now bind,
+but compilation still rejects the method exception sections before execution.
 
 The first resolved-reference run instead reported invalid metadata token02000000.
 The bug was in Resolver::type_argument: a null TypeDefOrRef Extends index was
@@ -24,12 +23,12 @@ ELF roundtrip, Rust linking and the existing C# emulator in Debug/Release × DMG
 Framework assembly bytes are explicit inputs, using the same installed .NET10
 reference helper as retained-IL tests. No host framework method is executed.
 
-The iterator fixture currently asserts the actionable unsupported-ref-safety
+The iterator fixture currently asserts the actionable unsupported exception-section
 diagnostic instead of silently omitting the call or reporting malformed metadata.
 This is temporary gap coverage, not permission to retire iterator behavior or
 count its three source methods complete. [Exact variant interface binding](exact-variance.md)
-is now implemented. Next work must address AllowByRefLike for ordinary closed
-arguments, then structured finally/disposal and generated state
+and [ordinary AllowByRefLike arguments](allow-ref-like.md) are now implemented.
+Next work must address structured finally/disposal and generated state
 machine runtime dependencies. Early break, nested/repeated enumeration and
 cleanup side effects remain required independent execution cases.
 
