@@ -64,7 +64,8 @@ The .NET SDK/Roslyn builds game DLLs and optional Portable PDBs. The Rust compil
 resolves reachable game/runtime references, verifies typed IR and emits ELF32/SM83
 for the native linker. Ordinary game `dotnet build` runs this pipeline through
 Koh.Sdk; the existing C# emulator/debugger runs the ROM and consumes KDBG.
-See the [runtime boundaries](docs/rust-compiler/runtime-boundaries.md),
+See the [supported language contract](docs/rust-compiler/supported-subset.md),
+[runtime boundaries](docs/rust-compiler/runtime-boundaries.md),
 [ABI](docs/rust-compiler/sm83-abi.md) and [validation record](docs/rust-compiler/progress.md).
 
 ## Status

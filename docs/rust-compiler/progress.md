@@ -1,5 +1,21 @@
 # Native CIL compiler migration (PR #55)
 
+### Final platform validation at3d15f2d
+
+All14 jobs in [the full CI run](https://github.com/retro-dev-tools/koh/actions/runs/44316310945)
+completed successfully. Completed native logs report Linux2239/2239 in1309.726s,
+macOS2239/2239 in1827.782s and Windows2237/2237 in2729.387s, zero skipped in each
+unfiltered run. Separate workspace doctests, executable smoke checks and native
+language-server publishing also passed on all three hosts. Windows excludes two
+assembler-only Unix filesystem cases: literal backslash include keys and logical
+symlink include provenance. Compiler tests are not excluded by that difference.
+
+The consolidated [language contract](supported-subset.md) describes supported
+semantics and deliberate exclusions. The [performance refresh](performance-refresh.md)
+records90 fresh measurements, larger native ROM payloads and the historical-runtime
+game capture differences without claiming game parity. Final release review remains
+open; this platform result does not resolve the notice gaps in [package evidence](packaged-tools.md).
+
 Status: migration incomplete. Native CIL reading, typed IR, optimization and
 SM83/ELF emission are implemented, including banked managed calls and
 [bounded hardware interrupt roots](irq-calls.md). The
