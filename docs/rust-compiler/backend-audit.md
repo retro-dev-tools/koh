@@ -132,29 +132,29 @@ The method name identifies the exact source fixture, including every parameter r
 
 Classification: ISA metadata, not the old MIR representation. Hardware instructions define register/flag/memory/control effects; optimizer legality depends on preserving them. Byte round trips alone cannot certify effect metadata.
 
-Four boundary/invalid-input methods are [complete](instruction-boundaries.md), covering15 original assertion sites. The other15 methods remain open for executable register/flags/control/memory effects; byte decoding alone does not close them.
+All19 methods are complete: four [boundary/input replacements](instruction-boundaries.md) cover15 source assertion sites; fifteen [executable ISA-effect replacements](machine-effects.md) cover66 more. Nine native rstest cases run13952 fresh instruction probes with independent Rust expectations; byte decoding alone is not treated as proof of effects.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
 | `Decode_RoundTripsToOriginalBytes` | Mixed | REPLACE complete | [Independent instruction/input boundaries and retired private MIR predicates](instruction-boundaries.md#source-dispositions). |
-| `Decode_XorAWritesAAndAllFlags` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_LoadRegRegHasNoFlagEffect` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_LoadImmediateWritesRegisterOnly` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_AdcFromMemoryReadsCarryAAndHl` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_IncByteWritesZnhButNotCarry` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_CbBitTestsWithoutWritingRegister` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_ControlFlowIsClassified` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_PushPopAfTouchAllFlags` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_MmioLoadStoreLengthsAndEffects` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_XorAWritesAAndAllFlags` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_LoadRegRegHasNoFlagEffect` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_LoadImmediateWritesRegisterOnly` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_AdcFromMemoryReadsCarryAAndHl` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_IncByteWritesZnhButNotCarry` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_CbBitTestsWithoutWritingRegister` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_ControlFlowIsClassified` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_PushPopAfTouchAllFlags` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_MmioLoadStoreLengthsAndEffects` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
 | `Decode_IllegalOpcodeIsOpaqueBarrier` | Mixed | REPLACE complete | [Independent instruction/input boundaries and retired private MIR predicates](instruction-boundaries.md#source-dispositions). |
 | `Decode_IsTotalOverEveryOpcode` | Mixed | REPLACE complete | [Independent instruction/input boundaries and retired private MIR predicates](instruction-boundaries.md#source-dispositions). |
-| `Decode_HlPostIncrementLoadWritesHl` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_EveryLoadRegRegLeavesFlagsUntouched` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_EveryAluOpWritesAllFlagsAndReadsA` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_EveryCbFamilyHasTheExpectedFlagShape` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Decode_EveryIncDecByteWritesZnhNotCarry` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_HlPostIncrementLoadWritesHl` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_EveryLoadRegRegLeavesFlagsUntouched` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_EveryAluOpWritesAllFlagsAndReadsA` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_EveryCbFamilyHasTheExpectedFlagShape` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
+| `Decode_EveryIncDecByteWritesZnhNotCarry` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
 | `Decode_TruncatedTrailingCbDoesNotThrow` | Mixed | REPLACE complete | [Independent instruction/input boundaries and retired private MIR predicates](instruction-boundaries.md#source-dispositions). |
-| `Decode_DiEiAreSideEffectingButNopIsNot` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Decode_DiEiAreSideEffectingButNopIsNot` | Requirement | REPLACE complete | [Observed register/flags/control/memory effects against independent Rust ISA expectations](machine-effects.md#source-disposition). |
 
 ### Backends/Sm83BackendTests.cs (20)
 

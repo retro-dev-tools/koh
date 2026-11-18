@@ -2,6 +2,9 @@ use super::{Host, gameboy_images, host};
 use rstest::rstest;
 use std::{ffi::OsString, path::Path, process::Command};
 
+#[path = "machine_effects.rs"]
+mod machine_effects;
+
 #[rstest::fixture]
 #[once]
 fn debugger() -> Host {

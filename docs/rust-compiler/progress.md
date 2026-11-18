@@ -10,6 +10,21 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Executable machine-effect migration
+
+The remaining15 `MirDecoderTests` methods now have [native replacements](machine-effects.md)
+for66 assertion sites. Nine rstest cases run13952 fresh probes covering loads,
+ALU, INC/DEC, every CB encoding, branches/calls/returns, AF push/pop, MMIO,
+post-increment/decrement, DI/EI delay and RETI. Independent Rust expectations
+check every register/flag, PC/SP/IME, stack and exact ordered data accesses.
+Only the existing C# test adapter gains a bounded raw-state command; production
+emulator/debugger/compiler code is unchanged. No constructor/boot defaults or
+private effect bitsets become specifications. All19 source decoder methods now
+have dispositions; the full ledger is440/565 complete,125 outstanding.
+Expanded library/catalog/boundary/effect/real-Roslyn rewrite validation passed
+241/241 in29.956s, exit0, with703 explicitly unselected cases. Full migration,
+performance comparison and final hosted validation remain incomplete.
+
 ### Instruction/input boundary migration
 
 Four of19 old MIR decoder methods now have [native replacements](instruction-boundaries.md).
@@ -18,9 +33,9 @@ the Rust linker and the existing debugger: exact bytes, lengths, next addresses
 and all11 invalid base opcodes. A mixed stream checks every original byte/offset.
 The actual CIL input boundary now rejects every proper truncation of all218 SDK
 catalog encodings. No private MIR/opaque-clobber model or second decoder is added.
-The other15 execution-effect methods remain open. Focused decoder/catalog/debugger
+The other15 methods now have [separate execution proof](machine-effects.md). Focused decoder/catalog/debugger
 validation passed43/43 in10.504s, exit0;683 cases explicitly unselected. The ledger
-is425/565 complete (424 replacements, one DELETE),140 outstanding. Full migration
+is440/565 complete (439 replacements, one DELETE),125 outstanding. Full migration
 and current-head hosted acceptance remain incomplete.
 
 ### Native three-platform validation checkpoint
@@ -54,7 +69,7 @@ Six native driver cases independently check known opcode bytes, lengths and next
 instruction addresses through the existing debugger API. The expanded library/
 rewrite/ISA/mapper/production-banked-call selection passed236/236 in38.223s, exit0
 (`/tmp/koh-rewrite-contracts-final.log`), with695 explicitly unselected cases.
-The ledger is425/565 complete (424 native replacements, one DELETE),140 outstanding.
+The ledger is440/565 complete (439 native replacements, one DELETE),125 outstanding.
 No compiler-owned case is deferred; no private byte edit or cycle improvement is
 declared part of the public contract.
 
@@ -395,7 +410,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-425/565 dispositions complete (424 native replacements, one DELETE),140 outstanding,
+440/565 dispositions complete (439 native replacements, one DELETE),125 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

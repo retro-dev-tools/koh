@@ -1,8 +1,8 @@
 # Instruction decoding boundaries
 
-Four of the19 `Backends/MirDecoderTests.cs` methods now have native replacements.
-The other15 remain open for execution-effect coverage. This batch does not
-recreate the removed MIR model or certify register/flag/memory effect metadata.
+This boundary batch replaces four of the19 `Backends/MirDecoderTests.cs` methods.
+The other15 now have separate [executable-effect replacements](machine-effects.md).
+No legacy MIR model is recreated, and byte decoding alone does not certify effects.
 
 ## Independent contract
 
@@ -61,6 +61,6 @@ KOH_DOTNET=/path/to/dotnet cargo nextest run -p koh-compile \
 ```
 
 These results do not establish execution effects, optimizer legality, complete
-compiler migration, or current-head three-platform acceptance. Remaining15
-source methods still require their documented register/flags/control/memory
-behavior to be covered independently through observable execution.
+compiler migration, or current-head three-platform acceptance. The other15
+source methods now have separately verified [observable execution coverage](machine-effects.md);
+the43-case result above predates that later batch.
