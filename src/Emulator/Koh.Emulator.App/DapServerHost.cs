@@ -128,7 +128,7 @@ internal sealed class DapServerHost : IDisposable
                 var body = reader.ReadNext(_cts.Token);
                 if (body is null)
                     break;
-                dispatcher.HandleRequest(body.Value.Span);
+                _loop.Execute(() => dispatcher.HandleRequest(body.Value.Span));
                 if (_endRequested)
                     break;
             }

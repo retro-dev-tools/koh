@@ -1,6 +1,6 @@
 # GPUI desktop migration
 
-Status: implementation pending. Baseline: `9ebb6e5`.
+Status: engine session implemented; GPUI interface next. Baseline: `9ebb6e5`.
 
 ## Whole-goal checkpoints
 
@@ -8,7 +8,7 @@ Draft [PR #56](https://github.com/retro-dev-tools/koh/pull/56) tracks this work.
 The bar counts completed checkpoints, not estimated effort.
 
 ```text
-[######>---] 6/10 complete; current: windowless engine session
+[#######>--] 7/10 complete; current: connected GPUI interface
 ```
 
 | # | Checkpoint | State / evidence |
@@ -19,7 +19,7 @@ The bar counts completed checkpoints, not estimated effort.
 | 4 | Managed debugger cutover | Done: native reader binding, neutral records, 42 debugger tests in the passing fast suite |
 | 5 | Producers, consumers and KDBG removal | Done: CLI/SDK/editor/sample/fixture cutover; old writer/reader/builder removed; seven SDK sidecars verified |
 | 6 | Real DWARF debugging acceptance | Done: 37 compiler/debugger integration cases; Debug/Release SDK 2048, source breakpoints, framework stack recovery and machine state |
-| 7 | Windowless engine session | Pending: coherent commands/snapshots, paused operation, saves and shutdown |
+| 7 | Windowless engine session | Done: copied coherent snapshots, frame-boundary commands while paused, persistence, DAP coordination; nine NativeAOT process tests and real SDK 2048 run |
 | 8 | Complete GPUI Kit interface | Pending: display, controls, picker, four inspectors, keyboard/accessibility and polish |
 | 9 | Complete KohUI removal and integration | Pending: both backends/demo/tests/dependencies/references; launch/package/CI |
 | 10 | Final native acceptance | Pending: real-game visual/input/audio, headless regressions and platform validation |
@@ -45,6 +45,7 @@ session for commands and coherent snapshots. Preserve existing DAP transport
 and headless screenshot/report modes. Reserve stdout for session messages in
 the new mode; route diagnostics/pacing to stderr. The Rust parent owns the
 child lifetime. EOF/window close must shut down cooperatively and flush SRAM.
+The implemented [session protocol](engine-session.md) is ready for the Rust client.
 Process commands at frame boundaries, including while paused. Never read live
 mutable arrays from the renderer. Bound messages and validate shapes/enums.
 Ship the engine beside the UI and resolve it relative to the executable.

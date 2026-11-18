@@ -141,8 +141,15 @@ public static class EmulatorApp
     {
         if (m.Loop is null || m.RomPath is null)
             return m;
-        m.Loop.SaveState(StatePathFor(m.RomPath));
-        return m with { Status = "Saved state" };
+        try
+        {
+            m.Loop.SaveState(StatePathFor(m.RomPath));
+            return m with { Status = "Saved state" };
+        }
+        catch (Exception ex)
+        {
+            return m with { Status = $"Save failed: {ex.Message}" };
+        }
     }
 
     private static EmulatorModel OnLoadState(EmulatorModel m)
@@ -152,8 +159,15 @@ public static class EmulatorApp
         var path = StatePathFor(m.RomPath);
         if (!File.Exists(path))
             return m with { Status = "No save state" };
-        m.Loop.LoadState(path);
-        return m with { Status = "Loaded state" };
+        try
+        {
+            m.Loop.LoadState(path);
+            return m with { Status = "Loaded state" };
+        }
+        catch (Exception ex)
+        {
+            return m with { Status = $"Load failed: {ex.Message}" };
+        }
     }
 
     /// <summary>

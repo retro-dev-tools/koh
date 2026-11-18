@@ -16,7 +16,7 @@ wide banks. Loading invalid data preserves maps; symbol-free loading clears them
 Assembly expansion ancestry uses the documented vendor extension.
 
 Final local checks: CI solution build exit0, zero warnings/errors, all7C# ROMs;
-fast suite574total/572passed/0failed/2existing opt-in SDL skips, including42
+fast suite581total/579passed/0failed/2existing opt-in SDL skips, including49
 debugger tests, exit0.35Rust linker cases pass. Workspace all-target/all-feature
 check passes with existing unused cube-helper warning.44extension tests pass
 under owned Xvfb, which was stopped. All7SDK ELF sidecars parse with symbols/
@@ -31,21 +31,37 @@ DebuggerHost's injected-symbol fixture uses the neutral record constructor.
 Hosted22f9ef4 failed1/1480Rust fast cases: assembler macro test retained KDBG
 offset assertions. Replaced with full decoded DWARF range/ancestry comparison;
 all149assembler tests pass, exit0, /tmp/koh-dwarf-macro-acceptance.log.
-Hosted acceptance on corrected head remains pending.
-Next: engine session, NativeAOT/hosted proof and complete GPUI/KohUI replacement.
+Hosted Rust checks passed at a481017, run44393108491.
+Windowless engine session implemented; see docs/engine-session.md for protocol.
+Commands execute on the emulator thread between frames, including while paused.
+DAP uses the same queue. Replies copy LCD/CPU/palette/VRAM/memory data.
+Save/restore replies reflect completed work; corrupt restore rolls back the core.
+EOF/Quit/oversized input flush SRAM after joining the worker. Audio pacing uses
+stderr. Cancellation reads raw stdin asynchronously, not blocking Console.In.
+Nine process tests pass against fresh Linux NativeAOT, including DWARF source
+breakpoints/stepping, DMG/CGB, actual joypad edges, saves and shutdown.
+Native build /tmp/koh-gpui-engine-native/Koh.Emulator.App, SHA256
+0f4be5e41e9e67f53943633a94242797e52c2bd1aff37fd222215dc5cc468398.
+Native SDK2048v2 smoke:123frames,8638408T-cycles,changed opaque LCD,save/restore,
+exit0. Logs /tmp/koh-engine-native-process-tests.log and
+/tmp/koh-engine-native-2048.log. Native publish /tmp/koh-engine-native-publish.log.
+Tests can use KOH_TEST_EMULATOR=<absolute native binary> to exercise published
+engine; otherwise use the managed test-host runtime.
+Next: connected Rust GPUI app, then complete interface, KohUI removal and final
+visual/input/audio/platform acceptance. Preserve DAP and headless entry points.
 No GPUI runtime exists yet. No agents spawned.
 User authorized opening a draft PR and keeping it updated; push this branch and
 update its description as increments land. No merge or release authorized.
 User requests an ASCII progress bar and detailed checkpoints. Whole-goal ledger
-is in `docs/gpui-migration.md`: [######>---]6/10 checkpoints complete, not effort.
+is in `docs/gpui-migration.md`: [#######>--]7/10 checkpoints complete, not effort.
 
 Host gotcha: a stopped orphan aspire-managed template-search process holds the
 shared NuGet lock. Leave it alone. Use NUGET_SCRATCH=/tmp/koh-nuget-scratch on
 all dotnet/cargo-driven dotnet checks. Pinned SDK:
 /home/minorum/.local/share/koh-dotnet-10.0.115; set PATH,DOTNET_ROOT,KOH_DOTNET.
 DOTNET_PROCESSOR_COUNT=4; serial builds/tests. No NuGet audit suppression.
-Final fast log /tmp/koh-dwarf-cutover-fast-tests-final.log; build log
-/tmp/koh-dwarf-cutover-solution-build.log. No local build/test process live now.
+Final fast log /tmp/koh-engine-fast-tests-final.log; build log
+/tmp/koh-engine-solution-build.log. No local build/test process live at commit.
 
 Unrelated modified `samples/csharp/gb-jrpg/screenshots/battle.png` remains intact,
 SHA256 `fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454`.

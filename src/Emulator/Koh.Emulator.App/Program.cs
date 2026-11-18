@@ -4,6 +4,7 @@ using KohUI.Backends.Sdl3;
 
 string? dapPipe = null;
 bool headless = false;
+bool engineSession = false;
 string? screenshotPath = null;
 int frames = 120;
 string? inputScriptPath = null;
@@ -17,6 +18,8 @@ foreach (var arg in args)
 {
     if (arg == "--headless")
         headless = true;
+    else if (arg == "--session")
+        engineSession = true;
     else if (arg.StartsWith("--boot-rom=", StringComparison.Ordinal))
         bootRomPath = arg["--boot-rom=".Length..];
     else if (arg.StartsWith("--boot-rom-dmg=", StringComparison.Ordinal))
@@ -42,8 +45,80 @@ foreach (var arg in args)
         positional.Add(arg);
 }
 
-string romPath = positional.Count > 0 ? positional[0] : FindDefaultRom();
 EmulatorApp.BootRoms = new BootRomResolver(bootRomPath, bootRomDmgPath, bootRomCgbPath);
+if (engineSession)
+{
+    if (
+        positional.Count > 1
+        || screenshotPath is not null
+        || mode3ReportRequested
+        || inputScriptPath is not null
+    )
+    {
+        Console.Error.WriteLine(
+            "--session accepts one ROM and cannot use screenshot, report or input-script modes"
+        );
+        return 1;
+    }
+    using var sessionCancellation = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) =>
+    {
+        e.Cancel = true;
+        sessionCancellation.Cancel();
+    };
+    AudioSink? sessionAudio = null;
+    if (!headless)
+    {
+        try
+        {
+            sessionAudio = new AudioSink();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[koh-engine] audio unavailable: {ex.Message}");
+        }
+    }
+    using var sessionAudioLifetime = sessionAudio;
+    using var sessionLoop = new EmulatorLoop(sessionAudio);
+    var session = new EngineSession(sessionLoop, EmulatorApp.BootRoms);
+    try
+    {
+        if (positional.Count == 1)
+            sessionLoop.Execute(() => session.Load(positional[0], dapPipe is not null));
+        using var sessionDap = dapPipe is not null ? new DapServerHost(dapPipe, sessionLoop) : null;
+        if (sessionDap is not null)
+            _ = sessionDap.Completion.ContinueWith(
+                _ =>
+                {
+                    try
+                    {
+                        sessionCancellation.Cancel();
+                    }
+                    catch (ObjectDisposedException) { }
+                },
+                TaskScheduler.Default
+            );
+        using var input = new StreamReader(
+            Console.OpenStandardInput(),
+            new System.Text.UTF8Encoding(false, true)
+        );
+        return await session.RunAsync(
+            input,
+            Console.OpenStandardOutput(),
+            sessionCancellation.Token
+        );
+    }
+    catch (OperationCanceledException)
+    {
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[koh-engine] {ex.Message}");
+        return 1;
+    }
+}
+string romPath = positional.Count > 0 ? positional[0] : FindDefaultRom();
 if (headless && dapPipe is null && screenshotPath is null && !mode3ReportRequested)
 {
     Console.Error.WriteLine("--headless requires --dap, --screenshot or --mode3-report");

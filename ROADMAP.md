@@ -14,12 +14,15 @@ The initial DWARF writer and bounded native reader/CLI are implemented and
 preserve assembly expansion ancestry and pass 35 focused linker tests.
 The managed debugger, SDK, CLI, editor and fixtures now use DWARF `.elf`
 sidecars; production KDBG code is removed. The whole-goal checkpoint ledger
-is in the GPUI migration document (6/10). Local validation: zero-warning/error
-solution build, all seven C# ROMs/debug sidecars, 572 fast tests passed with two
+is in the GPUI migration document (7/10). Local validation: zero-warning/error
+solution build, all seven C# ROMs/debug sidecars, 579 fast tests passed with two
 existing graphics opt-ins skipped, and 44 extension tests passed under Xvfb.
 All 37 selected real compiler/debugger integration cases pass, including both
-SDK 2048 variants and framework stack recovery. NativeAOT/hosted acceptance
-and the full GPUI replacement remain open.
+SDK 2048 variants and framework stack recovery. The windowless engine session
+is implemented: nine NativeAOT process cases pass, including DWARF source
+breakpoints, input, DMG/CGB and persistence. A real native SDK 2048 run reached
+123 frames, saved/restored state and exited cleanly. The GPUI interface,
+KohUI removal and final desktop/platform acceptance remain open.
 
 Serve Game Boy hobbyists who want to write assembly or constrained C#, build a ROM, and diagnose problems without stitching together unrelated editor and debugger integrations. The differentiator is the connected development workflow: semantic assembly tooling plus C# compilation, sample games, and an emulator/debugger in one repository.
 

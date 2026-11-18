@@ -250,6 +250,11 @@ against the linked records. The full assembler suite then passed 149 tests,
 exit 0; completed log: `/tmp/koh-dwarf-macro-acceptance.log`. Rustfmt check
 also exited 0. Hosted acceptance on the corrected head remains pending.
 
+Hosted Rust checks subsequently passed at `a481017` (run `44393108491`).
+Fresh Linux NativeAOT engine verification now also passes: all nine process
+cases, including DWARF source breakpoint resolution and stepping. See
+[engine session](engine-session.md) for the executable hash and completed logs.
+
 Next: implement the windowless engine session; validate NativeAOT packaging
 and hosted platforms before final acceptance.
 The new GPUI application and KohUI removal remain unfinished.
