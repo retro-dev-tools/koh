@@ -71,6 +71,14 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
     {
         let original = koh_compile::lower::assembly_method(&resolver, identity(shape)).unwrap();
         let inputs: Vec<_> = match shape {
+            "SequentialCopy" => rewrites::SEQUENTIAL_INPUTS
+                .iter()
+                .map(|&(x, y)| (u64::from(x), u64::from(y)))
+                .collect(),
+            "GuardedCopy" => rewrites::GUARD_INPUTS
+                .iter()
+                .map(|&(x, y)| (u64::from(x), u64::from(y)))
+                .collect(),
             "Carry" | "Borrow" => rewrites::WIDE.to_vec(),
             "Shifts" => [0x8000000000000001, 0x123456789abcdef0]
                 .into_iter()
@@ -115,6 +123,7 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
             ] {
                 let mut functions = vec![root];
                 for helper in match shape {
+                    "GuardedCopy" | "SequentialCopy" => &["Drip"][..],
                     "Call" => &["Change"][..],
                     "Tail" | "NotTail" | "ReturnJoin" | "IndexedDelayed" => &["Leaf"][..],
                     _ if shape.starts_with("Walk") => &["SeedWalk"][..],
@@ -142,7 +151,7 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
         executions += cases.len();
         run_roms_observed(host, &cases, 0xd000, Some(&observed));
     }
-    assert_eq!(executions, 1024);
+    assert_eq!(executions, 1080);
 }
 
 #[rstest::rstest]

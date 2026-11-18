@@ -653,14 +653,14 @@ All ten methods already have native dispositions in the [central fill/copy matri
 
 Classification: Real copy correctness and private compare graph. Guarded and sequential copies must obey guards, extents and source order; absence of compare-of-compare nodes is optional.
 
-Proposed future location: `rust/koh-compiler/tests/runtime_memory.rs` (not implemented).
+Three behavioral methods now run through [guarded/sequential native copies](guarded-copies.md). The private real-FlushRun comparison/budget replacement remains open.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
 | `RealFlushRun_LoopGuards_HaveNoRedundantCompareChain` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
-| `GuardedStride1CopyLoop_CopiesEveryByte_WhenGuardOpen` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `GuardedStride1CopyLoop_CopiesNothing_WhenGuardClosed` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `TwoSequentialStride1CopyLoops_BothCopyCorrectly` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `GuardedStride1CopyLoop_CopiesEveryByte_WhenGuardOpen` | Requirement | PORT complete | [Exact real-CIL copy results, guards, extents and physical access traces](guarded-copies.md). |
+| `GuardedStride1CopyLoop_CopiesNothing_WhenGuardClosed` | Requirement | PORT complete | [Exact real-CIL copy results, guards, extents and physical access traces](guarded-copies.md). |
+| `TwoSequentialStride1CopyLoops_BothCopyCorrectly` | Requirement | PORT complete | [Exact real-CIL copy results, guards, extents and physical access traces](guarded-copies.md). |
 
 ### Sm83/Sm83LoopCodegenTests.cs (20)
 

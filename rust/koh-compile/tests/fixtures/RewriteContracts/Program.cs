@@ -1,5 +1,40 @@
 public static unsafe class Program
 {
+    private static ushort Drip(byte* dst, byte* src, ushort count, byte gate)
+    {
+        byte* start = dst;
+        byte* end = dst + count;
+        while (dst != end)
+        {
+            if ((byte)(gate - 144) > 8)
+                return (ushort)(dst - start);
+            *dst++ = *src++;
+        }
+        return count;
+    }
+
+    public static int GuardedCopy(int gate, int count)
+    {
+        for (int i = 0; i < 8; i++)
+        {
+            ((byte*)0xC100)[i] = (byte)(0x40 + i);
+            ((byte*)0xC200)[i] = 0xEE;
+        }
+        return Drip((byte*)0xC200, (byte*)0xC100, (ushort)count, (byte)gate);
+    }
+
+    public static int SequentialCopy(int gate, int count)
+    {
+        for (int i = 0; i < 6; i++)
+        {
+            ((byte*)0xC100)[i] = (byte)(0x10 + i);
+            ((byte*)0xC140)[i] = (byte)(0x80 + i);
+        }
+        ushort first = Drip((byte*)0xC200, (byte*)0xC100, 6, (byte)gate);
+        ushort second = Drip((byte*)0xC220, (byte*)0xC140, 6, (byte)count);
+        return first | (second << 16);
+    }
+
     public static ulong Carry(ulong x, ulong y) => unchecked(x + y);
 
     public static ulong Borrow(ulong x, ulong y) => unchecked(x - y);

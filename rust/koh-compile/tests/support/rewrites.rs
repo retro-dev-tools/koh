@@ -1,4 +1,6 @@
 pub const SHAPES: &[&str] = &[
+    "GuardedCopy",
+    "SequentialCopy",
     "Adjacent",
     "AcrossArithmetic",
     "Different",
@@ -26,6 +28,19 @@ pub const SHAPES: &[&str] = &[
     "WalkLinear",
     "WalkStore",
 ];
+pub const GUARD_INPUTS: &[(u32, u32)] = &[
+    (148, 8),
+    (200, 8),
+    (143, 8),
+    (144, 8),
+    (152, 8),
+    (153, 8),
+    (0, 0),
+    (148, 0),
+    (148, 1),
+    (255, 1),
+];
+pub const SEQUENTIAL_INPUTS: &[(u32, u32)] = &[(148, 148), (148, 200), (200, 148), (200, 200)];
 pub const WALK_INPUTS: &[(u32, u32)] = &[
     (0, 0),
     (1, 0),
@@ -76,6 +91,39 @@ pub fn expected(shape: &str, x: u32, y: u32) -> (u64, String) {
     let b = y as u8;
     let w = |address: u16, value: u8| format!("W{address:04X}:{value:02X}");
     let r = |address: u16| format!("R{address:04X}");
+    if shape == "SequentialCopy" {
+        let mut events = Vec::new();
+        for i in 0..6 {
+            events.extend([w(0xc100 + i, 0x10 + i as u8), w(0xc140 + i, 0x80 + i as u8)]);
+        }
+        let mut value = 0;
+        for (gate, src, dst, byte, shift) in
+            [(x, 0xc100, 0xc200, 0x10, 0), (y, 0xc140, 0xc220, 0x80, 16)]
+        {
+            if (144..=152).contains(&gate) {
+                value |= 6u64 << shift;
+                for i in 0..6 {
+                    events.extend([r(src + i), w(dst + i, byte + i as u8)]);
+                }
+            }
+        }
+        return (value, events.join(","));
+    }
+    if shape == "GuardedCopy" {
+        let mut events = Vec::new();
+        for i in 0..8 {
+            events.extend([w(0xc100 + i, 0x40 + i as u8), w(0xc200 + i, 0xee)]);
+        }
+        let copied = if (144..=152).contains(&(x as u8)) {
+            y
+        } else {
+            0
+        };
+        for i in 0..copied as u16 {
+            events.extend([r(0xc100 + i), w(0xc200 + i, 0x40 + i as u8)]);
+        }
+        return (u64::from(copied), events.join(","));
+    }
     if shape.starts_with("Walk") {
         let first = if shape == "WalkLinear" { 1 } else { 0x10 };
         let start = if shape == "WalkLinear" || x != 0 {

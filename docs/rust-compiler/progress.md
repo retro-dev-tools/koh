@@ -10,6 +10,18 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Guarded and sequential copies
+
+Three public RedundantCompareLoopTests methods now have [native replacements](guarded-copies.md):
+112 added Debug/Release ROMs check the full inclusive guard window, zero lengths,
+exact source/destination accesses and two independent sequential copies. Runtime
+and bound inputs run before/after optimization. The whole rewrite fixture now
+executes2160 ROMs. Compiler-library plus fixture validation passed222/222 in22.468s,
+exit0 (/tmp/koh-guarded-copy-final.log);207 explicitly unselected. Stable fmt,
+CSharpier and diff checks passed. Ledger458/565 (457 replacements, one DELETE),
+107 outstanding. Real FlushRun/private compare-graph and loop timing replacements
+remain open; no production changes or relaxed timing ceilings.
+
 ### Generic delegate flag validation
 
 The native delegate binder now rejects [malformed generic parameter flag words](delegate-parameter-flags.md)
@@ -480,7 +492,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-455/565 dispositions complete (454 native replacements, one DELETE),110 outstanding,
+458/565 dispositions complete (457 native replacements, one DELETE),107 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,
