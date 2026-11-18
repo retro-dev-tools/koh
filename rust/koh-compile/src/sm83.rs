@@ -21,6 +21,7 @@ pub fn static_symbol(identity: Definition) -> String {
 }
 
 struct Code<'a> {
+    memory: crate::memory::Layout,
     stack_reserve: u16,
     data: Vec<u8>,
     readonly: Vec<u8>,
@@ -446,7 +447,7 @@ impl Code<'_> {
         self.release_pin(flag, saved, pins);
         let done = self.label();
         self.load_a(local + 1);
-        self.bytes(&[0xfe, 0xd0]);
+        self.bytes(&[0xfe, (self.memory.stack_top() >> 8) as u8]);
         self.jump(0xda, done);
         self.bytes(&[0xfe, 0xe0]);
         self.jump(0xd2, done);
@@ -569,13 +570,13 @@ impl Code<'_> {
         }
         self.arithmetic(temp, temp + 2, temp + 4, 2, 0x88);
         self.jump(0xda, fault);
-        self.below_constant(temp + 4, 4097, fault);
+        self.below_constant(temp + 4, self.memory.heap_bytes + 1, fault);
         let raw_used = self.import("__koh_raw_used".into());
         self.jump(0x21, raw_used);
         self.bytes(&[0x2a, 0x4f, 0x46]);
         self.save_word(temp + 16);
         self.arithmetic(temp + 4, temp + 16, temp + 18, 2, 0x88);
-        self.below_constant(temp + 18, 4097, fault);
+        self.below_constant(temp + 18, self.memory.heap_bytes + 1, fault);
         self.indirect(temp + 4);
         self.jump(0x21, cursor);
         self.bytes(&[0x79, 0x22, 0x78, 0x77]);
@@ -599,23 +600,23 @@ impl Code<'_> {
         let fault = self.import("__koh_trap_allocation".into());
         self.check_high(size.offset, size.bytes, fault);
         self.extend(size, temp, 2);
-        self.below_constant(temp, 4097, fault);
+        self.below_constant(temp, self.memory.heap_bytes + 1, fault);
         let raw_used = self.import("__koh_raw_used".into());
         self.jump(0x21, raw_used);
         self.bytes(&[0x2a, 0x4f, 0x46]);
         self.save_word(temp + 2);
         self.arithmetic(temp, temp + 2, temp + 4, 2, 0x88);
-        self.below_constant(temp + 4, 4097, fault);
+        self.below_constant(temp + 4, self.memory.heap_bytes + 1, fault);
         let managed = self.import("__koh_heap_cursor".into());
         self.jump(0x21, managed);
         self.bytes(&[0x2a, 0x4f, 0x46]);
         self.save_word(temp + 6);
         self.arithmetic(temp + 4, temp + 6, temp + 8, 2, 0x88);
-        self.below_constant(temp + 8, 4097, fault);
+        self.below_constant(temp + 8, self.memory.heap_bytes + 1, fault);
         self.indirect(temp + 4);
         self.jump(0x21, raw_used);
         self.bytes(&[0x79, 0x22, 0x78, 0x77]);
-        self.constant(temp + 6, 2, 4096);
+        self.constant(temp + 6, 2, u64::from(self.memory.heap_bytes));
         self.arithmetic(temp + 6, temp + 4, temp + 6, 2, 0x98);
         self.indirect(temp + 6);
         let heap = self.import("__koh_heap".into());
@@ -1337,10 +1338,18 @@ pub(crate) fn emit_with_strings_origin(
     pdb: Option<&crate::pdb::PortablePdb>,
     source_method: u32,
 ) -> Result<Object, String> {
-    emit_with_stack_reserve(function, strings, banked, pdb, source_method, 0)
+    emit_with_stack_reserve(
+        function,
+        strings,
+        banked,
+        pdb,
+        source_method,
+        0,
+        crate::memory::Layout::default(),
+    )
 }
 
-pub(crate) fn interrupt_frame(function: &Function) -> Result<u16, String> {
+pub(crate) fn frame_size(function: &Function) -> Result<u16, String> {
     Ok(Layout::new(function, 4)?.size)
 }
 
@@ -1351,6 +1360,7 @@ pub(crate) fn emit_with_stack_reserve(
     pdb: Option<&crate::pdb::PortablePdb>,
     source_method: u32,
     stack_reserve: u16,
+    memory: crate::memory::Layout,
 ) -> Result<Object, String> {
     verify(function)?;
     let constants: BTreeMap<_, _> = function
@@ -1367,7 +1377,7 @@ pub(crate) fn emit_with_stack_reserve(
         .collect();
     let cookie = if banked { 4 } else { 0 };
     let layout = Layout::new(function, cookie)?;
-    if layout.size + stack_reserve + 4 > 0xf00 {
+    if u32::from(layout.size) + u32::from(stack_reserve) + 4 > u32::from(memory.stack_bytes()) {
         return Err(format!(
             "{}: function frame plus interrupt reserve exceeds WRAM0 stack capacity",
             symbol(function.identity)
@@ -1376,6 +1386,7 @@ pub(crate) fn emit_with_stack_reserve(
     let cookie = cookie as u16;
     let name = symbol(function.identity);
     let mut code = Code {
+        memory,
         stack_reserve,
         data: vec![],
         readonly: vec![],
@@ -2010,7 +2021,11 @@ pub(crate) fn emit_with_stack_reserve(
                     code.jump(0xcd, routine);
                     code.check_high(temp + 16, 4, fault);
                     code.copy(temp + 16, temp + 6, 2);
-                    code.below_constant(temp + 6, 4090 / element.bytes() + 1, fault);
+                    code.below_constant(
+                        temp + 6,
+                        (memory.heap_bytes - 6) / element.bytes() + 1,
+                        fault,
+                    );
                     code.copy(temp + 6, temp + 8, 2);
                     code.scale_word(temp + 8, element.bytes());
                     code.constant(temp + 20, 2, 6);
@@ -2105,7 +2120,11 @@ pub(crate) fn emit_with_stack_reserve(
                     let fault = code.import("__koh_trap_allocation".into());
                     code.check_high(slot(length), place(length).bytes, fault);
                     code.extend(place(length), temp + 6, 2);
-                    code.below_constant(temp + 6, 4094 / element.bytes() + 1, fault);
+                    code.below_constant(
+                        temp + 6,
+                        (memory.heap_bytes - 2) / element.bytes() + 1,
+                        fault,
+                    );
                     code.copy(temp + 6, temp + 8, 2);
                     code.scale_word(temp + 8, element.bytes());
                     if aligned {
@@ -2269,7 +2288,7 @@ pub(crate) fn emit_with_stack_reserve(
                         .map(|ty| usize::from(ty.bits() / 8))
                         .sum::<usize>()
                         + usize::from(abi_return + cookie);
-                    if size + 2 > 0xf00 {
+                    if size + 2 > usize::from(memory.stack_bytes()) {
                         return Err(format!(
                             "{name} IL_{:04x}: call storage exceeds stack capacity",
                             instruction.il_offset
@@ -2697,7 +2716,7 @@ pub(crate) fn emit_with_stack_reserve(
                 combination: SectionCombination::Union,
                 address: Some(0xc100),
                 bank: Some(0),
-                size: 0xf00,
+                size: u32::from(memory.stack_bytes()),
                 ..Default::default()
             },
         ],

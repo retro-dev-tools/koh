@@ -10,6 +10,14 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Expanded arena implementation checkpoint
+
+[Per-program RAM partitioning](ram-layout.md) now executes the5000-byte array
+with result16 across Debug/Release × DMG/CGB. CGB cross-boundary pins also restore
+the caller bank. Selected compiler/IRQ/pin/raw/static regression passed289/289
+in68.906s, exit0. Wider allocation-shape and stack acceptance remain open, so this
+implementation checkpoint adds no source-disposition credit:530/565,35 outstanding.
+
 ### Static storage source contracts
 
 Nine methods now have native replacements for29 assertion sites, with20 ROMs

@@ -105,6 +105,7 @@ fn startup(
     globals: u16,
     dma: bool,
     interrupts: &BTreeMap<u16, Definition>,
+    memory: crate::memory::Layout,
 ) -> Result<Object, String> {
     if !entry.parameters.is_empty() || !matches!(entry.returns, None | Some(Type::I32)) {
         return Err("Invalid cartridge entry signature".into());
@@ -122,7 +123,10 @@ fn startup(
     boot[0x147] = 0x19;
     boot[0x101] = 0xc3;
     let mut boot_patches = vec![patch(0, 0x102, 0)];
-    let mut data = vec![0xf3, 0x31, 0, 0xd0, 0xaf, 0xe0, 0x0f, 0xea, 0xff, 0xff];
+    let top = memory.stack_top().to_le_bytes();
+    let mut data = vec![
+        0xf3, 0x31, top[0], top[1], 0xaf, 0xe0, 0x0f, 0xea, 0xff, 0xff,
+    ];
     let irq_init = if interrupts.is_empty() {
         None
     } else {
@@ -315,6 +319,12 @@ fn startup(
             patches.push(patch(1, offset, id));
         }
     }
+    symbols.push(Symbol {
+        name: "__koh_stack_top".into(),
+        binding: SymbolBinding::Exported,
+        definition: SymbolDefinition::Absolute(i32::from(memory.stack_top())),
+        source: None,
+    });
     Ok(Object {
         sections: vec![
             Section {
@@ -367,6 +377,7 @@ pub(crate) fn emit_with_debug(
     interrupts: &crate::interrupts::Plan,
 ) -> Result<Object, String> {
     verify_program(functions)?;
+    let memory = crate::memory::Layout::for_program(functions, entry, interrupts.reserve)?;
     let root = functions
         .iter()
         .find(|f| f.identity == entry)
@@ -413,7 +424,7 @@ pub(crate) fn emit_with_debug(
         .flat_map(|b| &b.instructions)
         .any(|i| matches!(i.op, crate::ir::Op::OamDma(_)));
     let interrupt_reserve = interrupts.reserve;
-    let mut objects = vec![startup(root, bytes, dma, &interrupts.vectors)?];
+    let mut objects = vec![startup(root, bytes, dma, &interrupts.vectors, memory)?];
     if !interrupts.vectors.is_empty() {
         objects.push(Object {
             sections: vec![Section {
@@ -477,15 +488,35 @@ pub(crate) fn emit_with_debug(
         });
     }
     if heap {
-        objects.push(Object {
-            sections: vec![Section {
-                name: ".koh.heap".into(),
-                kind: 5,
-                bank: Some(1),
-                size: 4096,
+        let mut sections = vec![Section {
+            name: ".koh.heap".into(),
+            kind: 5,
+            bank: Some(1),
+            size: 4096,
+            ..Default::default()
+        }];
+        let extension = memory.heap_bytes - 4096;
+        if extension != 0 {
+            sections.push(Section {
+                name: ".koh.heap.extension".into(),
+                kind: 4,
+                bank: Some(0),
+                address: Some(i32::from(memory.stack_top())),
+                size: u32::from(extension),
                 ..Default::default()
-            }],
-            symbols: vec![symbol("__koh_heap".into(), 0, 0)],
+            });
+        }
+        objects.push(Object {
+            sections,
+            symbols: vec![
+                symbol("__koh_heap".into(), usize::from(extension != 0), 0),
+                Symbol {
+                    name: "__koh_heap_capacity".into(),
+                    binding: SymbolBinding::Exported,
+                    definition: SymbolDefinition::Absolute(i32::from(memory.heap_bytes)),
+                    source: None,
+                },
+            ],
         });
     }
     let literals: BTreeSet<_> = functions
@@ -569,6 +600,7 @@ pub(crate) fn emit_with_debug(
             } else {
                 interrupt_reserve
             },
+            memory,
         )?;
         if interrupt {
             object.sections[0].kind = 0;

@@ -3,6 +3,10 @@ using Koh.Emulator.Cartridge;
 using Koh.Emulator.Joypad;
 
 bool cost = args.Length > 0 && args[0] == "--cost";
+bool region = args.Length > 0 && args[0].StartsWith("--native-region:", StringComparison.Ordinal);
+int arenaStart = region ? Convert.ToInt32(args[0].Split(':')[1], 16) : 0xD000;
+if (arenaStart < 0xC100 || arenaStart > 0xD000)
+    throw new ArgumentOutOfRangeException(nameof(arenaStart));
 bool loopCost = args.Length > 0 && args[0] == "--loop-cost";
 bool observe = args.Length > 0 && args[0] == "--observe-memory";
 bool fillCost = args.Length > 0 && args[0] == "--native-heap-cost";
@@ -35,7 +39,8 @@ bool video =
     || frameworkGame
     || (args.Length > 0 && args[0] == "--native-video");
 bool heap =
-    video
+    region
+    || video
     || stack
     || arena
     || scroll
@@ -140,7 +145,11 @@ foreach (
         {
             gb.Mmu.DebugWrite(0xFF70, bank);
             byte poison = bank == 1 ? (byte)0x5A : (byte)0x6B;
-            for (ushort address = 0xD000; address < 0xE000; address++)
+            for (
+                ushort address = (ushort)(bank == 1 ? arenaStart : 0xD000);
+                address < 0xE000;
+                address++
+            )
                 if (!gb.Mmu.DebugWrite(address, poison) || gb.Mmu.DebugRead(address) != poison)
                     throw new InvalidOperationException("Cannot poison heap test memory");
         }
@@ -358,9 +367,10 @@ foreach (
             foreach (byte bank in color ? new byte[] { 1, 2 } : new byte[] { 1 })
             {
                 gb.Mmu.DebugWrite(0xFF70, bank);
-                byte[] memory = new byte[0x1000];
+                int start = bank == 1 ? arenaStart : 0xD000;
+                byte[] memory = new byte[0xE000 - start];
                 for (int i = 0; i < memory.Length; i++)
-                    memory[i] = gb.Mmu.DebugRead((ushort)(0xD000 + i));
+                    memory[i] = gb.Mmu.DebugRead((ushort)(start + i));
                 snapshot += " " + Convert.ToHexString(memory);
             }
             gb.Mmu.DebugWrite(0xFF70, saved);

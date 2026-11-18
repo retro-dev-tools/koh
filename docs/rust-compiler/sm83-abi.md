@@ -108,16 +108,17 @@ dereferences abort through `__koh_trap_null` (fault 4); native bus address zero
 remains legal. Managed references to the current frame cannot be returned.
 
 [Primitive array references](arrays.md) occupy two bytes and point at a packed
-count/payload allocation in linker-reserved WRAMX bank 1. Managed-reference memory
+count/payload allocation in the linker-reserved arena, using WRAMX bank1 and,
+when expanded, adjacent WRAM0. Managed-reference memory
 operations select that bank and restore SVBK; native pointers retain raw selected
 bank semantics. Internal allocation calls reserve their extra machine return word
 as well as AF scratch in the guard. Heap exhaustion and bounds abort with faults
 5 and 6. This does not establish interrupt safety, GC or ROM banking.
 
 [Raw allocations](raw-arena.md) return native16 bank1 bus pointers, preserving
-SVBK. The same4KiB arena holds upward managed allocations and downward raw blocks.
+SVBK. The same arena holds upward managed allocations and downward raw blocks.
 `__koh_heap_cursor` and `__koh_raw_used` are independent startup-zeroed16-bit
-offset/count words in WRAM0; their sum cannot exceed4096. `Mem.Reset` clears raw
+offset/count words in WRAM0; their sum cannot exceed the selected arena capacity. `Mem.Reset` clears raw
 usage only. Native pointer access remains the caller's bank responsibility.
 
 The frame contains locals, SSA values and temporary storage for simultaneous block
@@ -134,7 +135,13 @@ transitive bank-writing calls diagnose while a pin may be active. Selection
 before acquisition or after final release is allowed. Native-zero
 pin cleanup is checked and nonzero fabrication aborts with fault8.
 
-The initial stack region is WRAM0 `$C100..$CFFF`, with startup SP `$D000`.
+The default stack region is WRAM0 `$C100..$CFFF`, with startup SP `$D000`.
+Larger reachable constant allocation requirements select a page-aligned arena
+ending at `$E000` and reduce the stack top accordingly. ELF reserves adjacent
+WRAM0/WRAM1 arena regions and exports `__koh_stack_top`/`__koh_heap_capacity`.
+See [RAM partitioning and current validation](ram-layout.md). Dynamic and total
+lifetime allocation requirements remain runtime checked; the planner does not
+infer allocation sizes through arbitrary helper parameters.
 Frame guards run before allocation/writes; a stack failure branches to
 `__koh_trap_stack`. A caller must reserve/check its complete argument/return block
 and the two-byte CALL return address before CALL. Integer divide-by-zero and signed

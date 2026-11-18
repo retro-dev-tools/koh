@@ -75,6 +75,20 @@ public static unsafe class Program
         LargeState.Cells[4999] = 9;
         return LargeState.Cells[0] + LargeState.Cells[4999];
     }
+
+    public static int LargePinnedArray()
+    {
+        byte[] cells = new byte[5000];
+        *(byte*)0xFF70 = 2;
+        fixed (byte* p = cells)
+        {
+            p[0] = 7;
+            p[4999] = 9;
+        }
+        byte bank = (byte)(*(byte*)0xFF70 & 7);
+        *(byte*)0xDFF0 = 0xA3;
+        return bank == 2 ? cells[0] + cells[4999] : -1;
+    }
 }
 
 public static class CounterState

@@ -84,92 +84,19 @@ fn stack_reserve(
     members: &HashSet<Definition>,
     vectors: &BTreeMap<u16, Definition>,
 ) -> Result<u16, (Definition, String)> {
-    let fail = |id, message: &str| (id, message.to_owned());
-    let mut pending = vec![0usize; functions.len()];
-    let mut parents = vec![Vec::new(); functions.len()];
-    let mut frames = vec![0u16; functions.len()];
-    let mut needs = vec![0u16; functions.len()];
-    let mut ready = VecDeque::new();
-    for (index, function) in functions
-        .iter()
-        .enumerate()
-        .filter(|(_, f)| members.contains(&f.identity))
-    {
-        frames[index] =
-            crate::sm83::interrupt_frame(function).map_err(|error| (function.identity, error))?;
-        needs[index] = frames[index] + 4;
-        for instruction in function.blocks.iter().flat_map(|b| &b.instructions) {
-            if let Op::Call {
-                target, signature, ..
-            } = &instruction.op
-            {
-                let child = *indices
-                    .get(target)
-                    .ok_or_else(|| fail(function.identity, "Interrupt call target is absent"))?;
-                let bytes: usize = signature
-                    .parameters
-                    .iter()
-                    .chain(signature.returns.iter())
-                    .map(|ty| usize::from(ty.bits() / 8))
-                    .sum::<usize>()
-                    + 6;
-                let bytes = u16::try_from(bytes).map_err(|_| {
-                    fail(
-                        function.identity,
-                        "Interrupt call storage exceeds stack capacity",
-                    )
-                })?;
-                parents[child].push((index, bytes));
-                pending[index] += 1;
-            }
-        }
-        if pending[index] == 0 {
-            ready.push_back(index);
+    match crate::stack::bound(
+        functions,
+        indices,
+        members,
+        &vectors.values().copied().collect::<Vec<_>>(),
+        16,
+        "Interrupt",
+    )? {
+        crate::stack::Bound::Finite(reserve) => Ok(reserve),
+        crate::stack::Bound::Recursive(member) => {
+            Err((member, "Interrupt call graph must be acyclic".into()))
         }
     }
-    let mut completed = 0;
-    while let Some(child) = ready.pop_front() {
-        completed += 1;
-        for &(parent, bytes) in &parents[child] {
-            let required = u32::from(frames[parent]) + u32::from(bytes) + u32::from(needs[child]);
-            if required + 16 > 0xf00 {
-                return Err(fail(
-                    functions[parent].identity,
-                    "Interrupt call graph exceeds WRAM0 stack capacity",
-                ));
-            }
-            needs[parent] = needs[parent].max(required as u16);
-            pending[parent] -= 1;
-            if pending[parent] == 0 {
-                ready.push_back(parent);
-            }
-        }
-    }
-    let unknown = Definition {
-        assembly: 0,
-        token: 0,
-    };
-    if completed != members.len() {
-        let member = functions
-            .iter()
-            .enumerate()
-            .rfind(|(i, f)| members.contains(&f.identity) && pending[*i] != 0)
-            .map(|(_, f)| f.identity)
-            .unwrap_or(unknown);
-        return Err(fail(member, "Interrupt call graph must be acyclic"));
-    }
-    let (root, reserve) = vectors
-        .values()
-        .map(|&id| (id, needs[indices[&id]] + 16))
-        .max_by_key(|&(_, reserve)| reserve)
-        .unwrap_or((unknown, 0));
-    if reserve > 0xf00 {
-        return Err(fail(
-            root,
-            "Interrupt call graph exceeds WRAM0 stack capacity",
-        ));
-    }
-    Ok(reserve)
 }
 
 fn verify_interrupt(function: &Function) -> Result<(), String> {

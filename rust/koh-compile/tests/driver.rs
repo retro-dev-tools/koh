@@ -1544,7 +1544,7 @@ fn raw_arena_shares_capacity_without_resetting_managed_arrays(
         ("RawThenManagedCollision", false),
         ("AlignedCollision", false),
         ("NegativeSize", false),
-        ("Oversize", false),
+        ("Oversize", true),
         ("TruncatedSize", false),
         ("Exhausted", false),
     ] {
@@ -1576,7 +1576,10 @@ fn raw_arena_shares_capacity_without_resetting_managed_arrays(
         assert_eq!(fields.len(), if color { 7 } else { 6 }, "{entry}");
         assert_eq!(fields[0], if succeeds { "00" } else { "05" }, "{entry}");
         assert_eq!(fields[3], "OK", "{entry}");
-        if succeeds {
+        if entry == "Oversize" {
+            assert_eq!(&fields[1..3], &["0000CFFF", "CF00"], "expanded raw arena");
+            assert_heap_snapshot(fields[4], &[0x5a; 4096], "unwritten raw arena");
+        } else if succeeds {
             assert_eq!(&fields[1..3], &["0000002A", "D000"], "{entry}");
         }
         if color {
