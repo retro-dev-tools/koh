@@ -1,6 +1,7 @@
 # GPUI desktop migration
 
-Status: engine session implemented; GPUI interface next. Baseline: `9ebb6e5`.
+Status: connected GPUI window implemented; inspector parity and polish in progress.
+Baseline: `9ebb6e5`.
 
 ## Whole-goal checkpoints
 
@@ -20,11 +21,71 @@ The bar counts completed checkpoints, not estimated effort.
 | 5 | Producers, consumers and KDBG removal | Done: CLI/SDK/editor/sample/fixture cutover; old writer/reader/builder removed; seven SDK sidecars verified |
 | 6 | Real DWARF debugging acceptance | Done: 37 compiler/debugger integration cases; Debug/Release SDK 2048, source breakpoints, framework stack recovery and machine state |
 | 7 | Windowless engine session | Done: copied coherent snapshots, frame-boundary commands while paused, persistence, DAP coordination; nine NativeAOT process tests and real SDK 2048 run |
-| 8 | Complete GPUI Kit interface | Pending: display, controls, picker, four inspectors, keyboard/accessibility and polish |
+| 8 | Complete GPUI Kit interface | In progress: real connected LCD, controls, picker code, CPU inspector; palette/tile/memory inspectors, full input/accessibility and polish remain |
 | 9 | Complete KohUI removal and integration | Pending: both backends/demo/tests/dependencies/references; launch/package/CI |
 | 10 | Final native acceptance | Pending: real-game visual/input/audio, headless regressions and platform validation |
 
 Keep progress reports and this ledger aligned with completed evidence.
+
+## Connected desktop preview
+
+`rust/koh-ui` builds `koh-emulator` with pinned GPUI Kit 0.10.0. Its worker
+owns the engine connection; rendering reads copied snapshots. Replies are
+bounded to 512 KiB and checked for request ID, protocol version, hardware mode,
+image dimensions/alpha and inspector shapes. The parent cooperatively quits
+the child and waits for persistence before closing.
+
+On Linux, publish the engine with a compatible .NET SDK, then launch the preview:
+
+```sh
+dotnet publish src/Emulator/Koh.Emulator.App -c Release -r linux-x64 -m:1 -o target/gpui-engine
+KOH_ENGINE="$PWD/target/gpui-engine/Koh.Emulator.App" cargo run -p koh-ui -- samples/csharp/gb-2048-v2/2048v2.gb
+```
+
+Without `KOH_ENGINE`, the UI resolves the engine beside its executable. Empty
+startup offers the ROM picker from the window. OS picker failures become visible
+errors; the current session survives failed ROM loads. `Esc` switches between
+game input and toolbar focus. Controls retain P/R/D/F5/F9 and held Tab shortcuts.
+Right Shift / Select still needs an implementation against GPUI modifier events;
+the public modifier state does not distinguish sides. No binding substitution
+is counted as completed parity.
+
+Use the [upstream installation guide](https://gpui-kit.com/docs/installation/)
+for native prerequisites. CI now installs the Linux build dependencies for the
+new workspace member. Only GPUI Kit supplies the widget/platform layers; image,
+serde and base64 dependencies handle pixels and the private engine protocol.
+
+![Connected GPUI preview with a paused 2048 ROM and CPU registers](images/gpui-desktop.png)
+
+### Connected-window evidence
+
+- `cargo build -p koh-ui --locked`: exit 0. Log:
+  `/tmp/koh-gpui-window-build-final.log`. Native build used Rust 1.99.0 and
+  `CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0` on this constrained host.
+- Workspace fast nextest selection: exit 0, 1484/1484 passed, one explicitly
+  ignored published-engine test. Log: `/tmp/koh-gpui-workspace-fast.log`.
+- The ignored Rust-client integration test was separately executed against the
+  fresh NativeAOT engine: exit 0, one test passed. It validates real DMG debug
+  snapshots, rejects an overlong path without losing the session, saves state
+  and waits for clean child exit. Log: `/tmp/koh-gpui-client-native-final.log`.
+- Native GPUI window under owned Xvfb: exact LCD pixels compared with a fresh
+  engine PNG; integer pixel replication checked; Enter reached the score
+  screen; P froze the whole display; F5 completed a state write; native window
+  close returned exit 0. Log: `/tmp/koh-gpui-window-bounded-final.log`.
+  The screenshot above was captured from that actual window and reviewed.
+- Old framebuffer images are explicitly released from GPUI's sprite atlas.
+  In the short five-second running check, RSS went from 228064 to 227856 KiB;
+  this is a
+  bounded allocation check, not a long-run performance or endurance claim.
+- The Rust launcher's headless PNG exactly matched the direct engine output:
+  SHA256 `1964cbcc22cf7beb655802065aa06cef477657cb0a5d1ff8aa5f0368b6e86b3d`.
+  Log: `/tmp/koh-gpui-headless.log`.
+
+The native window check used OpenAL's null driver; it does not prove audible
+output. Full picker, shortcut/focus, inspector, theme, resize, accessibility,
+Wayland and cross-platform acceptance remain open. KohUI still exists until
+the replacement reaches parity. New GUI dependency notices and packaging are
+part of the removal/integration checkpoint.
 
 ## Required outcome
 

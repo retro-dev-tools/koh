@@ -119,6 +119,12 @@ Headless emulator captures use `--screenshot=frame.png --frames=300` with a ROM 
 
 The native emulator uses SDL3's 2D Renderer API for presentation, windows and input. Native SDL libraries are included in platform publishes; OpenAL still provides audio. Headless DAP sessions use `--headless --dap=<endpoint>` and initialize neither video nor audio. See [SDL3 rendering and validation](docs/sdl3.md) for renderer selection, software fallback and platform verification limits.
 
+The Rust + GPUI Kit replacement now has a connected desktop preview: live LCD,
+transport controls and CPU inspection. Full inspector parity, polish and KohUI
+removal are still in progress. See [GPUI migration](docs/gpui-migration.md)
+for launch commands and the acceptance checklist. The desktop crate requires
+Rust 1.92 or newer and the platform dependencies listed there.
+
 If restore fails with `NU1902` or `NU1903`, a dependency audit has found a vulnerability. Report the package, version, and advisory URL; do not disable auditing to obtain a passing result. See the [roadmap](ROADMAP.md) for verification status.
 
 ### Test
@@ -196,7 +202,8 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 ## Repository Layout
 
 ```text
-rust/         koh-asm, koh-link, koh-compile (CIL compiler), koh-objects (ELF ABI)
+rust/         koh-asm, koh-link, koh-compile (CIL compiler), koh-objects (ELF ABI),
+              koh-ui (GPUI desktop preview)
 src/
   Common/     Koh.Common (diagnostics, source text), Koh.Opcodes (SM83 opcode table),
               Koh.Objects (compiler output concepts and debug records)

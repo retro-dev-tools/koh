@@ -3,8 +3,9 @@
 2026-11-18: fetched and fast-forwarded master to `9ebb6e5` (compiler PR55 merged).
 Active branch `feat/gpui-ui`. User requires complete KohUI removal and selected
 KDBG-to-DWARF migration before continuing Rust + GPUI Kit UI implementation.
-See `docs/dwarf-migration.md` for the first writer checkpoint and next step;
-`docs/gpui-migration.md` retains full UI parity/removal acceptance.
+The DWARF prerequisite and windowless engine are implemented. Current UI
+progress, preview commands and full parity/removal acceptance are in
+`docs/gpui-migration.md`; the wire contract is in `docs/engine-session.md`.
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
 Production now emits and consumes DWARF: -d/--debug, SDK/editor/sample .elf
@@ -47,9 +48,40 @@ exit0. Logs /tmp/koh-engine-native-process-tests.log and
 /tmp/koh-engine-native-2048.log. Native publish /tmp/koh-engine-native-publish.log.
 Tests can use KOH_TEST_EMULATOR=<absolute native binary> to exercise published
 engine; otherwise use the managed test-host runtime.
-Next: connected Rust GPUI app, then complete interface, KohUI removal and final
-visual/input/audio/platform acceptance. Preserve DAP and headless entry points.
-No GPUI runtime exists yet. No agents spawned.
+Connected GPUI preview now exists in rust/koh-ui, binary koh-emulator. Uses
+gpui-kit0.10.0 with matched gpui-pre0.3.12, image/base64/serde for pixels/IPC.
+The async worker owns the real engine; bounds/validates replies and rejects
+overlong commands without ending the current session. Shutdown waits for the
+engine's completed persistence; no automatic forced kill. The renderer copies
+RGBA to BGRA and scales to integer physical pixels. Replaced images are
+explicitly released from GPUI's sprite atlas. CPU inspector and transport/
+picker code exist; remaining inspectors and polish are still pending.
+Preview: KOH_ENGINE=/tmp/koh-gpui-engine-native/Koh.Emulator.App
+CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 cargo run -p koh-ui -- <ROM>.
+Default engine lookup is relative to the UI executable; packaging is not done.
+New member requires Linux desktop build headers; PR/full workflows updated.
+No previously locked Cargo package versions removed; new Kit graph adds739.
+Workspace fast Rust:1484/1484 pass, one explicitly ignored native-client test;
+/tmp/koh-gpui-workspace-fast.log. Native-client test separately executed with
+KOH_TEST_ENGINE=<engine> cargo test -p koh-ui --lib --locked -- --ignored.
+That test checks real debug snapshots, oversized path recovery, save and exit.
+Native Xvfb window ran actual SDK2048v2; waits for title pixel oracle, Enter
+reaches score screen, exact integer LCD pixels, P freezes rendering, F5 saves,
+WM close exits0. /tmp/koh-gpui-window-bounded-final.log. Curated screenshot
+docs/images/gpui-desktop.png is from that window, not a mock. Null OpenAL driver
+used: no audible-output claim. Rust headless PNG is byte-identical to direct
+engine output, /tmp/koh-gpui-headless.log.
+Owned native harness remains /tmp/koh-gpui-preview/run_window.py and helper
+x11_capture.py; all processes are bounded/owned and cleaned up. ImageMagick
+import lacks X11 support, so screenshots use XGetImage and Pillow. Wait for
+actual X11 mapping before focus/input; window existence alone is too early.
+Next: palette/tile/memory panels, memory navigation/input/focus/accessibility,
+right Shift/Select parity via GPUI modifier events, light/dark slate polish and
+resize acceptance. Then remove ALL KohUI/backends/demo/tests/dependencies and
+update launch/package/CI. Preserve DAP and headless entry points. The UI still
+uses the legacy engine project, so framework removal has NOT happened yet.
+No agents spawned. Hosted PR checks passed at0822698 (run44396773962);
+new UI increment needs fresh hosted checks after push.
 User authorized opening a draft PR and keeping it updated; push this branch and
 update its description as increments land. No merge or release authorized.
 User requests an ASCII progress bar and detailed checkpoints. Whole-goal ledger

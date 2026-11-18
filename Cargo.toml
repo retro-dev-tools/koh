@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust/koh-asm", "rust/koh-objects", "rust/koh-link", "rust/koh-compile"]
+members = ["rust/koh-asm", "rust/koh-objects", "rust/koh-link", "rust/koh-compile", "rust/koh-ui"]
 resolver = "3"
 
 [workspace.package]
