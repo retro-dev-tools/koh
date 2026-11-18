@@ -31,8 +31,12 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:561/565 methods (560 native behavioral replacements,
+**Complete dispositions:564/565 methods (563 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
+Three [private FlushRun methods](flushrun-contracts.md) now have REPLACE
+dispositions for14 lexical/15 expanded assertions, mapped to existing native
+actual-sample and map tests. Original register/opcode/IR shape is replaced by
+exact output, safe guarded writes and unchanged hardware-frame budgets.
 The [counted-loop190-dot requirement](byte-loop-selection.md) now has a native
 PORT replacement for both original assertions:100 stores, result99 and18440
 total T-cycles including wrapper/observation. Thirty-two new cases execute2924
@@ -147,8 +151,8 @@ for36 source assertion sites, with32 real-library ROM executions checking exact
 planes, clipping, page flips and actual GDMA transfers.
 Seven [referenced-memory/string-table methods](reference-memory-contracts.md)
 now have native replacements for23 source assertion sites, with28 ROM executions.
-The remaining four methods still have
-partial coverage or outstanding dependencies. Legacy definitions temporarily
+The remaining pointer-copy740-dot method still has
+partial coverage and an unmet timing requirement. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.

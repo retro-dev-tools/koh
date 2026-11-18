@@ -10,6 +10,18 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Private FlushRun disposition closure
+
+Three [private allocation/compare methods](flushrun-contracts.md) now have REPLACE
+dispositions for14 lexical/15 expanded assertions. Existing Rust cases compile
+the same unmodified sample and check exact graphics/maps, safe writes, real boot
+and ordered bounded progress. The original methods asserted no numeric cycle
+budget; existing hardware-frame bounds remain unchanged. Fresh8/8 passed51.556s,
+exit0,647 explicitly unselected, across four real sample and four BG/window map
+configurations. No duplicate test cases or production changes. Ledger564/565;
+the original740-dot pointer-copy requirement is the only outstanding source
+method. Final runtime/SDK/cross-platform acceptance and C# compiler removal remain open.
+
 ### Counted-loop190-dot acceptance
 
 [Byte-local instruction selection](byte-loop-selection.md) preserves wrapping,

@@ -623,12 +623,14 @@ Complete native replacement: [independent encoding/length/execution contracts](e
 
 Classification: Private allocation/code shape on real runtime helper. A hot copy helper needs correct addressing and acceptable cost; two phis assigned HL/DE and a recognized opcode pattern are not the requirement.
 
-Proposed future location: `rust/koh-compiler/tests/runtime_memory.rs` (not implemented).
+Both methods now have [native actual-sample and map replacements](flushrun-contracts.md),
+with explicit assertion counts and unchanged hardware-frame budgets. Private
+HL/DE allocation and opcode-shape assertions are not public contracts.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `FlushRun_DstAndSrcPointerPhisAreRegisterResident` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
-| `FlushRun_CompiledLoopBodyUsesFusedAddressingNotPerIterationReload` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+| `FlushRun_DstAndSrcPointerPhisAreRegisterResident` | Detail | REPLACE complete | [Actual sample, exact map/OAM data, bank guards and bounded completion](flushrun-contracts.md). |
+| `FlushRun_CompiledLoopBodyUsesFusedAddressingNotPerIterationReload` | Detail | REPLACE complete | [Native CLI/ELF/link/boot, framebuffer and ordered timeline within existing frame budgets](flushrun-contracts.md). |
 
 ### Sm83/MemRuntimeTests.cs (10)
 
@@ -653,11 +655,13 @@ All ten methods already have native dispositions in the [central fill/copy matri
 
 Classification: Real copy correctness and private compare graph. Guarded and sequential copies must obey guards, extents and source order; absence of compare-of-compare nodes is optional.
 
-Three behavioral methods now run through [guarded/sequential native copies](guarded-copies.md). The private real-FlushRun comparison/budget replacement remains open.
+Three behavioral methods run through [guarded/sequential native copies](guarded-copies.md).
+The private real-FlushRun comparison assertion now has an [actual-sample replacement](flushrun-contracts.md).
+All four methods have native dispositions; the separate pointer-copy740-dot requirement remains open.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `RealFlushRun_LoopGuards_HaveNoRedundantCompareChain` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+| `RealFlushRun_LoopGuards_HaveNoRedundantCompareChain` | Detail | REPLACE complete | [Same sample's guarded progress, exact data and unchanged hardware-frame budgets](flushrun-contracts.md). |
 | `GuardedStride1CopyLoop_CopiesEveryByte_WhenGuardOpen` | Requirement | PORT complete | [Exact real-CIL copy results, guards, extents and physical access traces](guarded-copies.md). |
 | `GuardedStride1CopyLoop_CopiesNothing_WhenGuardClosed` | Requirement | PORT complete | [Exact real-CIL copy results, guards, extents and physical access traces](guarded-copies.md). |
 | `TwoSequentialStride1CopyLoops_BothCopyCorrectly` | Requirement | PORT complete | [Exact real-CIL copy results, guards, extents and physical access traces](guarded-copies.md). |

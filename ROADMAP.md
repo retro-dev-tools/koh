@@ -35,8 +35,8 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   vectors with saved registers, a reserved stack budget and bank-preserving ROM0
   bodies and shared scalar helper calls; allocation/nested IRQ enabling remain
   explicit diagnostics.
-  The current ledger has561/565 complete dispositions and4 partial/outstanding
-  (560 native replacements, one obsolete private-parser DELETE decision);
+  The current ledger has564/565 complete dispositions and1 partial/outstanding
+  (563 native replacements, one obsolete private-parser DELETE decision);
   23 [backend allocation contracts](docs/rust-compiler/allocation-contracts.md)
   replace private residency choices with actual arithmetic, ABI, liveness and
   source mapping. Legacy128-bit arithmetic still requires explicit acceptance;
