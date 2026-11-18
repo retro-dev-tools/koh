@@ -4,8 +4,12 @@
 
 The [counted190-dot requirement](byte-loop-selection.md) is now PORT complete:
 18440 total T-cycles for100 stores, including wrapper, markers and observed99,
-below the unchanged19000 limit. The pointer-copy740-dot requirement remains
-open. Historical measurements below describe earlier code and acceptance states.
+below the unchanged19000 limit. The [pointer-copy740-dot requirement](copy-loop-selection.md)
+is also PORT complete:23312 total T-cycles for32 initialized/copied bytes,
+728.5 each, below the unchanged23680 limit. Exact source and destination bytes
+are observed outside generated CIL. Unfiltered workspace2239/2239 passes, zero
+skipped, exit0, plus separate doctests. Historical measurements below describe
+earlier code and acceptance states, including the retired compiled observer.
 
 ## Initial investigation
 

@@ -31,8 +31,18 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:564/565 methods (563 native behavioral replacements,
-one obsolete private-parser DELETE decision); zero physically retired.**
+**Complete dispositions:565/565 methods (564 native behavioral replacements,
+one obsolete private-parser DELETE decision); all565 legacy method definitions
+physically retired with their C# test project.** Source provenance remains in
+Git history, including `f4b6cc6` before removal. No compiler-owned case is deferred.
+The final [pointer-copy740-dot contract](copy-loop-selection.md) retains its two
+lexical/33 expanded assertions through independent exact memory observations and
+23312 total T-cycles,728.5 per byte. Thirty-eight new parameterized cases add520
+original/optimized ROM observations for the selected operations and loop flow.
+Unfiltered Linux workspace validation passes2239/2239, zero skipped, in2983.476s,
+exit0, followed by separate successful doctests. Fresh post-removal discovery
+lists2239 workspace/2062 compiler cases, zero ignored. This closes the source
+test migration, not final cross-platform or whole-product acceptance.
 Three [private FlushRun methods](flushrun-contracts.md) now have REPLACE
 dispositions for14 lexical/15 expanded assertions, mapped to existing native
 actual-sample and map tests. Original register/opcode/IR shape is replaced by
@@ -134,8 +144,8 @@ replacements for six source assertion sites, with112 added ROM executions.
 Six [loop exit/saved-value methods](loop-exit-values.md) now have native
 replacements for six source assertion sites, with288 added ROM executions.
 The [counted-store baseline](loop-costs.md) adds one native PORT disposition;
-the190-dot performance requirement is now complete; the separate740-dot
-pointer-copy requirement remains open.
+both190/740-dot performance requirements are now complete, with their original
+ceilings unchanged.
 Eleven [pointer/multi-loop methods](loop-memory-flows.md) now have native
 replacements for19 source assertion sites, with624 added ROM executions.
 All five [background/window map methods](bg-win-maps.md) now have native
@@ -151,9 +161,9 @@ for36 source assertion sites, with32 real-library ROM executions checking exact
 planes, clipping, page flips and actual GDMA transfers.
 Seven [referenced-memory/string-table methods](reference-memory-contracts.md)
 now have native replacements for23 source assertion sites, with28 ROM executions.
-The remaining pointer-copy740-dot method still has
-partial coverage and an unmet timing requirement. Legacy definitions temporarily
-remain with the live C# compiler; the final migration deletes that test project.
+The pointer-copy740-dot method now has complete acceptance, including exact
+source/destination observations outside generated CIL. The legacy compiler and
+test project are deleted. Earlier partial checkpoints below are historical.
 Proposed Rust filenames in source audits are not implemented or discoverable
 merely because they are documented.
 

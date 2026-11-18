@@ -83,5 +83,8 @@ The final targeted run passed41/41 in13.648s, exit0
 (`/tmp/koh-copy-flow-first.log`). The pre-fix local-flow run failed exactly the
 invariant-elimination assertion:5 passed/1 failed, exit100
 (`/tmp/koh-loop-flow-before.log`). The740-cycle assertion was made permanent
-after the targeted measurement. Full workspace validation is pending; this
-document does not yet close the source disposition or claim migration completion.
+after the targeted measurement. The subsequent unfiltered workspace run passes
+2239/2239 in2983.476s, zero skipped, exit0, including all three permanent cost
+cases. Separate workspace doctests pass. Logs: `/tmp/koh-copy-workspace.log` and
+`/tmp/koh-copy-workspace-doc.log`. The source disposition is now PORT complete;
+final migration-wide platform/product acceptance remains separate.

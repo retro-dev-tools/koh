@@ -1,17 +1,20 @@
 # Native compiler migration handoff
 
-## Current removal candidate
+## Current integrated removal
 
 The native compiler and SDK pipeline remain under final migration acceptance.
-This candidate removes the old compiler and compiler test tree, their solution
+The validated removal deletes the old compiler and compiler test tree, their solution
 entries and direct Roslyn/Cecil packages. GameBoy, tile-sheet build tools,
 emulator/debugger and standalone Superopt remain. Native compiler coverage lives
 under `rust/koh-compile/tests` and runs through cargo-nextest; doctests run
 separately. No compiler fallback is retained.
 
-The candidate is being validated separately from the PR branch's active
-unfiltered workspace regression. Do not publish or claim final removal
-acceptance until both results are known and the disposition ledger is reconciled.
+The unfiltered Linux native run passed2239/2239, zero skipped, exit0, with separate
+doctests passing. All565 source dispositions are complete and legacy definitions
+retired. Removal-candidate solution build produces all seven C# sample ROMs with
+zero warnings/errors; retained .NET tests pass567, with two existing opt-in SDL
+skips. The removal is integrated on the PR branch. Final current-head three-OS,
+diagnostic-boundary, broader performance and release-review gates remain open.
 See [progress](docs/rust-compiler/progress.md),
 [removal checklist](docs/rust-compiler/legacy-removal-checklist.md) and
 [runtime boundaries](docs/rust-compiler/runtime-boundaries.md). Final platform,

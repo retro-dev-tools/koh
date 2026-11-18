@@ -1,5 +1,10 @@
 # CIL frontend migration audit
 
+Current status: all230 source methods have completed native replacements, and
+their C# test project is removed. Source provenance is retained in Git history
+at `f4b6cc6`. The linked [final ledger](test-disposition.md) records unfiltered
+execution evidence; historical proposal wording below is not the current count.
+
 The original audit was source inspection only. Later completed replacements are
 explicitly marked and linked below; unmarked dispositions remain proposals and
 do not establish Rust coverage. The authoritative completion count and evidence

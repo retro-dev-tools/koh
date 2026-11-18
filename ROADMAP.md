@@ -10,13 +10,14 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 
 ## Current condition
 
-- Legacy compiler removal is prepared in a separate validation checkout: both
+- Legacy compiler removal is integrated on the PR branch: both
   C# compiler/test trees and direct compiler packages are removed, while the SDK,
   runtime, emulator and useful tools remain. The serial Linux solution build
   produces all seven C# sample ROMs with zero warnings/errors; retained .NET tests
   report567 succeeded, zero failed and two unchanged opt-in SDL window/input
-  skips. The PR branch's native workspace run and doctests are still pending;
-  this candidate is not final migration acceptance. See the
+  skips. Unfiltered native2239/2239 passes, zero skipped, with separate doctests.
+  All565 source dispositions are complete and legacy definitions retired. Final
+  current-head three-OS/product/release acceptance remains open. See the
   [removal evidence](docs/rust-compiler/legacy-removal-validation.md).
 - Rust assembler [PR #53](https://github.com/retro-dev-tools/koh/pull/53) and Rust linker/ELF [PR #54](https://github.com/retro-dev-tools/koh/pull/54) are merged.
   `koh-objects` owns the canonical ELF32/SM83 model; the native assembler and linker share it.
@@ -38,16 +39,18 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   [Generic reference methods](docs/rust-compiler/closed-types.md#generic-methods-on-closed-reference-receivers)
   retain separate declaring/method scopes through overrides, default/explicit
   interface bodies, captured callbacks and inherited MethodImpl bodies.
-  Variance and boxing/runtime fallback remain unfinished; this is not full migration.
+  [Runtime boundaries](docs/rust-compiler/runtime-boundaries.md) explicitly retain
+  exact variance identities and unboxed values; final diagnostic acceptance remains open.
   [Bounded interrupt handlers](docs/rust-compiler/irq-calls.md) now execute all five
   vectors with saved registers, a reserved stack budget and bank-preserving ROM0
   bodies and shared scalar helper calls; allocation/nested IRQ enabling remain
   explicit diagnostics.
-  The current ledger has564/565 complete dispositions and1 partial/outstanding
-  (563 native replacements, one obsolete private-parser DELETE decision);
+  The current ledger has565/565 complete dispositions, none outstanding
+  (564 native replacements, one obsolete private-parser DELETE decision), and
+  all565 legacy method definitions retired;
   23 [backend allocation contracts](docs/rust-compiler/allocation-contracts.md)
   replace private residency choices with actual arithmetic, ABI, liveness and
-  source mapping. Legacy128-bit arithmetic still requires explicit acceptance;
+  source mapping. [128-bit arithmetic](docs/rust-compiler/int128.md) also has native acceptance;
   all54 control-flow methods now have native acceptance:34
   [scalar contracts](docs/rust-compiler/control-flow-scalars.md) retain37 assertions
   with188 executions;20 [memory/call/boot/phi contracts](docs/rust-compiler/control-flow-memory.md)

@@ -6,13 +6,39 @@ SM83/ELF emission are implemented, including banked managed calls and
 [runtime boundaries](runtime-boundaries.md) document the rationale and alternatives
 for unboxed values, exact variance identities, bounded IRQ execution and ROM0
 constant pools; final boundary/diagnostic acceptance remains open. The SDK now
-invokes native compiler/linker processes; the legacy compiler source and test
-project still remain pending final replacement acceptance. Complete sample
-acceptance, test-disposition closure, performance comparison and final hosted
-validation remain required. The current public API is evidence, not a design
+invokes native compiler/linker processes. The legacy C# compiler and compiler
+test project are removed, with all565 source dispositions complete. Final
+current-head platform/product acceptance, broader performance evidence and
+release-review items remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-### Legacy removal candidate and minimum toolchain
+### Source-test closure and legacy compiler removal
+
+Unfiltered Linux workspace validation passed2239/2239 in2983.476s, zero skipped,
+exit0, followed by separate successful doctests. All three permanent loop-cost
+cases passed, including the final740-dot pointer-copy ceiling at728.5 total
+T-cycles/byte. The ledger is565/565:564 native behavioral replacements and one
+obsolete private-parser DELETE; all565 legacy method definitions are retired.
+Fresh post-removal discovery lists2239 workspace/2062 compiler cases, zero ignored.
+
+The validated removal commits are integrated on the PR branch: both C# compiler
+and compiler-test trees, solution/filter entries and direct compiler-only packages
+are deleted. GameBoy, useful SDK tasks, emulator/debugger and standalone tools
+remain. No production fallback survives. Ignored old compiler build outputs were
+preserved outside the checkout, not shipped or left as a local discovery route.
+The isolated candidate builds all seven real C# sample ROMs and passes567 .NET
+component tests, with two unchanged opt-in SDL window/input skips. Rust1.88.0
+checks all workspace targets/features. [Removal evidence](legacy-removal-validation.md).
+
+The Linux [packaged native-tool smoke](packaged-tools.md) passes actual SDK→ELF→ROM/KDBG→
+published NativeAOT emulator execution from paths containing spaces,1200 frames,
+valid four-color PNG and zero mode3 writes. All60 Cargo registry archive checksums
+and61 selected license-text references are verified; extracted executable hashes,
+modes and notice payload survive the local archive round trip. Final three-OS
+CI, diagnostic boundary review, broader performance and remaining release notices
+are still open. Earlier increment counts below are historical checkpoints.
+
+### Earlier removal candidate and minimum toolchain
 
 The [isolated removal candidate](legacy-removal-validation.md) deletes both C#
 compiler/test trees, solution/filter entries and direct compiler-only packages,

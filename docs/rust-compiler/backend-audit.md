@@ -1,5 +1,11 @@
 # Backend, IR and SM83 migration audit
 
+Current source dispositions: all290 methods are complete, with native behavioral
+replacements or the one documented obsolete private-parser DELETE. The C# source
+and test projects are removed. [Final source ledger and validation](test-disposition.md)
+distinguish this closure from pending final platform/product acceptance. Original
+source provenance is available in Git history at `f4b6cc6` before removal.
+
 This is a source-review migration ledger, not runtime acceptance. Reviewed the 25 test
 files under `tests/Compiler/Koh.Compiler.Tests/{Backends,Ir,Sm83}` and the corresponding
 C# IR, optimization, allocation, emission, MIR decoding and peephole implementation.
@@ -657,7 +663,7 @@ Classification: Real copy correctness and private compare graph. Guarded and seq
 
 Three behavioral methods run through [guarded/sequential native copies](guarded-copies.md).
 The private real-FlushRun comparison assertion now has an [actual-sample replacement](flushrun-contracts.md).
-All four methods have native dispositions; the separate pointer-copy740-dot requirement remains open.
+All four methods have native dispositions; the separate pointer-copy740-dot requirement is now complete too.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
@@ -670,7 +676,7 @@ All four methods have native dispositions; the separate pointer-copy740-dot requ
 
 Classification: Observable loop values, aliasing and target cycle budgets. Exited induction values, old SSA values, nested/sequential loops and overlapping forward copies must retain their language meaning.
 
-Six exit/saved-value methods have [native real-CIL replacements](loop-exit-values.md). The [counted baseline](loop-costs.md) is also complete. Eleven [pointer/multi-loop methods](loop-memory-flows.md) are now complete too. The [counted190-dot ceiling](byte-loop-selection.md) now passes; only the pointer-copy timing method remains open.
+Six exit/saved-value methods have [native real-CIL replacements](loop-exit-values.md). The [counted baseline](loop-costs.md) is also complete. Eleven [pointer/multi-loop methods](loop-memory-flows.md) are now complete too. Both the [counted190-dot](byte-loop-selection.md) and [pointer-copy740-dot](copy-loop-selection.md) ceilings now pass. All20 methods are complete.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
@@ -683,7 +689,7 @@ Six exit/saved-value methods have [native real-CIL replacements](loop-exit-value
 | `InductionValueSavedBeforeIncrement_UsedAfterIt` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
 | `InductionValueSavedBeforeIncrement_ReadAfterLoopExit` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
 | `PointerCopyLoop_RegressionSafe` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
-| `TwoPointerCopyLoop_MeetsCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `TwoPointerCopyLoop_MeetsCeiling` | Requirement | PORT complete | [Exact32-byte initialization/copy, source/destination/sentinel observations, stack/guards and23312 total T-cycles below the unchanged23680 limit](copy-loop-selection.md). |
 | `SinglePointerFillLoop` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
 | `PointerUsedAfterLoopExit` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
 | `NonQualifyingMiddleInstruction_NegativeAdmission_StillCorrect` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |

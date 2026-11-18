@@ -1,4 +1,4 @@
-# Legacy removal candidate validation
+# Legacy compiler removal validation
 
 This candidate removes the complete `src/Compiler/Koh.Compiler` and
 `tests/Compiler/Koh.Compiler.Tests` trees. Their solution/filter entries and the
@@ -9,9 +9,11 @@ are retained. `TestAll` invokes cargo-nextest and separate rustdoc before live
 .NET component tests. Ordinary `Test` remains the .NET component loop.
 
 The source ledger and current-head platform acceptance are separate gates. This
-candidate is prepared in an isolated checkout while the PR branch's unfiltered
-native run completes. Its deletion is not yet published to the PR branch or a
-claim that all migration completion criteria pass.
+candidate was validated in an isolated checkout, then integrated on the PR branch
+after unfiltered native2239/2239 passed, zero skipped, exit0, followed by successful
+separate doctests. All565 original method definitions are retired;564 native
+behavioral replacements and one obsolete-parser DELETE complete their ledger.
+This does not claim that all migration completion criteria pass.
 
 ## Linux build
 
@@ -38,7 +40,7 @@ These sizes prove produced artifacts, not game behavior or a ROM-size win.
 Observable game/source-debug acceptance remains owned by the native integration
 tests and final platform validation.
 
-The retained .NET suite is running with no rebuild and one module/test at a time:
+The retained .NET suite ran with no rebuild and one module/test at a time:
 
 ```sh
 dotnet test --solution Koh.Ci.slnf -c Release --no-build \
@@ -49,8 +51,10 @@ The completed suite passed, exit0, in1m04.813s:569 total,567 succeeded, zero
 failed, two skipped. Log: `/tmp/koh-removal-dotnet-tests.log`. The two unchanged
 SDL native-window/input cases require `KOH_SDL_WINDOW_TEST=1`; this headless
 component run does not claim native window/input acceptance. Their dedicated
-CI renderer job remains. The original native workspace run and separate
-doctests remain pending. No older green run substitutes for current-input results.
+CI renderer job remains. The original native workspace run passes2239/2239 in
+2983.476s, zero skipped, exit0, with separate doctests passing. No older green run
+substitutes for these current-input results; final three-platform CI must still
+validate the integrated PR head.
 
 ## Boundary checks
 
