@@ -28,3 +28,8 @@ so it could not provide the advertised equivalent toolchain comparison. CI's
 independent RGBDS verification remains under `tools/verification`; the benchmark
 project, root benchmark target and CI discovery checks remain available. No
 container runtime is needed for these workflows.
+
+Small compiler workloads and an optional Linux process measurement runner are
+documented under [compiler](compiler/README.md). Their separately recorded
+core-compilation measurements exclude Roslyn, ELF serialization and linking;
+they do not measure regression-suite speed or whole SDK builds.

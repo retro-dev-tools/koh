@@ -10,6 +10,23 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Comparable compiler-core measurements
+
+The [performance checkpoint](compiler-performance.md) now records identical
+Roslyn inputs compiled by both implementations before legacy deletion:54 final
+fresh-process samples across three common kernels, first-call core/wall times,
+calibrated child peak RSS and compiler/deployment byte sizes. Six separately
+linked ROMs pass independent scalar, aggregate, VRAM/map and idle-control checks
+in the existing emulator. The measurement collector's inherited Python RSS floor
+was detected and corrected before recording results. An old returning-entry
+execution difference is documented, not adopted as a native requirement.
+
+This is a scoped Linux baseline: no whole-SDK/full-game/warmed-JIT/cross-host speed
+claim. Native emitted payloads are larger for these kernels and are recorded
+alongside the lower first-call time/RSS observations. Broader performance/product
+acceptance remains open; the disposition ledger stays440/565 with125 outstanding.
+The optional host-native workflow adds no CI-per-commit job or container.
+
 ### Executable machine-effect migration
 
 The remaining15 `MirDecoderTests` methods now have [native replacements](machine-effects.md)
@@ -52,7 +69,8 @@ benchmark/AOT jobs. Thus the overall pipeline is not green. Later mapper/rewrite
 commits change tests/docs only; their newly added coverage has focused local
 proof and still needs current-head full validation. Exact scope, primary logs
 and run link: [CI checkpoint](../ci-validation.md#recorded-native-compiler-checkpoint).
-No controlled compiler-performance improvement is claimed.
+Scoped common-kernel measurements are now [recorded separately](compiler-performance.md);
+no whole-SDK or game-performance improvement is claimed.
 
 ### Machine rewrite contract migration
 
