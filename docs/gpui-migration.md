@@ -8,7 +8,7 @@ Draft [PR #56](https://github.com/retro-dev-tools/koh/pull/56) tracks this work.
 The bar counts completed checkpoints, not estimated effort.
 
 ```text
-[#####>----] 5/10 complete; current: real DWARF debugging acceptance
+[######>---] 6/10 complete; current: windowless engine session
 ```
 
 | # | Checkpoint | State / evidence |
@@ -18,7 +18,7 @@ The bar counts completed checkpoints, not estimated effort.
 | 3 | Assembly expansion provenance | Done: nested range/symbol ancestry; exact real 2048 metadata roundtrip; LLVM verification |
 | 4 | Managed debugger cutover | Done: native reader binding, neutral records, 42 debugger tests in the passing fast suite |
 | 5 | Producers, consumers and KDBG removal | Done: CLI/SDK/editor/sample/fixture cutover; old writer/reader/builder removed; seven SDK sidecars verified |
-| 6 | Real DWARF debugging acceptance | Pending: source breakpoints, stepping, exact-PC stack inspection |
+| 6 | Real DWARF debugging acceptance | Done: 37 compiler/debugger integration cases; Debug/Release SDK 2048, source breakpoints, framework stack recovery and machine state |
 | 7 | Windowless engine session | Pending: coherent commands/snapshots, paused operation, saves and shutdown |
 | 8 | Complete GPUI Kit interface | Pending: display, controls, picker, four inspectors, keyboard/accessibility and polish |
 | 9 | Complete KohUI removal and integration | Pending: both backends/demo/tests/dependencies/references; launch/package/CI |

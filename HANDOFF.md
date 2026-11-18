@@ -24,13 +24,16 @@ sources. See docs/dwarf-migration.md for exact completed logs and limitations.
 All3new Cargo notices checked against archives/source and copied output.
 Focused Clippy/format checks pass; pre-existing all-target findings unchanged.
 
-Next: real C# source-breakpoint/stack/SDK debugger acceptance (checkpoint6),
-NativeAOT/hosted proof, then engine session and complete GPUI/KohUI replacement.
+Real C# source-breakpoint/stack/SDK debugger acceptance passed: 37/37 selected
+cases, exit0, 244.779seconds; 619 cases outside the filter. Final log:
+/tmp/koh-dwarf-source-debugger-tests-final.log. Both SDK2048 variants pass.
+DebuggerHost's injected-symbol fixture uses the neutral record constructor.
+Next: engine session, NativeAOT/hosted proof and complete GPUI/KohUI replacement.
 No GPUI runtime exists yet. No agents spawned.
 User authorized opening a draft PR and keeping it updated; push this branch and
 update its description as increments land. No merge or release authorized.
 User requests an ASCII progress bar and detailed checkpoints. Whole-goal ledger
-is in `docs/gpui-migration.md`: [#####>----]5/10 checkpoints complete, not effort.
+is in `docs/gpui-migration.md`: [######>---]6/10 checkpoints complete, not effort.
 
 Host gotcha: a stopped orphan aspire-managed template-search process holds the
 shared NuGet lock. Leave it alone. Use NUGET_SCRATCH=/tmp/koh-nuget-scratch on

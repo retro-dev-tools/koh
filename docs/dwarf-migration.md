@@ -230,6 +230,19 @@ allowed restore to complete; no host process/configuration or audit settings
 were changed. All successful .NET commands used SDK 10.0.115 and bounded
 processor/test concurrency.
 
-Next: run the real C# source-breakpoint, banked/recursive stack and SDK debugger
-acceptance cases through DWARF; validate NativeAOT packaging and hosted platforms.
+### Real compiler/debugger acceptance
+
+The selected `symbols::` integration run completed with exit 0:
+`37 tests run: 37 passed (1 slow), 619 skipped`, in 244.779 seconds.
+The 619 cases were outside the selected filter. Completed log:
+`/tmp/koh-dwarf-source-debugger-tests-final.log`.
+
+Coverage includes native C# source breakpoints, machine state, finally unwinding,
+corrupt/unknown stack rejection and real SDK 2048 Debug/Release builds with
+framework caller recovery. The Debug SDK case completed in 172.910 seconds
+while rebuilding its cold native tool cache. The test host's injected symbol
+fixture now uses the neutral debug record constructor.
+
+Next: implement the windowless engine session; validate NativeAOT packaging
+and hosted platforms before final acceptance.
 The new GPUI application and KohUI removal remain unfinished.

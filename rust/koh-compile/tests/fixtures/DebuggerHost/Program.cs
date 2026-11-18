@@ -84,11 +84,11 @@ while (Console.ReadLine() is { } line)
                     DebugSymbolKind.Label,
                     0,
                     gb.Registers.Pc,
-                    0,
                     symbol.GetString()!,
                     null,
-                    null,
-                    0
+                    0,
+                    0,
+                    []
                 )
             );
         foreach (var write in state.GetProperty("writes").EnumerateArray())
