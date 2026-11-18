@@ -10,6 +10,18 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Sprite and palette acceptance
+
+Seven remaining source methods now have native replacements for57 assertion sites.
+Eight Rust cases cover32 normal ROMs, two unsafe palette probes and two desktop
+library executions. Full OAM/palette snapshots and timing guards exposed Debug DMG
+sprite DMA crossing into visible scanlines and a CGB map commit running late.
+Preparation now precedes the sprite VBlank wait; map commits recheck LY after
+register preparation with a conservative admission window. Public APIs remain useful.
+Affected36/36 passed129.702s, exit0, including the real graphics showcase in all
+four build/hardware combinations. [Decision, matrix and evidence](sprite-contracts.md).
+Ledger521/565,44 outstanding; final full acceptance and legacy deletion remain open.
+
 ### Deferred LINQ runtime
 
 Rust redirects exact trusted Enumerable signatures to metadata-selected ordinary

@@ -71,7 +71,7 @@ public struct Sprite
 /// code touches Gb.Oam today"). Games mutate this WRAM shadow freely at any time (design doc §2,
 /// "deferred-to-EndFrame" write-safety stance — OAM is inaccessible to the CPU in PPU modes 2 AND 3, the
 /// least safe layer to write immediately); <see cref="Video.EndFrame"/> flushes it to real hardware OAM
-/// exactly once per frame, during the vblank <c>EndFrame</c> already waited for.
+/// during vblank.
 ///
 /// <b>Backing store:</b> a <c>[KohAligned(256)]</c> static 160-byte array, laid out EXACTLY like real
 /// OAM — 40 four-byte entries of (Y, X, Tile, Attr), Pan Docs order — so <see cref="Flush"/> can hand the
@@ -140,14 +140,18 @@ public static unsafe class Sprites
         _dirty = true;
     }
 
-    /// <summary>Vblank OAM flush.</summary>
+    /// <summary>Vblank OAM phase.</summary>
     internal static void Flush()
     {
         if (!_dirty)
+        {
+            Ppu.WaitVBlank();
             return;
+        }
         fixed (byte* p = &Shadow[0])
         {
             byte page = (byte)((ushort)p >> 8);
+            Ppu.WaitVBlank();
             Hardware.RunOamDma(page);
         }
         _dirty = false;

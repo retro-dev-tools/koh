@@ -318,12 +318,12 @@ internal static unsafe class MapWriter
         {
             if (PreparedBgReady == 0)
                 return;
-            if ((byte)(Hardware.LY - 144) > 5)
-                Ppu.WaitVBlank();
             Hardware.HDMA1 = PreparedBgSrcHi;
             Hardware.HDMA2 = PreparedBgSrcLo;
             Hardware.HDMA3 = PreparedBgDstHi;
             Hardware.HDMA4 = PreparedBgDstLo;
+            if ((byte)(Hardware.LY - 144) > 3)
+                Ppu.WaitVBlank();
             Hardware.HDMA5 = PreparedBgLen;
             DirtyBg = 0;
             PreparedBgReady = 0;
@@ -348,12 +348,12 @@ internal static unsafe class MapWriter
         {
             if (PreparedWinReady == 0)
                 return;
-            if ((byte)(Hardware.LY - 144) > 5)
-                Ppu.WaitVBlank();
             Hardware.HDMA1 = PreparedWinSrcHi;
             Hardware.HDMA2 = PreparedWinSrcLo;
             Hardware.HDMA3 = PreparedWinDstHi;
             Hardware.HDMA4 = PreparedWinDstLo;
+            if ((byte)(Hardware.LY - 144) > 3)
+                Ppu.WaitVBlank();
             Hardware.HDMA5 = PreparedWinLen;
             DirtyWin = 0;
             PreparedWinReady = 0;

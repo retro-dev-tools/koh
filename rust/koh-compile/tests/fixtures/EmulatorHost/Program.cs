@@ -11,7 +11,8 @@ bool copyWrap = args.Length > 0 && args[0] == "--native-copy-wrap";
 bool raster = args.Length > 0 && args[0] == "--native-raster";
 bool stack = args.Length > 0 && args[0] == "--native-stack";
 bool frame = args.Length > 0 && args[0] == "--native-frame";
-bool oamMode = args.Length > 0 && args[0] == "--native-oam";
+bool sprites = args.Length > 0 && args[0] == "--native-sprites";
+bool oamMode = sprites || (args.Length > 0 && args[0] == "--native-oam");
 bool rawOam = args.Length > 0 && args[0] == "--native-oam-trigger";
 bool canvas = args.Length > 0 && args[0] == "--native-canvas";
 bool maps = canvas || (args.Length > 0 && args[0] == "--native-maps");
@@ -83,7 +84,7 @@ foreach (
         gb.JoypadPress(JoypadButton.A);
     int inputPhase = 0;
     var videoGuard = new Koh.Emulator.Debug.Mode3WriteGuard(gb);
-    var timing = new VideoTiming(gb, oamMode);
+    var timing = new VideoTiming(gb, oamMode, sprites);
     var fillWrites = new WrapTrace(copyWrap);
     var rasterTrace = new RasterTrace(gb);
     var halTrace = new HalTrace(gb);
@@ -91,7 +92,7 @@ foreach (
     var loopTiming = new LoopTiming(gb);
     if (loopCost)
         gb.Mmu.Hook = loopTiming;
-    if (cgbHal)
+    if (cgbHal || sprites)
     {
         gb.Mmu.DebugWrite(0xff40, 0);
         gb.Mmu.Banking.VramBank = 0;
@@ -193,6 +194,10 @@ foreach (
     {
         if (oamMode && gb.OamDma.IsBusLocking)
         {
+            if (sprites && (gb.Ppu.LCDC & 0x80) != 0 && gb.Ppu.LY < 144)
+                throw new InvalidOperationException(
+                    $"Sprite DMA overlaps visible scanline: LY={gb.Ppu.LY},dot={gb.Ppu.Dot},pc={gb.Cpu.Registers.Pc:X4}"
+                );
             if (gb.Cpu.Ime || gb.Cpu.Registers.Pc < 0xff80 || gb.Cpu.Registers.Pc > 0xfffe)
                 throw new InvalidOperationException(
                     "DMA execution outside HRAM or with IME enabled"
@@ -401,6 +406,16 @@ foreach (
         }
         if (oamMode || rawOam)
             snapshot += $" {timing.OamStarts}:{dmaInstructions}:{gb.Mmu.DebugRead(0xff46):X2}";
+        if (sprites)
+            snapshot +=
+                " "
+                + (color ? Convert.ToHexString(gb.Ppu.ObjPalette.RawData) : "-")
+                + $" {gb.Mmu.DebugRead(0xff45):X2}{gb.Mmu.DebugRead(0xff48):X2}{gb.Mmu.DebugRead(0xff49):X2}"
+                + (
+                    color
+                        ? $" {(gb.Mmu.DebugRead(0xff6a) & 0xbf):X2}:{gb.Mmu.DebugRead(0xff6b):X2}"
+                        : " -"
+                );
         if (arena)
             snapshot += $" {gb.Mmu.DebugRead(0xff47):X2}";
         if (scroll)
@@ -570,7 +585,8 @@ sealed class WrapTrace(bool reads) : Koh.Emulator.Debug.MemoryHook
     }
 }
 
-sealed class VideoTiming(GameBoySystem system, bool guardOam) : Koh.Emulator.Debug.MemoryHook
+sealed class VideoTiming(GameBoySystem system, bool guardOam, bool guardPalettes)
+    : Koh.Emulator.Debug.MemoryHook
 {
     ulong lastBlank;
     public List<string> Writes { get; } = [];
@@ -586,6 +602,13 @@ sealed class VideoTiming(GameBoySystem system, bool guardOam) : Koh.Emulator.Deb
 
     public override void OnWrite(ushort address, byte value)
     {
+        if (
+            guardPalettes
+            && address == 0xff6b
+            && (system.Ppu.LCDC & 0x80) != 0
+            && system.Ppu.Mode == Koh.Emulator.Ppu.PpuMode.Drawing
+        )
+            throw new InvalidOperationException("Mode-3 OBJ palette write");
         if (address == 0xff46)
         {
             if (

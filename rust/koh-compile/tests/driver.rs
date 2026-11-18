@@ -71,6 +71,8 @@ mod showcase;
 mod softfloat_bits;
 #[path = "driver/softfloat_host.rs"]
 mod softfloat_host;
+#[path = "driver/sprites.rs"]
+mod sprites;
 #[path = "driver/struct_returns.rs"]
 mod struct_returns;
 mod support;

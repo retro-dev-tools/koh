@@ -18,8 +18,8 @@ Pinned heap pointers already select bank1 and restore the caller's WRAM bank.
 [PanDocs](https://raw.githubusercontent.com/gbdev/pandocs/master/src/OAM_DMA_Transfer.md)
 specifies 160 M-cycles and HRAM-only CPU access during DMG OAM DMA. The routine
 must trigger and wait from HRAM; interrupts must be prevented during the transfer.
-The compiler's current startup disables interrupts, and EI/interrupt lowering
-remain outstanding. This intrinsic requires IME0 and does not change IME.
+The compiler's startup disables interrupts; CPU control and bounded interrupt
+roots now have separate coverage. This intrinsic requires IME0 and does not change IME.
 It does not implicitly wait for vblank; callers such as `Sprites.Flush` own
 display timing. Portable source pages are normally 00–DF; raw hardware mapping
 rules still apply. This is a blocking operation, unlike the raw FF46 register.
@@ -67,10 +67,16 @@ These raw cases port both OamDmaTrigger methods in
 `CilSpritePaletteHardwareTests.cs`. Their 6 assertion sites expand to 488 checks
 across 3 original executions (Debug/Release plus their comparison). The native
 cases use independent expected data in both configurations and both targets,
-with whole-source guards. Other methods in that source group remain outstanding.
+with whole-source guards. The remaining register and desktop-library methods now
+have [native sprite/palette replacements](sprite-contracts.md).
 Production emulator code is unchanged; only the external fixture observes it.
 
-## Full graphics showcase
+## Historical pre-banking graphics probe
+
+The following failure predates banked managed calls. The current real showcase
+passes all four Debug/Release × DMG/CGB cases in the
+[sprite runtime regression](sprite-contracts.md); do not treat this old probe as
+the current sample status.
 
 The unchanged `samples/csharp/gb-gfx-demo/Game.cs` was compiled by Roslyn in an
 isolated standard SDK project, then accepted by `koh-compile` after this fix.

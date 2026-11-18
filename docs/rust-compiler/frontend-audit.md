@@ -334,42 +334,42 @@ Reachable non-BCL library bodies lower transitively; unsupported BCL calls diagn
 
 ### CilSpritePaletteHardwareTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilSpritePaletteHardwareTests.cs`. Future Rust test group: `cil_sprite_palette_hardware`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilSpritePaletteHardwareTests.cs`. All four methods now have native replacements, including the earlier raw-DMA cases.
 
 New MMIO registers reach hardware and OAM DMA copies the entire page on target and desktop reference host. Hardware addresses/copy contents are independent; compiler and host evidence must remain distinct.
 
-- **PORT** `RegisterRoundTrip_NewSpritePaletteRegistersReachRealAddresses`.
+- **REPLACE, complete** `RegisterRoundTrip_NewSpritePaletteRegistersReachRealAddresses` — supported index bits and data read outside mode3; independent actual palette RAM, [matrix](sprite-contracts.md).
 - **PORT** `OamDmaTrigger_CopiesSourcePageIntoRealOam`.
 - **PORT** `OamDmaTrigger_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `DesktopHost_HardwareDmaSetterCopiesWramPageIntoGbOam`.
+- **PORT, complete** `DesktopHost_HardwareDmaSetterCopiesWramPageIntoGbOam` — Rust drives a desktop library process and asserts all160 bytes, [matrix](sprite-contracts.md).
 
 The two OamDmaTrigger methods now map to the raw-trigger branch of
 `driver.rs::oam_dma_runs_from_relocated_hram_and_preserves_banks`. Each target/
 configuration checks independent page/readback/bus-idle/OAM expectations rather
 than using one compiler result as the other configuration's oracle. They are
-discoverable by nextest. The register palette and desktop API methods remain
-outstanding, with no compiler-owned deferral. Blocking HRAM DMA has additional
+discoverable by nextest. Register palette and desktop API methods now also have
+native replacements, with no compiler-owned deferral. Blocking HRAM DMA has additional
 native execution, relocation, capacity, byte-width and guard-mutation coverage;
 see [OAM DMA](oam-dma.md).
 
 ### CilSpritesCgbTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilSpritesCgbTests.cs`. Future Rust test group: `cil_sprites_cgb`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilSpritesCgbTests.cs`. Native group: `driver::sprites`; complete, [matrix and evidence](sprite-contracts.md).
 
 Sprite OAM bytes and CGB OBJ palette RAM preserve supplied attributes/colors. Hardware memory and the public graphics API are independent result oracles.
 
-- **PORT** `CgbPaletteSprite_FlushesRealOam_AndWritesRealObjPaletteRam`.
+- **REPLACE, complete** `CgbPaletteSprite_FlushesRealOam_AndWritesRealObjPaletteRam` — full OAM/palette RAM and explicit completion replace the arbitrary SCX marker; authored values retained.
 
 ### CilSpritesTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilSpritesTests.cs`. Future Rust test group: `cil_sprites`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilSpritesTests.cs`. Native group: `driver::sprites`; all four complete, [matrix and evidence](sprite-contracts.md).
 
 Shadow sprites flush positions/tile/attributes with hardware offsets and clipping, HideAll hides all slots and position changes preserve tile/attribute. Preserve public behavior, not exact shadow-buffer implementation.
 
-- **PORT** `EndFrame_FlushesShadowToOam_MatchingSetMoveHideAndClipping`.
-- **PORT** `HideAll_ForcesEveryShadowSlotYToZero`.
-- **PORT** `Move_ChangesPositionOnly_TileAndAttrSurvive`.
-- **PORT** `EndFrame_WithNoSpriteMutation_LeavesOamAllZero`.
+- **PORT, complete** `EndFrame_FlushesShadowToOam_MatchingSetMoveHideAndClipping`.
+- **PORT, complete** `HideAll_ForcesEveryShadowSlotYToZero`.
+- **PORT, complete** `Move_ChangesPositionOnly_TileAndAttrSurvive`.
+- **PORT, complete** `EndFrame_WithNoSpriteMutation_LeavesOamAllZero`.
 
 ### CilStaticsTests.cs
 
