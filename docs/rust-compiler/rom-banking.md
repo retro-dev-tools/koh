@@ -1,5 +1,15 @@
 # Managed ROM calls
 
+Current scope: banked managed code is implemented. Literal/initialized constant
+data remains in ROM0 with checked capacity; arbitrary banked data references are
+not supported. [Bounded interrupt helper calls](irq-calls.md) subsequently added
+mapper-preserving IRQ execution, including interruption between mapper writes.
+The earlier boot/header/HUD failures recorded below are historical investigation
+results, not current sample failures. [Current graphics acceptance](flushrun-contracts.md)
+passed all four Debug/Release × DMG/CGB configurations with real boot, complete
+graphics observations and ordered bounded progress. Final migration-wide hosted
+validation remains separate.
+
 Cartridge emission places managed methods in floating ROMX sections and declares
 an MBC5 cartridge (header type 0x19, without external RAM). The Rust linker owns
 bank assignment, capacity, relocation evaluation and final header checksums.
@@ -42,11 +52,12 @@ it is not the production cartridge path.
 MBC5 supports banks 0–511, with the low eight bits written at 0x2000 and the high
 bit at 0x3000. Both writes execute in ROM0, before any fetch from the selected
 ROMX bank. See [PanDocs MBC5](https://raw.githubusercontent.com/gbdev/pandocs/master/src/MBC5.md).
-Interrupt entry remains unsupported: startup disables interrupts. This design
+At this increment's initial implementation, interrupt entry was unsupported and
+startup disabled interrupts. The initial design
 does not claim safety for an interrupt handler that changes the mapper between
 the two writes; interrupt ABI and mapper ownership need their own verification.
 
-## Verification in progress
+## Historical implementation and verification
 
 Rust integration cases compile actual C# Main/Sum recursion in Debug/Release,
 round-trip canonical ELF, force distinct banks including 257/258, and execute
