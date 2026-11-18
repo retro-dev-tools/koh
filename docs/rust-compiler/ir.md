@@ -48,6 +48,10 @@ one compatible reference-cell shape across the program, preventing equal-width
 aliases from changing their class or numeric/reference kind. Constructors and
 direct calls retain ordinary verified function signatures and source IL offsets.
 
+[Scoped delegates](foreign-callback-scopes.md) reuse canonical closed types and
+retain an assembly scope per argument. Nominal compatibility remains independent
+of equal-sized ABI storage, including nested delegates and referenced enum types.
+
 Sequential value structs can contain class, string and array references, including
 inline nested structs. Their identity includes a reference-storage marker;
 whole-value copies retain independent scalar storage and shared reference cells.

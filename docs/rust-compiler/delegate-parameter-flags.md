@@ -16,8 +16,9 @@ feature associated with it.
 
 Valid exact nominal calls on `Producer<out T>` and `Consumer<in T>` already
 worked; they are preserved. This does not add conversion between different type
-arguments, cross-instantiation interface variance, delegate-as-generic-method-argument binding,
-boxing or other unsupported runtime shapes. A type-definition lookup is also
+arguments, cross-instantiation interface variance,
+boxing or other unsupported runtime shapes. [Delegate generic arguments now use
+canonical scoped binding](foreign-callback-scopes.md). A type-definition lookup is also
 not an instantiation/constraint check. The initial suspected malformed-metadata
 diagnostic on valid delegates was not reproduced on those actual binding paths;
 the confirmed defect was acceptance of malformed flag words.
@@ -43,9 +44,9 @@ Four new rstest cases in `tests/driver/variance.rs` retain exact signatures:
   to allocate nothing.
 - Each of03/0C/0D/0E/40/41 is rejected in both directions/configurations:
   24 malformed inputs, each asserting the diagnostic, caller and IL offset.
-- The existing unsupported compound-generic-argument diagnostic remains explicit
-  and member/IL-scoped. The original interface-variance/invalid-flag/boxing checks
-  remain unchanged.
+- The original compound-generic rejection was an implementation boundary. Its
+  replacement executes the valid program and checks42 and the complete heap;
+  flag/allocation/invalid-input assertions remain. See the subsequent scope results.
 
 CLR execution of the ordinary fixture is investigative compatibility evidence;
 the normative flag rules and independent ROM outputs supply acceptance. No
@@ -70,3 +71,6 @@ and final current-head hosted validation remain incomplete.
 
 Subsequent [exact variant interface binding](exact-variance.md) admits valid nominal
 interface calls; it does not add cross-instantiation variance conversions.
+Subsequent scoped delegate closure validates variance positions and special
+constraints before interning, including an unused type argument's runtime
+declaration. The flag-word-only checkpoint is not the current boundary.

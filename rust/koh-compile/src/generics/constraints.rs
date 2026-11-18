@@ -209,8 +209,10 @@ pub(crate) fn validate(
     };
     let interface = owner_table == TableId::TypeDef
         && metadata.type_defs[(method.token & 0xffffff) as usize - 1].flags & 0x20 != 0;
+    let variant =
+        interface || owner_table == TableId::TypeDef && resolver.delegate_owner(method)?;
     for (_, parameter) in &parameters {
-        let allowed = if interface { 0x3f } else { 0x3c };
+        let allowed = if variant { 0x3f } else { 0x3c };
         if parameter.flags & !allowed != 0
             || parameter.flags & 3 == 3
             || parameter.flags & 0x0c == 0x0c
@@ -223,7 +225,7 @@ pub(crate) fn validate(
             .into());
         }
     }
-    if interface {
+    if variant {
         super::variance::validate(resolver, method)?;
     }
     for (index, parameter) in parameters {

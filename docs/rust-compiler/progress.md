@@ -10,6 +10,21 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Cross-assembly callback arguments
+
+Delegates now share canonical closed-type binding with an assembly scope per
+argument, replacing the raw single-scope substitution path. Referenced class,
+struct, enum, array and nested delegate arguments preserve nominal identity;
+runtime declarations, variance positions and constraints validate before interning.
+Eight new rstest cases cover44 Debug/Release × DMG/CGB ROMs plus six valid reuse
+runs after errors, full memory packets and root/library PDB-to-KDBG provenance.
+Expanded462/462 passed216.581s; final affected8/8 passed17.298s, both exit0.
+Four old Rust compound-type rejection expectations now execute42 instead.
+[Decision, Rust API change, evidence and limits](foreign-callback-scopes.md).
+Discovery2061 workspace/1884 compiler, zero ignored; separate compiler doctests0
+examples passed. Ledger509/565,56 outstanding. LINQ, final full acceptance and
+legacy deletion remain open.
+
 ### Generic callback storage
 
 Delegate binding now preserves both declaring-type and method parameter scopes,

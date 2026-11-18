@@ -48,9 +48,8 @@ No generated class names or LINQ-specific patterns are recognized.
 Ordinary closed generic class method groups and returned capturing lambdas are
 covered, including a generic closure retaining a full64-bit captured value.
 This changes compiler internals only; the C# authoring API, callback heap layout
-and far-call convention remain unchanged. Foreign named arguments inside a
-constructed delegate signature still require richer scoped layout binding and
-diagnose explicitly. Neither parameter namespace may be silently substituted
+and far-call convention remain unchanged. [Foreign named arguments now use the
+canonical scoped bindings](foreign-callback-scopes.md). Neither parameter namespace may be silently substituted
 from the other or reinterpreted in the delegate definition's assembly.
 
 Four new rstest cases build actual Debug/Release C# and execute32 DMG/CGB ROMs:
@@ -68,8 +67,9 @@ binding/generic/layout/reference validation passed454/454 in198.597s, exit0,
 443 explicitly unselected (`/tmp/koh-generic-callback-final.log`). After adding
 the returned-capture and owner-method entries, all affected delegate fixtures
 and scoped-substitution checks passed86/86 in42.660s, exit0,747 explicitly
-unselected (`/tmp/koh-generic-callback-captures.log`). No production changes
-followed that expanded checkpoint. All five LINQ methods remain outstanding;
+unselected (`/tmp/koh-generic-callback-captures.log`). These results describe the
+a534997 checkpoint; subsequent foreign-scope validation is recorded separately.
+All five LINQ methods remain outstanding;
 this is a shared compiler correction, not a claim that pipeline reductions work.
 Fresh nextest discovery reports2053 workspace/1876 compiler cases, zero ignored
 (`/tmp/koh-generic-callback-discovery.json`, exit0). Final rustfmt/CSharpier and

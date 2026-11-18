@@ -132,6 +132,11 @@ classifying valid array casts as malformed or promise that complete framework
 LINQ bodies are a sensible Game Boy runtime. Array/interface adaptation, recursive
 constraints and actual query implementation remain required decisions.
 
+[Canonical foreign callback arguments](foreign-callback-scopes.md) subsequently
+remove the single-scope limitation for referenced game/runtime types, including
+nested callbacks. A fresh CLI probe still stops at the array type test in Where
+IL_0040, exit1/no object. This is prerequisite compiler work, not LINQ acceptance.
+
 Fresh `cargo nextest list --workspace --all-features --locked --message-format
 json` discovery reports2019 workspace cases,1842 compiler cases and zero ignored
 (`/tmp/koh-framework-root-discovery.json`, exit0). Existing cubes dead-code warning

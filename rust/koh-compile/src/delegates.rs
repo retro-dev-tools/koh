@@ -127,7 +127,6 @@ pub(crate) fn callback(
     let expected_raw = binding.metadata.signature.clone();
     let expected_assembly = binding.metadata.identity.assembly;
     let type_arguments = binding.metadata.type_arguments.clone();
-    let argument_assembly = binding.metadata.argument_assembly;
     drop(bindings);
     for (expected, actual) in expected_raw.params.iter().zip(&raw.params) {
         let actual =
@@ -136,7 +135,6 @@ pub(crate) fn callback(
             resolver,
             expected_assembly,
             expected,
-            argument_assembly,
             &type_arguments,
             actual.assembly,
             &actual.ty,
@@ -155,7 +153,6 @@ pub(crate) fn callback(
             resolver,
             expected_assembly,
             &expected_raw.return_type,
-            argument_assembly,
             &type_arguments,
             returns.assembly,
             &returns.ty,
@@ -199,17 +196,12 @@ fn type_matches(
     resolver: &Resolver<'_>,
     expected_assembly: usize,
     expected: &clrmeta::TypeSig,
-    argument_assembly: usize,
-    arguments: &[clrmeta::TypeSig],
+    arguments: &[crate::generics::Argument],
     actual_assembly: usize,
     actual: &clrmeta::TypeSig,
 ) -> Result<bool, String> {
     resolver.charge_delegate_work(arguments.len() + 1)?;
-    let arguments = arguments
-        .iter()
-        .map(|ty| resolver.bind_signature(argument_assembly, ty, &[], &[]))
-        .collect::<Result<Vec<_>, _>>()?;
-    let expected = resolver.bind_signature(expected_assembly, expected, &[], &arguments)?;
+    let expected = resolver.bind_signature(expected_assembly, expected, &[], arguments)?;
     let actual = resolver.bind_signature(actual_assembly, actual, &[], &[])?;
     resolver.types_equal(
         expected.assembly,
@@ -445,13 +437,17 @@ pub(crate) fn bind(
     assembly: usize,
     ty: &clrmeta::TypeSig,
 ) -> Result<Option<DelegateType>, String> {
-    let Some(metadata) = resolver.delegate_signature_type(assembly, ty)? else {
+    if resolver.delegate_signature_type(assembly, ty)?.is_none() {
         return Ok(None);
-    };
+    }
+    let bound = resolver.bind_signature(assembly, ty, &[], &[])?;
+    let metadata = resolver
+        .delegate_signature_type(bound.assembly, &bound.ty)?
+        .ok_or("Bound delegate lost its nominal identity")?;
     let arguments = metadata
         .type_arguments
         .iter()
-        .map(|argument| crate::lower::field_storage(resolver, metadata.argument_assembly, argument))
+        .map(|argument| crate::lower::field_storage(resolver, argument.assembly, &argument.ty))
         .collect::<Result<Vec<_>, _>>()?;
     let entries = resolver.delegate_types.borrow();
     resolver.charge_delegate_work(entries.len() + arguments.len() + 1)?;
@@ -466,13 +462,7 @@ pub(crate) fn bind(
             .iter()
             .zip(&metadata.type_arguments)
         {
-            if !resolver.types_equal(
-                found.metadata.argument_assembly,
-                left,
-                metadata.argument_assembly,
-                right,
-                0,
-            )? {
+            if !resolver.types_equal(left.assembly, &left.ty, right.assembly, &right.ty, 0)? {
                 equal = false;
                 break;
             }

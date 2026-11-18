@@ -41,7 +41,7 @@ fn signature(
                 .get(*index as usize)
                 .ok_or("Invalid variance type parameter")?;
             if variance == 3 || variance == 1 && position != 1 || variance == 2 && position != -1 {
-                return Err("Invalid variance position in interface signature".into());
+                return Err("Invalid variance position in generic signature".into());
             }
         }
         TypeSig::SzArray(inner)

@@ -6,6 +6,7 @@ mod arrays;
 mod delegates;
 mod index;
 mod inheritance;
+pub use crate::generics::Argument as TypeArgument;
 pub(crate) use arrays::{ArrayMethod, ArrayQuery};
 pub use delegates::DelegateDefinition;
 use index::Index;

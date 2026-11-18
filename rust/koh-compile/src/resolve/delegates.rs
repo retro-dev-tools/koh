@@ -1,4 +1,5 @@
 use super::{Definition, Resolver, coded, framework_key, framework_type, identity, row};
+use crate::generics::Argument;
 use clrmeta::{ElementType, MethodSig, TableId, TypeSig};
 
 #[derive(Debug, Clone)]
@@ -7,8 +8,7 @@ pub struct DelegateDefinition {
     pub constructor: Definition,
     pub invoke: Definition,
     pub signature: MethodSig,
-    pub type_arguments: Vec<TypeSig>,
-    pub argument_assembly: usize,
+    pub type_arguments: Vec<Argument>,
 }
 
 impl Resolver<'_> {
@@ -28,7 +28,7 @@ impl Resolver<'_> {
         token: u32,
     ) -> Result<Option<DelegateDefinition>, String> {
         let (owner, type_arguments) = self.parent(assembly, token)?;
-        self.delegate_definition(assembly, owner, type_arguments)
+        self.raw_delegate_definition(assembly, owner, type_arguments)
     }
 
     pub(crate) fn delegate_signature_type(
@@ -46,24 +46,44 @@ impl Resolver<'_> {
             _ => return Ok(None),
         };
         if encoded & 3 == 3 {
-            self.signature_type(assembly, encoded)?;
-            return Ok(None);
+            let owner = self.signature_type(assembly, encoded)?;
+            let instance = self
+                .type_instance(owner)?
+                .ok_or("Missing closed delegate type")?;
+            return self.delegate_definition(instance.definition, instance.arguments);
         }
         let owner = self.resolve_type(assembly, super::type_token(encoded)?)?;
-        self.delegate_definition(assembly, owner, arguments)
+        self.raw_delegate_definition(assembly, owner, arguments)
     }
 
-    fn delegate_definition(
+    fn raw_delegate_definition(
         &self,
         assembly: usize,
         owner: Definition,
         type_arguments: Vec<TypeSig>,
     ) -> Result<Option<DelegateDefinition>, String> {
+        if !self.delegate_owner(owner)? {
+            return Ok(None);
+        }
+        for argument in &type_arguments {
+            self.validate_type(assembly, argument, 0)?;
+        }
+        self.delegate_definition(
+            owner,
+            type_arguments
+                .into_iter()
+                .map(|ty| Argument { assembly, ty })
+                .collect(),
+        )
+    }
+
+    pub(crate) fn delegate_owner(&self, owner: Definition) -> Result<bool, String> {
+        let owner = self.type_definition(owner)?;
         let image = self.assembly(owner.assembly)?;
         let metadata = image.metadata();
         let ty = row(&metadata.type_defs, owner.token, 2)?;
         if ty.extends.row == 0 {
-            return Ok(None);
+            return Ok(false);
         }
         let parent = match ty.extends.table {
             Some(TableId::TypeRef) => framework_type(metadata, coded(ty.extends)?)?,
@@ -91,9 +111,23 @@ impl Resolver<'_> {
             }
             _ => None,
         };
-        if !matches!(parent, Some(("System", "Delegate" | "MulticastDelegate"))) {
+        Ok(matches!(
+            parent,
+            Some(("System", "Delegate" | "MulticastDelegate"))
+        ))
+    }
+
+    pub(crate) fn delegate_definition(
+        &self,
+        owner: Definition,
+        type_arguments: Vec<Argument>,
+    ) -> Result<Option<DelegateDefinition>, String> {
+        if !self.delegate_owner(owner)? {
             return Ok(None);
         }
+        let image = self.assembly(owner.assembly)?;
+        let metadata = image.metadata();
+        let ty = row(&metadata.type_defs, owner.token, 2)?;
         if ty.flags & 0x118 != 0x100 || ty.flags & 0xa0 != 0 {
             return Err("Delegate definition must be a sealed AutoLayout class".into());
         }
@@ -114,9 +148,6 @@ impl Resolver<'_> {
                     ));
                 }
             }
-        }
-        for argument in &type_arguments {
-            self.validate_type(assembly, argument, 0)?;
         }
         let field_end = metadata
             .type_defs
@@ -197,7 +228,6 @@ impl Resolver<'_> {
             invoke,
             signature,
             type_arguments,
-            argument_assembly: assembly,
         }))
     }
 }

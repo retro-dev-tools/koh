@@ -225,8 +225,13 @@ impl Resolver<'_> {
                 return Err("Closed type constraint binding exceeds64 levels".into());
             }
             self.type_binding_depth.set(depth + 1);
-            let result =
-                crate::generics::constraints::validate(self, definition, &instance.arguments, &[]);
+            let result = (|| {
+                if self.delegate_owner(definition)? {
+                    self.delegate_definition(definition, instance.arguments.clone())?
+                        .ok_or("Missing delegate declaration")?;
+                }
+                crate::generics::constraints::validate(self, definition, &instance.arguments, &[])
+            })();
             self.type_binding_depth.set(depth);
             result?;
             let mut instances = self.type_instances.borrow_mut();
@@ -323,9 +328,6 @@ impl Resolver<'_> {
                     type_ref,
                     type_args,
                 } => {
-                    if resolver.delegate_signature_type(assembly, ty)?.is_some() {
-                        return crate::generics::scoped(assembly, ty, methods, types);
-                    }
                     let definition = resolver.resolve_type(assembly, type_token(*type_ref)?)?;
                     let arguments = type_args
                         .iter()

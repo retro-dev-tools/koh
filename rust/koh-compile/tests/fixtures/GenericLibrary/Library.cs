@@ -42,6 +42,34 @@ public interface IRemoteMarker
 
 public delegate ushort RemoteReader(ushort value);
 
+public sealed class ForeignCallbackBox<T>
+{
+    public System.Func<T, T> Callback;
+
+    public ForeignCallbackBox(System.Func<T, T> callback) => Callback = callback;
+
+    public T Read(T value) => Callback(value);
+
+    public U Select<U>(T value, System.Func<T, U> selector) => selector(value);
+
+    public System.Func<T, T> Capture(T value) => ignored => value;
+}
+
+public delegate T ForeignReferenceCallback<T>(T value)
+    where T : class;
+
+public delegate T ForeignFactory<out T>();
+
+public sealed class ForeignConstrainedBox<T>
+    where T : class
+{
+    public ForeignReferenceCallback<T> Callback;
+
+    public ForeignConstrainedBox(ForeignReferenceCallback<T> callback) => Callback = callback;
+
+    public T Read(T value) => Callback(value);
+}
+
 public class RemoteGenericBase
 {
     public int Calls;

@@ -24,7 +24,7 @@ pub(crate) fn charge(counter: &std::cell::Cell<usize>, amount: usize) -> Result<
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Argument {
+pub struct Argument {
     pub assembly: usize,
     pub ty: TypeSig,
 }

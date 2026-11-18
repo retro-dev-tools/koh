@@ -57,7 +57,7 @@ fn generic_callback_storage_keeps_type_and_method_arguments(
     }
 }
 
-fn replace_method_token(
+pub(super) fn replace_method_token(
     image: &koh_compile::assembly::Assembly<'_>,
     bytes: &[u8],
     method: u32,
@@ -174,7 +174,7 @@ fn sealed_virtual_tokens_execute_the_override(
     }
 }
 
-fn framework_image(directory: &std::path::Path, configuration: &str) -> Vec<u8> {
+pub(super) fn framework_image(directory: &std::path::Path, configuration: &str) -> Vec<u8> {
     let references = std::fs::read_to_string(
         directory.join(format!("obj/{configuration}/net10.0/reference-paths.txt")),
     )
@@ -517,13 +517,18 @@ fn delegate_metadata_preserves_invoke_identity_and_instantiation(
     assert_eq!(
         function.type_arguments,
         [
-            TypeSig::Primitive(ElementType::I4),
-            TypeSig::Primitive(ElementType::I4)
+            koh_compile::resolve::TypeArgument {
+                assembly: 0,
+                ty: TypeSig::Primitive(ElementType::I4)
+            },
+            koh_compile::resolve::TypeArgument {
+                assembly: 0,
+                ty: TypeSig::Primitive(ElementType::I4)
+            }
         ]
     );
     assert_eq!(function.signature.params, [TypeSig::Var(0)]);
     assert_eq!(function.signature.return_type, TypeSig::Var(1));
-    assert_eq!(function.argument_assembly, 0);
     for shape in [&action, &wide, &function] {
         assert_ne!(shape.constructor, shape.invoke);
         assert_eq!(shape.signature.calling_convention.0, 0x20);

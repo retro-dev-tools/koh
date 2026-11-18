@@ -415,11 +415,16 @@ fn variant_delegates_accept_valid_flags_and_reject_malformed_variance(
         }
     }
     let entry = format!("Program::{}Shape", name.trim_end_matches("`1"));
-    let error = compile::object(&resolver, Some(&entry)).unwrap_err();
-    assert!(
-        error.contains("Compound generic arguments require instantiated type binding")
-            && error.contains(&entry)
-            && error.contains("IL_"),
-        "{error}"
+    let object = compile::object(&resolver, Some(&entry)).unwrap();
+    let linked = koh_link::link(&[object], &Default::default()).unwrap();
+    let report = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-heap",
     );
+    let fields: Vec<_> = report.split_whitespace().collect();
+    assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+    super::assert_heap_snapshot(fields[4], &[0x5a; 4096], &entry);
 }

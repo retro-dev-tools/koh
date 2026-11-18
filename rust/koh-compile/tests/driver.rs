@@ -43,6 +43,8 @@ mod float64;
 mod float_compare;
 #[path = "driver/float_conversion.rs"]
 mod float_conversion;
+#[path = "driver/foreign_callbacks.rs"]
+mod foreign_callbacks;
 #[path = "driver/generic_types.rs"]
 mod generic_types;
 #[path = "driver/generics.rs"]
