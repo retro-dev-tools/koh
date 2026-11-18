@@ -11,6 +11,71 @@ mod accumulator_recursion;
 mod float32;
 
 #[rstest]
+#[case(Type::I32, Type::I32, 0x180, 8, false, 0x80)]
+#[case(Type::I32, Type::I32, 0x180, 8, true, 0xFFFFFF80)]
+#[case(Type::I32, Type::Native, 0xC100, 16, false, 0xC100)]
+#[case(Type::I32, Type::Native, 0xC100, 16, true, 0xC100)]
+#[case(Type::Native, Type::I32, 0xFFFF, 32, true, 0xFFFFFFFF)]
+#[case(Type::Native, Type::I32, 0xFFFF, 32, false, 0xFFFF)]
+#[case(Type::I32, Type::I64, 0xFFFFFFFF, 64, true, u64::MAX)]
+#[case(Type::I32, Type::I64, 0xFFFFFFFF, 64, false, 0xFFFFFFFF)]
+#[case(Type::I64, Type::I32, u64::MAX, 32, false, 0xFFFFFFFF)]
+#[case(Type::I64, Type::I64, 0x8000000000000000, 64, true, 0x8000000000000000)]
+fn constant_conversions_preserve_truncation_sign_and_source_location(
+    #[case] source: Type,
+    #[case] target: Type,
+    #[case] input: u64,
+    #[case] bits: u8,
+    #[case] signed: bool,
+    #[case] expected: u64,
+) {
+    let mut f = Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![],
+        returns: Some(target),
+        locals: vec![],
+        blocks: vec![Block {
+            parameters: vec![],
+            instructions: vec![
+                instruction(0, source, Op::Constant(input)),
+                Instruction {
+                    result: Some((1, target)),
+                    op: Op::Convert {
+                        value: 0,
+                        bits,
+                        signed,
+                    },
+                    il_offset: 17,
+                },
+            ],
+            terminator: Terminator {
+                kind: Control::Return(Some(1)),
+                il_offset: 19,
+            },
+        }],
+    };
+    verify(&f).unwrap();
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    verify(&f).unwrap();
+    let Control::Return(Some(returned)) = f.blocks[0].terminator.kind else {
+        panic!("Missing return")
+    };
+    let result = f.blocks[0]
+        .instructions
+        .iter()
+        .find(|i| i.result == Some((returned, target)))
+        .unwrap();
+    assert!(matches!(result.op, Op::Constant(value) if value == expected));
+    assert_eq!(result.il_offset, 17);
+    let first = format!("{f:?}");
+    koh_compile::optimize::simplify(&mut f).unwrap();
+    assert_eq!(format!("{f:?}"), first);
+}
+
+#[rstest]
 #[case(0xff69, Type::I32, Type::I32, false, true)]
 #[case(0xff6b, Type::I32, Type::I32, false, true)]
 #[case(0xff47, Type::I32, Type::I32, false, false)]

@@ -1523,6 +1523,24 @@ pub(crate) fn emit_with_stack_reserve(
         }
     }
     code.check_size()?;
+    let mut embedded_uses = BTreeMap::<u32, usize>::new();
+    for instruction in function.blocks.iter().flat_map(|b| &b.instructions) {
+        if let Op::LoadMemory {
+            address, bits: 8, ..
+        }
+        | Op::StoreMemory {
+            address, bits: 8, ..
+        } = instruction.op
+        {
+            if constants.contains_key(&address) && layout.values[&address].1 == Type::Native {
+                *embedded_uses.entry(address).or_default() += 1;
+            }
+        }
+    }
+    let embedded: BTreeSet<_> = embedded_uses
+        .into_iter()
+        .filter_map(|(id, count)| (uses.get(&id) == Some(&count)).then_some(id))
+        .collect();
     for (index, block) in function.blocks.iter().enumerate() {
         code.mark(labels[index]);
         let fused = match (&block.terminator.kind, block.instructions.last()) {
@@ -1544,6 +1562,11 @@ pub(crate) fn emit_with_stack_reserve(
         for instruction in &block.instructions {
             code.mark_unwind(layout.size, banked);
             code.mark_il(instruction.il_offset);
+            if matches!(instruction.op, Op::Constant(_))
+                && instruction.result.is_some_and(|r| embedded.contains(&r.0))
+            {
+                continue;
+            }
             if fused.is_some_and(|(id, ..)| instruction.result.is_some_and(|r| r.0 == id)) {
                 continue;
             }
@@ -2213,6 +2236,27 @@ pub(crate) fn emit_with_stack_reserve(
                     bits,
                     signed,
                 } => {
+                    if bits == 8 && layout.values[&address].1 == Type::Native {
+                        if let Some(&address) = constants.get(&address) {
+                            if address >= 0xff00 {
+                                code.bytes(&[0xf0, address as u8]);
+                            } else {
+                                code.bytes(&[0xfa, address as u8, (address >> 8) as u8]);
+                            }
+                            code.store_a(destination);
+                            if width > 1 {
+                                if signed {
+                                    code.bytes(&[0x87, 0x9f]);
+                                } else {
+                                    code.bytes(&[0xaf]);
+                                }
+                                for byte in 1..width {
+                                    code.store_a(destination + byte);
+                                }
+                            }
+                            continue;
+                        }
+                    }
                     let copied = u16::from(bits / 8);
                     code.indirect(slot(address));
                     code.check_reference(layout.values[&address].1);
@@ -2252,6 +2296,17 @@ pub(crate) fn emit_with_stack_reserve(
                     value,
                     bits,
                 } => {
+                    if bits == 8 && layout.values[&address].1 == Type::Native {
+                        if let Some(&address) = constants.get(&address) {
+                            code.load_a(slot(value));
+                            if address >= 0xff00 {
+                                code.bytes(&[0xe0, address as u8]);
+                            } else {
+                                code.bytes(&[0xea, address as u8, (address >> 8) as u8]);
+                            }
+                            continue;
+                        }
+                    }
                     code.indirect(slot(address));
                     code.check_reference(layout.values[&address].1);
                     let managed = layout.values[&address].1.is_byref();

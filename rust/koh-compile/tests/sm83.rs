@@ -30,6 +30,99 @@ mod support;
 use support::{Host, dotnet};
 
 #[rstest::rstest]
+#[case(0xc1ffu64)]
+#[case(0xff90u64)]
+fn absolute_byte_memory_preserves_truncation_signedness_and_escaping_addresses(
+    host: &Host,
+    #[case] address: u64,
+    #[values(false, true)] signed: bool,
+    #[values(false, true)] escape: bool,
+) {
+    let mut f = Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![Type::I32],
+        returns: Some(Type::I32),
+        locals: vec![],
+        blocks: vec![Block {
+            parameters: vec![(0, Type::I32)],
+            instructions: vec![
+                Instruction {
+                    result: Some((1, Type::Native)),
+                    op: Op::Constant(address),
+                    il_offset: 1,
+                },
+                Instruction {
+                    result: None,
+                    op: Op::StoreMemory {
+                        address: 1,
+                        value: 0,
+                        bits: 8,
+                    },
+                    il_offset: 2,
+                },
+                Instruction {
+                    result: Some((2, Type::I32)),
+                    op: Op::LoadMemory {
+                        address: 1,
+                        bits: 8,
+                        signed,
+                    },
+                    il_offset: 3,
+                },
+            ],
+            terminator: Terminator {
+                kind: Control::Return(Some(2)),
+                il_offset: 6,
+            },
+        }],
+    };
+    if escape {
+        f.blocks[0].instructions.extend([
+            Instruction {
+                result: Some((3, Type::I32)),
+                op: Op::Convert {
+                    value: 1,
+                    bits: 32,
+                    signed: false,
+                },
+                il_offset: 4,
+            },
+            Instruction {
+                result: Some((4, Type::I32)),
+                op: Op::Binary {
+                    op: Binary::Add,
+                    left: 2,
+                    right: 3,
+                },
+                il_offset: 5,
+            },
+        ]);
+        f.blocks[0].terminator.kind = Control::Return(Some(4));
+    }
+    let mut optimized = f.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    let mut cases = Vec::new();
+    for input in [0, 0x7f, 0x80, 0xff, 0x123456ab] {
+        let byte = input as u8;
+        let mut expected = if signed {
+            u64::from(byte as i8 as i32 as u32)
+        } else {
+            u64::from(byte)
+        };
+        if escape {
+            expected = expected.wrapping_add(address) & 0xffffffff;
+        }
+        for function in [&f, &optimized] {
+            cases.push((function.clone(), vec![input], Ok(expected)));
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
 #[case("EmptyCost", 0u64, 1u64)]
 #[case("CountedCost", 99u64, 100u64)]
 #[case("CopyCost", 0u64, 32u64)]

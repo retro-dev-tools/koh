@@ -559,5 +559,55 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
     }
     remove_unused(function);
     recursion::apply(function);
+    fold_integer_conversions(function);
+    remove_unused(function);
     verify(function)
+}
+
+fn fold_integer_conversions(function: &mut Function) {
+    let mut constants = BTreeMap::new();
+    for block in &function.blocks {
+        for instruction in &block.instructions {
+            if let (Some((id, ty)), Op::Constant(bits)) = (instruction.result, &instruction.op) {
+                if ty.bits() <= 64 {
+                    constants.insert(id, (ty.bits(), *bits));
+                }
+            }
+        }
+    }
+    for _ in 0..64 {
+        let mut changed = false;
+        for instruction in function.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
+            let (
+                Some((id, result)),
+                Op::Convert {
+                    value,
+                    bits,
+                    signed,
+                },
+            ) = (instruction.result, &instruction.op)
+            else {
+                continue;
+            };
+            if result.bits() > 64 {
+                continue;
+            }
+            let Some(&(source_bits, value)) = constants.get(value) else {
+                continue;
+            };
+            let retained = source_bits.min(result.bits()).min(u16::from(*bits));
+            let mask = u64::MAX >> (64 - retained);
+            let mut value = value & mask;
+            if *signed && value & (1u64 << (retained - 1)) != 0 {
+                value |= !mask;
+            }
+            value &= u64::MAX >> (64 - result.bits());
+            instruction.op = Op::Constant(value);
+            constants.insert(id, (result.bits(), value));
+            changed = true;
+        }
+        if !changed {
+            break;
+        }
+    }
 }

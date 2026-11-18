@@ -42,6 +42,11 @@ The timing probes intentionally print measurements without claiming the still-op
 ceiling assertions pass. They are discoverable native tests, not ignored tests,
 an optional feature or a hidden success route around a failed timing assertion.
 
+Latest [immediate memory instruction selection](immediate-memory.md) reduces the
+same marked windows to50760/71124 T-cycles. The original190/740-dot acceptance
+requirements remain open; neither instrumentation averages nor this incremental
+improvement substitutes for their independently bounded workload checks.
+
 Previous unmarked observer results: counted71444 T-cycles (714.440 per iteration);
 copy166056 (5189.250 per byte), including the overhead described above. Expanded
 compiler-library/baseline/rewrite validation passed224/224 in30.101s, exit0,

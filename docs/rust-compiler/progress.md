@@ -10,6 +10,20 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Immediate memory and conversion folding
+
+[Constant native byte addresses](immediate-memory.md) now select absolute/LDH
+instructions without materializing address-only constants in stack slots.
+Integer conversion folding runs after CFG and recursion normalization, preserving
+existing recursion proofs and source offsets. Ten conversion cases and eight
+machine cases cover sign/truncation, escaping addresses and80 ROMs. Final900/900
+passed249.935s, exit0,633 explicitly unselected, including full compiler library,
+IR/SM83, PDB and selected hardware/runtime targets; separate rustdoc passed.
+Counted/copy windows improve55588→50760 and75504→71124 T-cycles. No timing ceiling
+is raised and no source-method credit is added:560/565, five outstanding.
+Fresh discovery lists2169 workspace cases,1992 compiler-owned, zero ignored;
+Rust formatting and diff checks pass. No C# production or test-host change.
+
 ### Roslyn narrowing and calibrated cost closure
 
 All six [CIL narrowing source methods](cil-narrowing-contracts.md) now have
