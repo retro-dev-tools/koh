@@ -6,7 +6,8 @@ normalization and void returns. Helpers may use the existing bounded integer,
 local/static and safe byte-IO subset. Reference/value aggregates, arbitrary
 indirect memory, allocation, floating IR values, initialization requiring special
 runtime state and nested enabling remain explicit unsupported cases. This is an
-intermediate runtime capability, not a retirement of those full-migration tasks.
+explicit execution boundary; [runtime decisions](runtime-boundaries.md) explain
+the alternatives. Final diagnostic and whole-migration acceptance remain open.
 The executable call graph must be acyclic after lowering/optimization; CFG loops
 remain allowed. The compiler establishes a stack bound, not a time/termination bound.
 

@@ -2,8 +2,10 @@
 
 Status: migration incomplete. Native CIL reading, typed IR, optimization and
 SM83/ELF emission are implemented, including banked managed calls and
-[bounded hardware interrupt roots](irq-calls.md). Broader IRQ runtime support remains
-incomplete. The SDK now
+[bounded hardware interrupt roots](irq-calls.md). The
+[runtime boundaries](runtime-boundaries.md) document the rationale and alternatives
+for unboxed values, exact variance identities, bounded IRQ execution and ROM0
+constant pools; final boundary/diagnostic acceptance remains open. The SDK now
 invokes native compiler/linker processes; the legacy compiler source and test
 project still remain pending final replacement acceptance. Complete sample
 acceptance, test-disposition closure, performance comparison and final hosted
