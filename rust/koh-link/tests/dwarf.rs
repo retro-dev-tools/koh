@@ -154,20 +154,13 @@ fn dwarf_symbols_preserve_signed_constants_and_banked_labels() {
 }
 
 #[test]
-fn dwarf_rejects_invalid_addresses_names_and_unimplemented_expansions() {
+fn dwarf_rejects_invalid_addresses_and_names() {
     let mut input = fixture();
     input.lines[0].address = 0xffff;
     assert!(input.dwarf().unwrap_err().contains("boundary"));
     input.lines[0].address = 0x4000;
     input.lines[0].file = "bad\0name".into();
     assert!(input.dwarf().unwrap_err().contains("NUL"));
-    input.lines[0].file = "one.cs".into();
-    input.lines[0].expansion.push(koh_objects::SourceLocation {
-        file: "macro.asm".into(),
-        line: 1,
-        column: 1,
-    });
-    assert!(input.dwarf().unwrap_err().contains("expansion"));
 }
 
 #[test]
@@ -363,5 +356,147 @@ fn dwarf_reader_accepts_symbol_only_and_empty_debug_files() {
             .map(|symbol| symbol.value)
             .collect::<Vec<_>>(),
         [i32::MIN, i32::MAX]
+    );
+}
+
+#[test]
+fn dwarf_preserves_nested_macro_ancestry_on_ranges_and_symbols() {
+    let mut input = fixture();
+    let expansion = vec![
+        koh_objects::SourceLocation {
+            file: "outer.asm".into(),
+            line: 20,
+            column: 3,
+        },
+        koh_objects::SourceLocation {
+            file: "inner.asm".into(),
+            line: 8,
+            column: 12,
+        },
+    ];
+    input.lines[0].expansion = expansion.clone();
+    input.lines[1].expansion = vec![expansion[1].clone()];
+    let mut duplicate = input.lines[0].clone();
+    duplicate.expansion = vec![expansion[1].clone()];
+    input.lines.push(duplicate);
+    let mut plain_duplicate = input.lines[0].clone();
+    plain_duplicate.expansion.clear();
+    input.lines.insert(0, plain_duplicate);
+    input.symbols.push(LinkedSymbol {
+        name: "macro_label".into(),
+        value: 0x4000,
+        bank: Some(1),
+        kind: 0,
+        source: Some(koh_objects::Provenance {
+            file: "one.cs".into(),
+            line: 7,
+            column: 2,
+            expansion: expansion.clone(),
+        }),
+    });
+    let bytes = input.dwarf().unwrap();
+    let parsed = koh_link::read_dwarf(&bytes).unwrap();
+    assert_eq!(parsed.lines.len(), input.lines.len());
+    for (actual, expected) in parsed.lines.iter().zip(&input.lines) {
+        assert_eq!(actual.expansion, expected.expansion);
+    }
+    assert_eq!(parsed.symbols.len(), 1);
+    assert_eq!(parsed.symbols[0].source, input.symbols[0].source);
+    let file = object::File::parse(bytes.as_slice()).unwrap();
+    let dwarf = gimli::Dwarf::load(|id| {
+        Ok::<_, gimli::Error>(gimli::EndianSlice::new(
+            file.section_by_name(id.name())
+                .map(|s| s.data().unwrap())
+                .unwrap_or(&[]),
+            gimli::LittleEndian,
+        ))
+    })
+    .unwrap();
+    let unit = dwarf.unit(dwarf.units().next().unwrap().unwrap()).unwrap();
+    let mut entries = unit.entries();
+    let mut frames = 0;
+    while let Some(entry) = entries.next_dfs().unwrap() {
+        assert_ne!(entry.tag(), gimli::DW_TAG_inlined_subroutine);
+        if entry.tag() == gimli::DwTag(0x4b00) {
+            frames += 1;
+            assert!(entry.attr_value(gimli::DW_AT_call_file).is_some());
+            assert!(entry.attr_value(gimli::DW_AT_call_line).is_some());
+            assert!(entry.attr_value(gimli::DW_AT_call_column).is_some());
+        }
+    }
+    assert_eq!(frames, 6);
+}
+
+#[test]
+fn dwarf_rejects_excessive_macro_nesting() {
+    let mut input = fixture();
+    input.lines[0].expansion = vec![
+        koh_objects::SourceLocation {
+            file: "macro.asm".into(),
+            line: 1,
+            column: 1
+        };
+        257
+    ];
+    assert!(input.dwarf().unwrap_err().contains("256"));
+}
+
+#[test]
+fn dwarf_reader_rejects_macro_ranges_with_invalid_indices() {
+    use gimli::Reader as _;
+    let mut input = fixture();
+    input.lines[0].expansion = vec![koh_objects::SourceLocation {
+        file: "macro.asm".into(),
+        line: 3,
+        column: 4,
+    }];
+    let mut bytes = input.dwarf().unwrap();
+    let index_offset = {
+        let file = object::File::parse(bytes.as_slice()).unwrap();
+        let dwarf = gimli::Dwarf::load(|id| {
+            Ok::<_, gimli::Error>(gimli::EndianSlice::new(
+                file.section_by_name(id.name())
+                    .map(|s| s.data().unwrap())
+                    .unwrap_or(&[]),
+                gimli::LittleEndian,
+            ))
+        })
+        .unwrap();
+        let unit = dwarf.unit(dwarf.units().next().unwrap().unwrap()).unwrap();
+        let section_offset = file
+            .section_by_name(".debug_info")
+            .unwrap()
+            .file_range()
+            .unwrap()
+            .0 as usize;
+        let mut entries = unit.entries();
+        let entry = loop {
+            let entry = entries.next_dfs().unwrap().unwrap();
+            if entry.tag() == gimli::DwTag(0x4b00) {
+                break entry;
+            }
+        };
+        let start = section_offset + entry.offset().0;
+        let mut cursor = gimli::EndianSlice::new(&bytes[start..], gimli::LittleEndian);
+        let abbreviation = unit
+            .abbreviations
+            .get(cursor.read_uleb128().unwrap())
+            .unwrap();
+        let mut offset = None;
+        for attribute in abbreviation.attributes() {
+            assert_eq!(attribute.form(), gimli::DW_FORM_udata);
+            if attribute.name() == gimli::DwAt(0x2b00) {
+                offset = Some(bytes.len() - cursor.len());
+                break;
+            }
+            cursor.read_uleb128().unwrap();
+        }
+        offset.unwrap()
+    };
+    bytes[index_offset] = 127;
+    assert!(
+        koh_link::read_dwarf(&bytes)
+            .unwrap_err()
+            .contains("source range")
     );
 }

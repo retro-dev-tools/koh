@@ -6,18 +6,23 @@ KDBG-to-DWARF migration before continuing Rust + GPUI Kit UI implementation.
 See `docs/dwarf-migration.md` for the first writer checkpoint and next step;
 `docs/gpui-migration.md` retains full UI parity/removal acceptance.
 
-Initial `LinkResult::dwarf()` writer and bounded `read_dwarf` reader implemented.
+Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
+`LinkResult::dwarf()` writer and bounded `read_dwarf` reader implemented.
 CLI `koh-link --read-debug-info` reads ELF bytes on stdin and returns JSON.
-32 linker tests pass (18 library +5 CLI +9 DWARF), exit 0, actual log re-read:
-`/tmp/koh-dwarf-reader-tests.log`. Native CLI probe and LLVM verification exit 0;
-verifier ends `No errors.`. Focused Clippy clean; two pre-existing all-target
+35 linker tests pass (18 library +5 CLI +12 DWARF), exit 0, actual log re-read:
+`/tmp/koh-dwarf-macro-tests.log`. Assembly expansion ancestry now round-trips
+through a documented DWARF vendor tag. Real assembly 2048 metadata compares
+exactly: 514 symbols,3951 source ranges,3710 expanded ranges, exit 0.
+Native CLI reader and LLVM verification exit 0; verifier ends `No errors.`.
+Focused Clippy clean; two pre-existing all-target
 findings documented in `docs/dwarf-migration.md`, left unchanged.
 Production still uses KDBG. No C# reader binding, CLI/SDK producer cutover or
-GPUI runtime implemented. Macro expansions explicitly error pending faithful
-representation. Next: macro provenance, managed reader binding and real debugger
+GPUI runtime implemented. Next: managed reader binding and real debugger
 cutover, then complete UI replacement/removal. No agents spawned.
 User authorized opening a draft PR and keeping it updated; push this branch and
 update its description as increments land. No merge or release authorized.
+User requests an ASCII progress bar and detailed checkpoints. Whole-goal ledger
+is in `docs/gpui-migration.md`: [###>------]3/10 checkpoints complete, not effort.
 
 Unrelated modified `samples/csharp/gb-jrpg/screenshots/battle.png` remains intact,
 SHA256 `fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454`.

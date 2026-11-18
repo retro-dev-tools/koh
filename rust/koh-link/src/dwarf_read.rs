@@ -1,6 +1,7 @@
+use crate::dwarf::{MACRO_EXPANSION, MAX_MACRO_DEPTH, SOURCE_RANGE};
 use crate::{LinkedLine, LinkedSymbol};
 use gimli::{AttributeValue, EndianSlice, LittleEndian};
-use koh_objects::Provenance;
+use koh_objects::{Provenance, SourceLocation};
 use object::read::elf::FileHeader as _;
 use object::{Endianness, Object as _, ObjectSection as _, elf};
 
@@ -94,6 +95,51 @@ fn split(address: u64) -> Result<(u32, u32), String> {
     Ok((address >> 16, address & 0xffff))
 }
 
+fn location(
+    dwarf: &gimli::Dwarf<Input<'_>>,
+    unit: &gimli::Unit<Input<'_>>,
+    entry: &gimli::DebuggingInformationEntry<Input<'_>>,
+    call: bool,
+    budget: &mut Budget,
+) -> Result<SourceLocation, String> {
+    let (file, line, column) = if call {
+        (
+            gimli::DW_AT_call_file,
+            gimli::DW_AT_call_line,
+            gimli::DW_AT_call_column,
+        )
+    } else {
+        (
+            gimli::DW_AT_decl_file,
+            gimli::DW_AT_decl_line,
+            gimli::DW_AT_decl_column,
+        )
+    };
+    let Some(AttributeValue::FileIndex(index)) = entry.attr_value(file) else {
+        return Err("Invalid DWARF source file".into());
+    };
+    let line = entry
+        .attr_value(line)
+        .and_then(|v| v.udata_value())
+        .ok_or("Missing DWARF source line")?;
+    let column = entry.attr_value(column).and_then(|v| v.udata_value());
+    let column = if call {
+        column.ok_or("Missing DWARF macro column")?
+    } else {
+        column.unwrap_or(0)
+    };
+    Ok(SourceLocation {
+        file: path(dwarf, unit, index, budget)?,
+        line: u32::try_from(line).map_err(|_| "DWARF line exceeds 32 bits")?,
+        column: u32::try_from(column).map_err(|_| "DWARF column exceeds 32 bits")?,
+    })
+}
+
+enum ExpansionTarget {
+    Line(usize),
+    Symbol(usize),
+}
+
 pub fn read_dwarf(bytes: &[u8]) -> Result<DwarfDebugInfo, String> {
     if bytes.len() > 64 * 1024 * 1024 {
         return Err("DWARF input exceeds 64 MiB".into());
@@ -151,6 +197,7 @@ pub fn read_dwarf(bytes: &[u8]) -> Result<DwarfDebugInfo, String> {
             return Err("Expected DWARF 5 with 32-bit banked addresses".into());
         }
         let unit = dwarf.unit(header).map_err(error)?;
+        let first_line = output.lines.len();
         if let Some(program) = unit.line_program.clone() {
             let mut pending: Option<(u64, String, u32)> = None;
             let mut previous_address = None;
@@ -203,8 +250,59 @@ pub fn read_dwarf(bytes: &[u8]) -> Result<DwarfDebugInfo, String> {
             }
         }
         let mut entries = unit.entries();
+        let mut expansion: Option<(ExpansionTarget, isize, usize)> = None;
         while let Some(entry) = entries.next_dfs().map_err(error)? {
             budget.charge(128)?;
+            if entry.tag() == MACRO_EXPANSION {
+                if entry.depth() == 1 {
+                    let index = entry
+                        .attr_value(SOURCE_RANGE)
+                        .and_then(|v| v.udata_value())
+                        .ok_or("Missing DWARF macro source range")?;
+                    let index = usize::try_from(index)
+                        .ok()
+                        .and_then(|index| first_line.checked_add(index))
+                        .filter(|index| *index < output.lines.len())
+                        .ok_or("Invalid DWARF macro source range")?;
+                    let Some(AttributeValue::Addr(start)) = entry.attr_value(gimli::DW_AT_low_pc)
+                    else {
+                        return Err("Missing DWARF macro range address".into());
+                    };
+                    let count = entry
+                        .attr_value(gimli::DW_AT_high_pc)
+                        .and_then(|v| v.udata_value())
+                        .ok_or("Missing DWARF macro range size")?;
+                    let source = location(&dwarf, &unit, entry, false, &mut budget)?;
+                    let line = &output.lines[index];
+                    if split(start)? != (line.bank, line.address)
+                        || count != u64::from(line.count)
+                        || source.file != line.file
+                        || source.line != line.line
+                        || !line.expansion.is_empty()
+                    {
+                        return Err("DWARF macro ancestry does not match source range".into());
+                    }
+                    expansion = Some((ExpansionTarget::Line(index), 1, 0));
+                }
+                let (target, base, frames) =
+                    expansion.as_mut().ok_or("Orphan DWARF macro frame")?;
+                if *frames >= MAX_MACRO_DEPTH || entry.depth() != *base + *frames as isize {
+                    return Err("Invalid DWARF macro nesting (maximum 256 frames)".into());
+                }
+                let frame = location(&dwarf, &unit, entry, true, &mut budget)?;
+                match target {
+                    ExpansionTarget::Line(index) => output.lines[*index].expansion.push(frame),
+                    ExpansionTarget::Symbol(index) => output.symbols[*index]
+                        .source
+                        .as_mut()
+                        .ok_or("Missing DWARF macro symbol source")?
+                        .expansion
+                        .push(frame),
+                }
+                *frames += 1;
+                continue;
+            }
+            expansion = None;
             let kind = match entry.tag() {
                 gimli::DW_TAG_compile_unit if entry.depth() == 0 => continue,
                 gimli::DW_TAG_label => 0,
@@ -254,27 +352,20 @@ pub fn read_dwarf(bytes: &[u8]) -> Result<DwarfDebugInfo, String> {
                 let (bank, address) = split(address)?;
                 (address as i32, Some(bank))
             };
-            let source = match entry.attr_value(gimli::DW_AT_decl_file) {
-                None => None,
-                Some(AttributeValue::FileIndex(index)) => {
-                    let line = entry
-                        .attr_value(gimli::DW_AT_decl_line)
-                        .and_then(|v| v.udata_value())
-                        .ok_or("Missing DWARF declaration line")?;
-                    let column = entry
-                        .attr_value(gimli::DW_AT_decl_column)
-                        .and_then(|v| v.udata_value())
-                        .unwrap_or(0);
-                    Some(Provenance {
-                        file: path(&dwarf, &unit, index, &mut budget)?,
-                        line: u32::try_from(line).map_err(|_| "DWARF line exceeds 32 bits")?,
-                        column: u32::try_from(column)
-                            .map_err(|_| "DWARF column exceeds 32 bits")?,
-                        expansion: vec![],
-                    })
-                }
-                _ => return Err("Invalid DWARF declaration file".into()),
+            let source = if entry.attr_value(gimli::DW_AT_decl_file).is_some() {
+                let source = location(&dwarf, &unit, entry, false, &mut budget)?;
+                Some(Provenance {
+                    file: source.file,
+                    line: source.line,
+                    column: source.column,
+                    expansion: vec![],
+                })
+            } else {
+                None
             };
+            if source.is_some() {
+                expansion = Some((ExpansionTarget::Symbol(output.symbols.len()), 2, 0));
+            }
             output.symbols.push(LinkedSymbol {
                 name,
                 value,

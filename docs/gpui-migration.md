@@ -2,6 +2,30 @@
 
 Status: implementation pending. Baseline: `9ebb6e5`.
 
+## Whole-goal checkpoints
+
+Draft [PR #56](https://github.com/retro-dev-tools/koh/pull/56) tracks this work.
+The bar counts completed checkpoints, not estimated effort.
+
+```text
+[###>------] 3/10 complete; current: managed debugger cutover
+```
+
+| # | Checkpoint | State / evidence |
+| --- | --- | --- |
+| 1 | Baseline, scope and draft PR | Done: master updated, parity/removal inventory, PR56 |
+| 2 | Initial DWARF writer and bounded reader | Done: banked source/symbol/constant and malformed-input tests |
+| 3 | Assembly expansion provenance | Done: nested range/symbol ancestry; exact real 2048 metadata roundtrip; LLVM verification |
+| 4 | Managed debugger cutover | Pending: bind native reader and replace format-specific debugger records |
+| 5 | Producers, consumers and KDBG removal | Pending: SDK, CLI, editor, sample and fixture cutover; no production KDBG |
+| 6 | Real DWARF debugging acceptance | Pending: source breakpoints, stepping, exact-PC stack inspection |
+| 7 | Windowless engine session | Pending: coherent commands/snapshots, paused operation, saves and shutdown |
+| 8 | Complete GPUI Kit interface | Pending: display, controls, picker, four inspectors, keyboard/accessibility and polish |
+| 9 | Complete KohUI removal and integration | Pending: both backends/demo/tests/dependencies/references; launch/package/CI |
+| 10 | Final native acceptance | Pending: real-game visual/input/audio, headless regressions and platform validation |
+
+Keep progress reports and this ledger aligned with completed evidence.
+
 ## Required outcome
 
 All desktop interface code is Rust using GPUI Kit. Completely remove KohUI,

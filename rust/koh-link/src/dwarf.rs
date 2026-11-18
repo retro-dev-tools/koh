@@ -1,10 +1,51 @@
 use crate::LinkResult;
 use gimli::write::{
-    Address, AttributeValue, DwarfUnit, EndianVec, LineProgram, LineString, Sections,
+    Address, AttributeValue, DwarfUnit, EndianVec, LineProgram, LineString, Sections, Unit,
+    UnitEntryId,
 };
 use gimli::{Encoding, Format, LittleEndian};
 use object::write::elf::{FileHeader, SectionHeader, Writer};
 use object::{Endianness, elf};
+
+pub(super) const MACRO_EXPANSION: gimli::DwTag = gimli::DwTag(0x4b00);
+pub(super) const SOURCE_RANGE: gimli::DwAt = gimli::DwAt(0x2b00);
+pub(super) const MAX_MACRO_DEPTH: usize = 256;
+
+fn expansion(
+    unit: &mut Unit,
+    program: &mut LineProgram,
+    mut parent: UnitEntryId,
+    frames: &[koh_objects::SourceLocation],
+) -> Result<Option<UnitEntryId>, String> {
+    if frames.len() > MAX_MACRO_DEPTH {
+        return Err("DWARF macro nesting exceeds 256 frames".into());
+    }
+    let mut first = None;
+    for frame in frames {
+        let file = program.add_file(
+            LineString::String(text(&frame.file)?),
+            program.default_directory(),
+            None,
+        );
+        let id = unit.add(parent, MACRO_EXPANSION);
+        let entry = unit.get_mut(id);
+        entry.set(
+            gimli::DW_AT_call_file,
+            AttributeValue::FileIndex(Some(file)),
+        );
+        entry.set(
+            gimli::DW_AT_call_line,
+            AttributeValue::Udata(frame.line.into()),
+        );
+        entry.set(
+            gimli::DW_AT_call_column,
+            AttributeValue::Udata(frame.column.into()),
+        );
+        first.get_or_insert(id);
+        parent = id;
+    }
+    Ok(first)
+}
 
 fn address(bank: u32, value: u32) -> Result<u64, String> {
     if bank > u16::MAX.into() || value > u16::MAX.into() {
@@ -22,17 +63,29 @@ fn text(value: &str) -> Result<Vec<u8>, String> {
 
 pub fn write(result: &LinkResult) -> Result<Vec<u8>, String> {
     let mut budget = 1024usize;
-    for length in
-        result
-            .lines
-            .iter()
-            .map(|line| line.file.len())
-            .chain(result.symbols.iter().flat_map(|symbol| {
-                [
-                    symbol.name.len(),
-                    symbol.source.as_ref().map_or(0, |source| source.file.len()),
-                ]
-            }))
+    for length in result
+        .lines
+        .iter()
+        .map(|line| line.file.len())
+        .chain(result.symbols.iter().flat_map(|symbol| {
+            [
+                symbol.name.len(),
+                symbol.source.as_ref().map_or(0, |source| source.file.len()),
+            ]
+        }))
+        .chain(
+            result
+                .lines
+                .iter()
+                .flat_map(|line| line.expansion.iter().map(|frame| frame.file.len())),
+        )
+        .chain(
+            result
+                .symbols
+                .iter()
+                .filter_map(|symbol| symbol.source.as_ref())
+                .flat_map(|source| source.expansion.iter().map(|frame| frame.file.len())),
+        )
     {
         budget = length
             .checked_mul(2)
@@ -56,10 +109,9 @@ pub fn write(result: &LinkResult) -> Result<Vec<u8>, String> {
         None,
     );
     let directory = program.default_directory();
+    let root = dwarf.unit.root();
+    let mut line_index = 0;
     for line in &result.lines {
-        if !line.expansion.is_empty() {
-            return Err("DWARF macro expansion emission is not implemented".into());
-        }
         let start = address(line.bank, line.address)?;
         let end = line
             .address
@@ -77,8 +129,33 @@ pub fn write(result: &LinkResult) -> Result<Vec<u8>, String> {
         program.row().line = u64::from(line.line);
         program.generate_row();
         program.end_sequence(u64::from(line.count));
+        if let Some(id) = expansion(&mut dwarf.unit, &mut program, root, &line.expansion)? {
+            if line.line == 0 {
+                return Err("Macro ancestry requires a nonzero source line".into());
+            }
+            let entry = dwarf.unit.get_mut(id);
+            entry.set(SOURCE_RANGE, AttributeValue::Udata(line_index));
+            entry.set(
+                gimli::DW_AT_low_pc,
+                AttributeValue::Address(Address::Constant(start)),
+            );
+            entry.set(
+                gimli::DW_AT_high_pc,
+                AttributeValue::Udata(line.count.into()),
+            );
+            entry.set(
+                gimli::DW_AT_decl_file,
+                AttributeValue::FileIndex(Some(file)),
+            );
+            entry.set(
+                gimli::DW_AT_decl_line,
+                AttributeValue::Udata(line.line.into()),
+            );
+        }
+        if line.line != 0 {
+            line_index += 1;
+        }
     }
-    let root = dwarf.unit.root();
     dwarf.unit.get_mut(root).set(
         gimli::DW_AT_name,
         AttributeValue::String(b"koh-link".to_vec()),
@@ -104,9 +181,6 @@ pub fn write(result: &LinkResult) -> Result<Vec<u8>, String> {
         };
         let id = dwarf.unit.add(root, tag);
         if let Some(source) = &symbol.source {
-            if !source.expansion.is_empty() {
-                return Err("DWARF macro expansion emission is not implemented".into());
-            }
             let file = program.add_file(LineString::String(text(&source.file)?), directory, None);
             let entry = dwarf.unit.get_mut(id);
             entry.set(
@@ -121,6 +195,7 @@ pub fn write(result: &LinkResult) -> Result<Vec<u8>, String> {
                 gimli::DW_AT_decl_column,
                 AttributeValue::Udata(source.column.into()),
             );
+            expansion(&mut dwarf.unit, &mut program, id, &source.expansion)?;
         }
         let entry = dwarf.unit.get_mut(id);
         entry.set(

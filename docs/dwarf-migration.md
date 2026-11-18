@@ -1,7 +1,7 @@
 # KDBG to DWARF migration
 
 Requested on 2026-11-18 as the prerequisite to the GPUI migration.
-Status: initial writer and bounded native reader implemented and checked;
+Status: writer, bounded native reader and assembly expansion provenance checked;
 production remains on KDBG.
 
 ## Contract
@@ -23,8 +23,8 @@ extents from neighboring label addresses.
 Each source range is an explicit line-program sequence with an exclusive end.
 Unmapped gaps stay unmapped. Keep source path spellings, line identity and
 definition columns. Reject invalid names, overflowing addresses and ranges.
-Macro expansion provenance must have a deliberate representation before
-production cutover; the initial writer rejects it instead of dropping it.
+Assembly expansion provenance uses the documented vendor extension below.
+It preserves nested call locations without pretending macros are subroutines.
 
 Existing stack inspection uses exact-PC `__koh_unwind_v1_*` marker symbols and
 the far-return stack convention. Retain these symbols during format migration;
@@ -88,11 +88,11 @@ log `/tmp/koh-dwarf-verify.log` ends `No errors.`. `readelf -n --debug-dump=info
 `source.cs` line 7 at `0x24000`, exclusive end `0x24003`, and label `entry`
 at `0x24000`. These checks prove the initial writer, not debugger cutover.
 
-Next: macro provenance and C# consumption boundary.
+Next: C# consumption boundary.
 `Koh.Native/NativeBuild.targets` already builds/copies `koh-link`; evaluate
 that native parsing path against NativeAOT/packaging before choosing.
 LibObjectFile's README advertises DWARF 4; do not assume DWARF 5 compatibility.
-Resolve macro provenance before switching producers.
+Prove managed consumption and real debugging before switching producers.
 
 ## Reader checkpoint (2026-11-18)
 
@@ -126,3 +126,46 @@ warnings denied. Broader all-target Clippy is not clean: existing
 `koh-objects/src/model.rs:226` collapsible-if and `koh-link/src/tests.rs:312`
 clone-to-slice findings remain outside this increment. No suppressions added.
 Real debugger, SDK, NativeAOT and three-platform cutover remain unverified.
+
+## Assembly expansion checkpoint (2026-11-18)
+
+Expansion ancestry now round-trips on source ranges and symbol definitions,
+including repeated identical ranges with different ancestry. The representation
+uses DWARF's [vendor extension mechanism](https://dwarfstd.org/doc/DWARF5.pdf)
+(sections 1.3.13 and 7.1), inside `.debug_info`; no separate binary format.
+Ordinary source lines, symbols, constants and RAM locations remain standard
+DWARF records and do not depend on understanding the extension.
+
+- `DW_TAG_KOH_expansion = 0x4b00`: each entry stores `DW_AT_call_file`,
+  `DW_AT_call_line`, and `DW_AT_call_column`. Children form an outer-to-inner
+  expansion chain, bounded to 256 entries.
+- A range's outer frame is a child of the compilation unit. It also stores
+  `DW_AT_low_pc`, a length-valued `DW_AT_high_pc`, `DW_AT_decl_file` and
+  `DW_AT_decl_line` identifying its exact source range.
+- `DW_AT_KOH_source_range = 0x2b00`: a `DW_FORM_udata` index on that outer
+  frame identifies the zero-based decoded nonempty, known-line source range
+  within the unit. This disambiguates even identical overlapping ranges.
+  The reader checks the referenced range against its address/size/file/line.
+- A symbol's outer expansion frame is its child; the symbol's declaration
+  attributes supply the source location. Nested frames carry no source-range
+  index. No `DW_TAG_inlined_subroutine` or fabricated call frame is emitted.
+- Zero-length source ranges are omitted, as before. Expansion ancestry attached
+  to an unknown source line is rejected explicitly rather than discarded.
+
+Completed `cargo test -p koh-link --locked`, exit 0; re-read
+`/tmp/koh-dwarf-macro-tests.log`: 18 library +5 CLI +12 DWARF tests passed,
+zero failed/ignored. Focused Clippy with warnings denied also passed.
+
+The existing real assembly 2048 sample was assembled to `/tmp/koh-dwarf-2048.o`
+with the fresh native assembler, then linked and written/read as DWARF by a
+temporary probe using the fresh libraries. Every field compared equal for all
+514 symbols and 3,951 source ranges, including all 3,710 expanded ranges.
+`/tmp/koh-dwarf-2048-link.log` records the exact metadata roundtrip, exit 0.
+The native reader CLI independently read that ELF, exit 0. LLVM verification
+exited 0 and ends `No errors.` in `/tmp/koh-dwarf-2048-verify.log`.
+
+The probe's ROM exactly matches the normal CLI-linked ROM, SHA256
+`8c15e8a8c853f1b2f061021b2b7912995382ba25f79d5fd7db6c2427525f97af`.
+An independent readelf probe decoded the vendor entries and normal source line
+at banked `0x24000` without an error. These are producer/reader checks, not
+emulator execution, managed debugger or GUI acceptance.
