@@ -125,15 +125,15 @@ Built-in font expansion, BG/window glyph maps, byte-array text and decimal align
 
 ### CilFrameworkTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilFrameworkTests.cs`. Future Rust test group: `cil_framework`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilFrameworkTests.cs`. Native Rust test group: `driver::framework`; [independent state packets, scripted input and ELF execution](framework-contracts.md).
 
 Deterministic RNG, timer restart/one-shot behavior, asset handles, input edges/repeat, boot/frame clock integration. These support ordinary game code and desktop/ROM agreement, independent of lowering architecture.
 
-- **PORT** `Rng_MatchesDesktopSequenceAndDerivedDraws`.
-- **PORT** `Timer_CountsDownFiresOnceAndRestarts`.
-- **PORT** `Assets_StaticStructHandles_LoadVramAndDrawMap`.
-- **PORT** `Input_LatchedEdgesAndRepeatCadence`.
-- **PORT** `GameBootAndEndFrame_TickClockAndLatchInput`.
+- **REPLACE, complete** `Rng_MatchesDesktopSequenceAndDerivedDraws` — independent Rust xorshift arithmetic and explicit properties replace the production desktop oracle; [evidence](framework-contracts.md).
+- **PORT, complete** `Timer_CountsDownFiresOnceAndRestarts` — independent packets and actual runtime/hardware state in Debug/Release × DMG/CGB; [evidence](framework-contracts.md).
+- **PORT, complete** `Assets_StaticStructHandles_LoadVramAndDrawMap` — independent packets and actual runtime/hardware state in Debug/Release × DMG/CGB; [evidence](framework-contracts.md).
+- **PORT, complete** `Input_LatchedEdgesAndRepeatCadence` — independent packets and actual runtime/hardware state in Debug/Release × DMG/CGB; [evidence](framework-contracts.md).
+- **PORT, complete** `GameBootAndEndFrame_TickClockAndLatchInput` — independent packets and actual runtime/hardware state in Debug/Release × DMG/CGB; [evidence](framework-contracts.md).
 
 ### CilGenericTests.cs
 

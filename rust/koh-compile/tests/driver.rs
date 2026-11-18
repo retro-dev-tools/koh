@@ -8,6 +8,8 @@ mod checked_arithmetic;
 mod checked_casts;
 #[path = "driver/font_text.rs"]
 mod font_text;
+#[path = "driver/framework.rs"]
+mod framework;
 #[path = "driver/int128.rs"]
 mod int128;
 #[path = "driver/interrupts.rs"]

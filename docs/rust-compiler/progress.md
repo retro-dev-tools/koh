@@ -10,6 +10,16 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Framework state and scripted input acceptance
+
+All five [framework source methods](framework-contracts.md),14 assertion sites,
+have native replacements.20 Debug/Release × DMG/CGB ROMs expose independent RNG,
+timer, asset, input and frame-clock packets, canonical ELF round-trip and actual
+VRAM/LCD/OAM state. Test-only input modes script Right/release/Left and held A;
+production emulator/API remain unchanged. Expanded239/239 passed38.553s, exit0,
+516 explicitly unselected (/tmp/koh-framework-final.log). Ledger491/565
+(490 replacements, one DELETE),74 outstanding. Final hosted acceptance remains open.
+
 ### Font and decimal text acceptance
 
 All five [font/text source methods](font-text.md),31 assertion sites, now have
@@ -591,7 +601,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-486/565 dispositions complete (485 native replacements, one DELETE),79 outstanding,
+491/565 dispositions complete (490 native replacements, one DELETE),74 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

@@ -1,5 +1,6 @@
 using Koh.Emulator;
 using Koh.Emulator.Cartridge;
+using Koh.Emulator.Joypad;
 
 bool cost = args.Length > 0 && args[0] == "--cost";
 bool loopCost = args.Length > 0 && args[0] == "--loop-cost";
@@ -19,10 +20,18 @@ bool scroll = args.Length > 0 && args[0] == "--native-scroll";
 bool registers = args.Length > 0 && args[0] == "--native-registers";
 bool cgbHal = args.Length > 0 && args[0] == "--native-cgb-hal";
 bool scene = args.Length > 0 && args[0] == "--native-scene";
+bool frameworkInput = args.Length > 0 && args[0] == "--native-framework-input";
+bool frameworkGame = args.Length > 0 && args[0] == "--native-framework-game";
 bool irqAbi = args.Length > 0 && args[0].StartsWith("--native-irq-abi:", StringComparison.Ordinal);
 int irqReserve = irqAbi ? Convert.ToInt32(args[0].Split(':')[1], 16) : 0;
 bool irqCount = args.Length > 0 && args[0] == "--native-irq-count";
-bool video = frame || oamMode || rawOam || maps || (args.Length > 0 && args[0] == "--native-video");
+bool video =
+    frame
+    || oamMode
+    || rawOam
+    || maps
+    || frameworkGame
+    || (args.Length > 0 && args[0] == "--native-video");
 bool heap =
     video
     || stack
@@ -31,6 +40,7 @@ bool heap =
     || registers
     || cgbHal
     || scene
+    || frameworkInput
     || irqAbi
     || irqCount
     || fillCost
@@ -63,6 +73,14 @@ foreach (
         if (!gb.Mmu.DebugWrite(address, 0))
             throw new InvalidOperationException("Cannot initialize test output");
     gb.Cpu.Registers.Pc = 0x100;
+    if (frameworkInput)
+    {
+        gb.Mmu.DebugWrite(0xFF43, 0);
+        gb.JoypadPress(JoypadButton.Right);
+    }
+    if (frameworkGame)
+        gb.JoypadPress(JoypadButton.A);
+    int inputPhase = 0;
     var videoGuard = new Koh.Emulator.Debug.Mode3WriteGuard(gb);
     var timing = new VideoTiming(gb, oamMode);
     var fillWrites = new WrapTrace(copyWrap);
@@ -207,6 +225,20 @@ foreach (
             && interrupted.HasValue
             && gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) == 0xD9;
         gb.StepInstruction();
+        if (frameworkInput)
+        {
+            byte phase = gb.Mmu.DebugRead(0xFF43);
+            if (phase == 1 && inputPhase == 0)
+            {
+                gb.JoypadRelease(JoypadButton.Right);
+                inputPhase = 1;
+            }
+            else if (phase == 2 && inputPhase == 1)
+            {
+                gb.JoypadPress(JoypadButton.Left);
+                inputPhase = 2;
+            }
+        }
         if (irqCount && gb.Cpu.Registers.Pc == 0x40)
         {
             ulong tick = gb.Clock.SystemTicks;
@@ -283,6 +315,8 @@ foreach (
         throw new InvalidOperationException(
             $"ROM did not finish: {path}, PC={gb.Cpu.Registers.Pc:X4}, C010={gb.Mmu.DebugRead(0xC010):X2}"
         );
+    if (frameworkInput && inputPhase != 2)
+        throw new InvalidOperationException("Input phase sequence incomplete");
     if (irqAbi && (irqChecks != 1 || interrupted.HasValue))
         throw new InvalidOperationException("Interrupt ABI check did not complete exactly once");
     if (frame)
