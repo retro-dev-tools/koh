@@ -8,7 +8,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\tools\Koh.Superopt\Koh.Superopt.csproj" />
-    <ProjectReference Include="..\..\..\src\Compiler\Koh.Compiler\Koh.Compiler.csproj" />
     <ProjectReference Include="..\..\..\src\Emulator\Koh.Emulator\Koh.Emulator.csproj" />
   </ItemGroup>
 

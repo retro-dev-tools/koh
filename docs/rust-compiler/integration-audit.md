@@ -161,6 +161,18 @@ These are derived from real sources and acceptance observations, not an assertio
 - **REPLACE**, release + compiler migration: `.github/workflows/release-toolchain.yml` stages LSP and emulator publish outputs for Linux/Windows/macOS and checks assembler dependency licenses. Audit native compiler payload and dependency attribution for every RID and installer/archive; current recipe does not explicitly publish a compiler. `scripts/publish-release.{sh,ps1}` only promotes a draft and does not test payloads. Release acceptance must execute packaged compiler/SDK workflow, not just repository-local cargo binaries.
 - **DELETE**, obsolete container harness: removed its Dockerfile, orchestration, runner and report generator in PR #55. Both Koh phases were permanently marked unsupported by empty capability arrays, so the pokecrystal pipeline could not make an equivalent Koh/RGBDS comparison. No CI/root target consumed those scripts. Keep the active host-native `Koh.Benchmarks` project and independent `tools/verification` RGBDS checks; benchmark discovery remains in CI. No compiler-owned test coverage is removed.
 
+### Superopt replacement status
+
+The Superopt dependency described in the baseline consumer inventory above is
+now **REPLACE, complete**: both compiler project references and the MIR import
+are removed. The existing opcode table supplies instruction encodings and
+operand domains; no compiler model is copied into C#. All16 original standalone
+tool tests remain, plus three new boundary cases:19/19 pass, zero skipped,
+exit0. [Exact ownership, scope and red/green evidence](superopt-boundary.md).
+These are live tools/emulator tests, outside the565-method compiler denominator;
+no compiler-owned scenario is deferred. Final solution and cross-platform
+validation remain required, but this direct consumer no longer blocks removal.
+
 ## Retirement gates
 
 Do not delete Koh.Compiler or declare parity until all compiler-owned PORT/REPLACE groups above have native artifact/run evidence, SDK default and incremental/error paths use that compiler, all direct consumers compile without the managed compiler, and shipped payloads contain what those paths invoke. DELETE only obsolete managed harness/IR assertions and unused helpers after meaningful replacements land. No old compiler-owned behavior is deferred because it is difficult; noncompiler DEFERs retain independent owners and do not reduce these gates.

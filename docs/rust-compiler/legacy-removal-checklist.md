@@ -9,13 +9,11 @@ so deleting the compiler directory cannot silently strand an active tool.
   build targets. Keep the existing noncompiler component tests.
 - Recheck `Directory.Packages.props` ownership before removing Mono.Cecil and
   other compiler-only packages.
-- Resolve `tools/Koh.Superopt/Koh.Superopt.csproj` and
-  `tests/Tools/Koh.Superopt.Tests/Koh.Superopt.Tests.csproj`: both directly
-  reference the legacy compiler. `Sm83Alphabet.IsStraightLineRegisterOnly`
-  currently consumes `MirDecoder`, `MirControl` and `Sm83Register.Sp` from that
-  compiler. Removing the project reference alone is insufficient. Preserve its
-  meaningful memory/control/SP exclusion and execution-oracle coverage through
-  a justified replacement; do not copy the old MIR into another C# project.
+- Completed: remove the direct compiler references from both Superopt projects
+  and replace the MIR import with the existing opcode table. All16 original tool
+  tests plus three boundary regressions pass; no old MIR is copied. See the
+  [ownership, independent filter and evidence](superopt-boundary.md). Final
+  solution/cross-platform validation remains required.
 - Reconcile root README, CONTRIBUTING, AGENTS, CLAUDE and HANDOFF instructions
   with the actual native commands and dependency boundaries. Historical design
   documents must be identified as historical rather than advertised as current.

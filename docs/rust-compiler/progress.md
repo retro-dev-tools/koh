@@ -12,6 +12,18 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Superopt compiler dependency removed
+
+The [standalone tool](superopt-boundary.md) now uses the existing opcode table
+for its register-only execution domain instead of importing legacy MIR. Both
+compiler project references are removed. Red validation failed only the new
+compiled-dependency assertion while all16 original tool tests passed; final19/19
+passed18.468s, exit0, zero skipped, with zero build warnings/errors. The other
+new cases cover15 malformed/unobservable sequences and opcode-like immediate
+data. These remain tools-owned C# emulator tests, not compiler-owned coverage
+or extra credit in the565-method ledger. Full solution/cross-platform acceptance
+and legacy deletion remain required.
+
 ### Pointer-copy740-dot targeted acceptance
 
 [Native local updates, indexed byte stores and loop-local forwarding](copy-loop-selection.md)
