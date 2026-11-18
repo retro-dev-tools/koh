@@ -3120,10 +3120,18 @@ fn aggregate_arrays_copy_alias_scale_and_preserve_banks(
         ("Null", 4),
         ("Bounds", 6),
         ("Negative", 5),
-        ("OverOdd", 5),
+        ("OverOdd", 0),
         ("Wrap", 5),
-        ("HugeTooBig", 5),
+        ("HugeTooBig", 0),
     ] {
+        if entry == "Wrap" {
+            let error = compile::object(&resolver, Some("Program::Wrap")).unwrap_err();
+            assert!(
+                error.contains("insufficient physical WRAM") && error.contains("IL_"),
+                "{error}"
+            );
+            continue;
+        }
         let object = compile::object(&resolver, Some(&format!("Program::{entry}")))
             .unwrap_or_else(|error| panic!("{entry}: {error}"));
         let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
@@ -3148,16 +3156,32 @@ fn aggregate_arrays_copy_alias_scale_and_preserve_banks(
             } else {
                 "__koh_abort"
             },
-            "--native-heap",
+            if matches!(entry, "OverOdd" | "HugeTooBig") {
+                "--native-region:CF00"
+            } else {
+                "--native-heap"
+            },
         );
         let fields: Vec<_> = text.split_whitespace().collect();
         assert_eq!(fields.len(), if color { 6 } else { 5 }, "{entry}");
         assert_eq!(fields[0], format!("{fault:02X}"), "{entry}");
         assert_eq!(fields[3], "OK", "{entry}");
         if fault == 0 {
-            assert_eq!((fields[1], fields[2]), ("0000002A", "D000"), "{entry}");
+            let expected = match entry {
+                "OverOdd" => ("00000333", "CF00"),
+                "HugeTooBig" => ("00000001", "CF00"),
+                _ => ("0000002A", "D000"),
+            };
+            assert_eq!((fields[1], fields[2]), expected, "{entry}");
         }
-        let mut heap = vec![0x5a; 4096];
+        let mut heap = vec![
+            0x5a;
+            if matches!(entry, "OverOdd" | "HugeTooBig") {
+                4352
+            } else {
+                4096
+            }
+        ];
         match entry {
             "Main" | "Banked" => {
                 heap[..157].fill(0);
@@ -3182,6 +3206,14 @@ fn aggregate_arrays_copy_alias_scale_and_preserve_banks(
                 heap[4093] = 0xe1;
             }
             "HugeEmpty" => heap[..2].fill(0),
+            "OverOdd" => {
+                heap[..4097].fill(0);
+                heap[..2].copy_from_slice(&819u16.to_le_bytes());
+            }
+            "HugeTooBig" => {
+                heap[..4098].fill(0);
+                heap[..2].copy_from_slice(&1u16.to_le_bytes());
+            }
             "NestedValues" => heap[..8].copy_from_slice(&[3, 0, 5, 0, 6, 0, 7, 0]),
             "Bounds" => {
                 heap[..5].fill(0);
@@ -3639,7 +3671,7 @@ fn aligned_static_arrays_have_aligned_mutable_payloads(
     }
     for (entry, fault, result) in [
         ("EmptyAligned::Main", 0, "00000000"),
-        ("OverflowAligned::Main", 5, "00000000"),
+        ("OverflowAligned::Main", 0, "00000001"),
         ("AliasAligned::Main", 0, "0000002A"),
         ("ScalarAligned::Main", 0, "0000002A"),
     ] {
@@ -3661,7 +3693,18 @@ fn aligned_static_arrays_have_aligned_mutable_payloads(
         } else {
             "__koh_abort"
         };
-        let text = execute_mode(host, directory.path(), &linked, stop, "--native-heap");
+        let expanded = entry == "OverflowAligned::Main";
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            stop,
+            if expanded {
+                "--native-region:CF00"
+            } else {
+                "--native-heap"
+            },
+        );
         let fields: Vec<_> = text.split_whitespace().collect();
         assert_eq!(fields.len(), if color { 6 } else { 5 }, "{entry}");
         assert_eq!(fields[0], format!("{fault:02X}"), "{entry}");
@@ -3669,13 +3712,14 @@ fn aligned_static_arrays_have_aligned_mutable_payloads(
         if fault == 0 {
             assert_eq!(
                 (fields[1], fields[2], fields[3]),
-                (result, "D000", "OK"),
+                (result, if expanded { "CF00" } else { "D000" }, "OK"),
                 "{entry}"
             );
         }
-        let mut expected = vec![0x5a; 4096];
+        let mut expected = vec![0x5a; if expanded { 4352 } else { 4096 }];
         match entry {
             "EmptyAligned::Main" => expected[4094..].fill(0),
+            "OverflowAligned::Main" => expected[254..257].copy_from_slice(&[1, 0, 0]),
             "AliasAligned::Main" => {
                 expected[0xfe..0x100].copy_from_slice(&8u16.to_le_bytes());
                 expected[0x100..0x108].fill(0);
@@ -3851,7 +3895,7 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
         ("Multidimensional", 0),
         ("NullArray", 4),
         ("Negative", 5),
-        ("TooLarge", 5),
+        ("TooLarge", 0),
         ("Truncated", 5),
         ("NegativeIndex", 6),
         ("HighIndex", 6),
@@ -3891,7 +3935,11 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
             } else {
                 "__koh_abort"
             },
-            "--native-heap",
+            if entry == "TooLarge" {
+                "--native-region:CF00"
+            } else {
+                "--native-heap"
+            },
         );
         let fields: Vec<_> = text.split_whitespace().collect();
         assert_eq!(
@@ -3901,19 +3949,21 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
         );
         assert_eq!(fields[0], format!("{fault:02X}"), "{entry}");
         assert_eq!(fields[3], "OK", "{entry}: corrupted frame guards");
-        let mut heap = vec![0x5a; 0x1000];
+        let mut heap = vec![0x5a; if entry == "TooLarge" { 4352 } else { 4096 }];
         if fault == 0 {
             assert_eq!(
                 (fields[1], fields[2]),
                 (
-                    if matches!(entry, "ObjectArray" | "FloatArray") {
+                    if entry == "TooLarge" {
+                        "00000FFF"
+                    } else if matches!(entry, "ObjectArray" | "FloatArray") {
                         "00000002"
                     } else if entry == "Multidimensional" {
                         "00000004"
                     } else {
                         "0000002A"
                     },
-                    "D000"
+                    if entry == "TooLarge" { "CF00" } else { "D000" }
                 ),
                 "{entry}"
             );
@@ -3922,7 +3972,9 @@ fn primitive_arrays_are_zeroed_checked_and_bank_safe(
                 expected.extend_from_slice(&count.to_le_bytes());
                 expected.extend_from_slice(data);
             };
-            if entry == "ObjectArray" {
+            if entry == "TooLarge" {
+                array(4095, &[0; 4095]);
+            } else if entry == "ObjectArray" {
                 array(2, &[0; 4]);
             } else if entry == "FloatArray" {
                 array(2, &[0; 8]);

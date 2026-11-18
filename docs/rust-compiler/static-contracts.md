@@ -1,7 +1,7 @@
 # Static storage source-test migration
 
-Nine of the ten methods in `Frontends/CilStaticsTests.cs` now have native Rust
-replacements. The remaining5000-byte allocation scenario is explicitly open.
+All ten methods in `Frontends/CilStaticsTests.cs` now have native Rust
+replacements, including the5000-byte allocation scenario.
 This is test migration over the existing Rust compiler, not a new compiler/API
 layer or a promise that legacy storage placement is correct.
 
@@ -44,12 +44,13 @@ and two expanded cases; it is excluded from these completion counts.
 | MutableStaticArray_GetsDedicatedWramGlobalNotHeap | Initial zeros, writes7/9, replacement-array zeros, old alias still7/9 | Identity/mutation contract; dedicated placement is private | REPLACE; MutableArray |
 | MutableStaticArray_DebugAndReleaseProduceIdenticalObservableState | Independently verify all eight result bytes in both modes | Observable contract | REPLACE; MutableArray |
 | NoCaptureLambda_DoesNotResurrectCompilerGeneratedCctor | Two results6, initialization count1, body count2 and BGP6 | Observable calls; constructor/cache elision is private | REPLACE; CachedLambda |
-| MutableStaticArray_CrossesWramBoundaryAndRetainsEndpointWrites |5000 elements, endpoints7/9, aggregate result16; absolute C000/header layout is private | Useful capacity contract plus obsolete placement details | OPEN, not DEFER/DELETE; `StaticContracts::LargeArray` is a reproducible current failure, not a passing native replacement |
+| MutableStaticArray_CrossesWramBoundaryAndRetainsEndpointWrites |5000 elements, endpoints7/9, aggregate result16; absolute C000 layout is private | Useful capacity contract plus obsolete placement details | REPLACE complete; `driver::static_contracts::large_static_array_executes_across_wram_boundary`, full relocated header/payload, SP and bank snapshots |
 
-Two PORT and seven REPLACE decisions complete nine methods. No failing capacity
+Two PORT and eight REPLACE decisions complete ten methods,35 source assertion
+sites across16 original expanded cases. No failing capacity
 assertion was weakened into an accepted failure. Legacy source definitions remain
-until the final compiler/test-project deletion. The ledger advances530/565,
-529 native replacements plus one earlier obsolete-parser DELETE,35 outstanding.
+until the final compiler/test-project deletion. The ledger advances531/565,
+530 native replacements plus one earlier obsolete-parser DELETE,34 outstanding.
 
 ## Native evidence
 
@@ -76,9 +77,9 @@ Rust formatting, CSharpier and `git diff --check` passed.
 cargo nextest run -p koh-compile --test driver --locked -E 'test(static_contracts::)'
 ```
 
-## Outstanding5000-byte capacity requirement
+## Historical5000-byte capacity failure
 
-The current contiguous arena is4KiB;5000 payload bytes plus its header cannot fit.
+Before RAM partitioning, the contiguous arena was4KiB;5000 payload bytes plus its header could not fit.
 Both new fixture DLLs were compiled through the native CLI, linked from ELF with
 the Rust CLI and executed in the existing emulator. Compile/link exited0; each
 ROM reached allocation fault05 with intact guards and an unchanged poisoned heap.
@@ -90,4 +91,21 @@ The old absolute C000 placement and two-byte layout are unnecessary. The useful
 contiguous capacity still requires a deliberate memory-layout solution or explicit
 product decision: the current fixed stack/arena division is not an inherited
 hardware specification. General banked storage and large-array acceptance remain
-part of the full migration, with no source-method closure claimed here.
+part of the full migration. This historical failure is superseded by the positive
+acceptance below.
+
+## Expanded capacity acceptance
+
+[RAM partitioning](ram-layout.md) now executes the5000-byte static array with
+result16, restored SP CC00, exact length/5000-byte payload and endpoints7/9 in
+both Debug/Release and DMG/CGB. Two CGB pin cases cross the CFFF/D000 boundary
+under caller bank2 and verify full bank restoration. Four allocation-shape cases
+execute32 additional ROMs, including full-width elements, rectangles, aligned
+payloads, raw reset/reuse, shared exhaustion and bounded/deep mutual recursion.
+Two roots reject impossible physical capacity/stack use with IL diagnostics.
+
+Together with the earlier20 static-storage ROMs,14 Rust cases execute58 ROMs
+and eight rejected compilations. Complete physical snapshots include poisoned
+alignment gaps/tails and alternate bank2. The final affected selection passed
+354/354 in184.961s, exit0 (`/tmp/koh-expanded-capacity-bus-alignment.log`), with540
+explicitly unselected. Full-workspace/host validation remains separate.

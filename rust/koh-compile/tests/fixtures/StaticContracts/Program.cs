@@ -89,6 +89,91 @@ public static unsafe class Program
         *(byte*)0xDFF0 = 0xA3;
         return bank == 2 ? cells[0] + cells[4999] : -1;
     }
+
+    public static int LargeWideArray()
+    {
+        long[] cells = new long[625];
+        cells[0] = 7;
+        cells[624] = 9;
+        return cells.Length == 625 ? (int)(cells[0] + cells[624]) : -1;
+    }
+
+    public static int LargeRectangle()
+    {
+        byte[,] cells = new byte[50, 100];
+        cells[0, 0] = 7;
+        cells[49, 99] = 9;
+        return cells.Length == 5000 && cells.GetLength(0) == 50 && cells.GetLength(1) == 100
+            ? cells[0, 0] + cells[49, 99]
+            : -1;
+    }
+
+    public static int LargeAlignedArray()
+    {
+        LargeAlignedState.Cells[0] = 7;
+        LargeAlignedState.Cells[4999] = 9;
+        fixed (byte* p = LargeAlignedState.Cells)
+            return ((ushort)p & 255) == 0 ? p[0] + p[4999] : -1;
+    }
+
+    public static int LargeRawAllocation()
+    {
+        byte* first = Mem.Alloc(5000);
+        first[0] = 7;
+        first[4999] = 9;
+        Mem.Reset();
+        byte* second = Mem.Alloc(5000);
+        return first == second ? second[0] + second[4999] : -1;
+    }
+
+    public static int PageAlignedFullArray()
+    {
+        PageAlignedState.Cells[0] = 7;
+        PageAlignedState.Cells[4095] = 9;
+        fixed (byte* p = PageAlignedState.Cells)
+            return ((ushort)p & 4095) == 0 ? p[0] + p[4095] : -1;
+    }
+
+    public static int LargeSharedCollision()
+    {
+        byte[] cells = new byte[5000];
+        cells[0] = 7;
+        cells[4999] = 9;
+        Mem.Alloc(119);
+        return cells[0];
+    }
+
+    private static int RecursiveSum(int depth) =>
+        depth == 0 ? 0 : depth + RecursiveOther(depth - 1);
+
+    private static int RecursiveOther(int depth) =>
+        depth == 0 ? 0 : depth + RecursiveSum(depth - 1);
+
+    public static int LargeRecursiveArray()
+    {
+        byte[] cells = new byte[5000];
+        cells[0] = 7;
+        cells[4999] = 9;
+        return RecursiveSum(4) == 10 ? cells[0] + cells[4999] : -1;
+    }
+
+    public static int LargeRecursiveOverflow()
+    {
+        byte[] cells = new byte[5000];
+        cells[0] = 7;
+        cells[4999] = 9;
+        return RecursiveSum(1000) + cells[0];
+    }
+
+    public static int ImpossibleArena() => new byte[8000].Length;
+
+    public static int InsufficientStack()
+    {
+        byte[] cells = new byte[5000];
+        byte* scratch = stackalloc byte[3000];
+        scratch[0] = 7;
+        return cells.Length + scratch[0];
+    }
 }
 
 public static class CounterState
@@ -143,4 +228,16 @@ public static class CacheState
 public static class LargeState
 {
     public static byte[] Cells = new byte[5000];
+}
+
+public static class LargeAlignedState
+{
+    [KohAligned(256)]
+    public static byte[] Cells = new byte[5000];
+}
+
+public static class PageAlignedState
+{
+    [KohAligned(4096)]
+    public static byte[] Cells = new byte[4096];
 }

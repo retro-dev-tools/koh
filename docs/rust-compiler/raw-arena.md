@@ -4,16 +4,17 @@ The useful requirement is bounded writable storage for graphics and other unsafe
 hardware-facing code. The old DE00 top address, shared managed/raw reset lifetime
 and unchecked 16-bit size wrap are not contracts to preserve.
 
-The selected design shares the existing 4 KiB WRAM bank1 region. Managed arrays
+The selected design shares the [contiguous WRAM arena](ram-layout.md),
+defaulting to4KiB in bank1. Managed arrays
 grow upward, with their existing length headers and payload alignment. Raw blocks
 grow downward, without headers or initialization. Two independent used-byte
-cursors must satisfy `managed_end + raw_used <= 4096` after every allocation.
+cursors must satisfy `managed_end + raw_used <= selected_capacity` after every allocation.
 Both allocation directions check this invariant before committing a cursor or
 touching payload memory. Alignment padding consumes capacity. The linker owns
 the arena placement; the compiler references its symbol rather than introducing
 a second address table or a second bank allocator.
 
-`Mem.Alloc(int)` accepts0..4096 bytes subject to the remaining shared capacity.
+`Mem.Alloc(int)` accepts sizes up to the selected remaining shared capacity.
 Negative, wider/truncated and exhausted requests trap with allocation code5.
 Zero bytes returns the current raw frontier, possibly the arena's one-past end;
 it reserves no storage and cannot be dereferenced. Raw alignment is one byte;

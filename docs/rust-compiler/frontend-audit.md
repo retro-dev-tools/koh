@@ -373,7 +373,7 @@ Shadow sprites flush positions/tile/attributes with hardware offsets and clippin
 
 ### CilStaticsTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStaticsTests.cs`. Native group: `driver::static_contracts`; nine complete, one capacity requirement open. [Full matrix and evidence](static-contracts.md).
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStaticsTests.cs`. Native group: `driver::static_contracts`; all ten complete. [Full matrix and evidence](static-contracts.md).
 
 Mutable fields persist across calls, array initialization retains content, constant fields fold correctly and generated delegate caches do not re-run initialization. ROM placement of readonly references or mutable array dedicated allocation is not required by C# semantics.
 
@@ -385,7 +385,7 @@ Mutable fields persist across calls, array initialization retains content, const
 - **REPLACE, complete** `ConstField_DebugAndReleaseProduceIdenticalObservableState` — independently verify42.
 - **REPLACE, complete** `MutableStaticArray_GetsDedicatedWramGlobalNotHeap` — mutation, replacement-array zeros and old-alias identity; no dedicated-placement requirement.
 - **REPLACE, complete** `MutableStaticArray_DebugAndReleaseProduceIdenticalObservableState` — independently check all result bytes.
-- **REPLACE, OPEN** `MutableStaticArray_CrossesWramBoundaryAndRetainsEndpointWrites` —5000-byte capacity remains required; absolute C000/header assertions are private. Native probe faults05 rather than returning16; not DEFER or accepted retirement.
+- **REPLACE, complete** `MutableStaticArray_CrossesWramBoundaryAndRetainsEndpointWrites` —5000 elements, exact header/zeroed payload/endpoints7/9 and return16 execute in both build/hardware modes. Per-program RAM partitioning replaces private C000 placement; guards, cross-bank pins and capacity diagnostics extend acceptance.
 - **REPLACE, complete** `NoCaptureLambda_DoesNotResurrectCompilerGeneratedCctor` — actual6/6, one type initialization and two body calls replace constructor/cache omission.
 
 ### CilStoredDelegateTests.cs

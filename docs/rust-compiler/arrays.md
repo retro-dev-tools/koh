@@ -22,14 +22,17 @@ the reference is returned. Value copies include all layout padding and do not
 alias their source. Scalar element stores truncate to the declared storage width;
 loads obey the CIL opcode's signedness. Native integers use Koh's two-byte ABI.
 
-The linker places a 4096-byte WRAMX bank-1 reservation named `.koh.heap`; the
-compiler does not choose its address or perform layout. Two little-endian words
+The linker places a4096-byte WRAMX bank1 reservation named `.koh.heap` and,
+when [RAM partitioning](ram-layout.md) selects expansion, an adjacent fixed WRAM0
+extension. The compiler emits ABI reservations; the linker checks placement.
+Two little-endian words
 in startup-zeroed WRAM0 count against static capacity: the managed end offset and
 the [raw arena](raw-arena.md)'s used-byte count. Managed storage grows upward and
 raw blocks grow downward; every allocation checks their combined capacity.
 Allocation checks the original int32/native length before narrowing, then the
 scaled size and remaining capacity before publishing the cursor or touching the
-heap. A byte array can contain at most 4094 elements. There is currently no
+heap. The default arena admits4094 byte elements; known larger requirements can
+expand it at the expense of stack capacity. There is currently no
 managed collection, freeing or reset; allocations live until the ROM restarts.
 `Mem.Reset` releases raw blocks only and cannot invalidate managed arrays. Games
 must budget their total allocations. This is an initial allocator contract, not
@@ -116,12 +119,13 @@ Fields and nested values use the same layout and memory operations as ordinary
 from the explicit Storage wrapper. RVA initialization remains primitive-only
 until a separate aggregate contract is justified; IR rejects aggregate use.
 
-Allocation first checks the original length, then bounds it by4094/element_size
+Allocation first checks the original length, then bounds it by
+`(selected_capacity - 2) / element_size`
 before multiplication. This prevents a product such as1024*64 from wrapping to
 zero. The common allocator receives checked payload bytes and still validates
 alignment, cursor addition and remaining capacity before publishing or writing.
-A4096-byte element admits an empty array but cannot fit a nonempty object in the
-current heap. Empty objects retain distinct two-byte identities.
+A4096-byte element can occupy a nonempty array in an expanded arena. Empty
+objects retain distinct two-byte identities.
 
 Power-of-two scaling keeps its shift path; odd sizes use sixteen-bit register
 shift/add. Array bounds are checked before scaling. The real fixtures cover

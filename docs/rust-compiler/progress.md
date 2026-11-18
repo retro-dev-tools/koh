@@ -10,7 +10,17 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
-### Expanded arena implementation checkpoint
+### Expanded arena and static-capacity closure
+
+The5000-byte source contract now has complete native replacements, with58 total
+static/allocation ROMs and eight rejected compilations. Wider cases cover exact
+wide/rectangular/aligned/raw storage, shared exhaustion and mutual recursion.
+Candidate-address alignment and the allocator's bus-address rounding fix a real
+expanded-base bug. Final affected354/354 passed184.961s, exit0.
+[ABI, decisions and failure evidence](ram-layout.md). Ledger531/565,
+34 outstanding; legacy deletion and full current-head host acceptance remain open.
+
+### Earlier expanded arena implementation checkpoint
 
 [Per-program RAM partitioning](ram-layout.md) now executes the5000-byte array
 with result16 across Debug/Release × DMG/CGB. CGB cross-boundary pins also restore
@@ -24,8 +34,9 @@ Nine methods now have native replacements for29 assertion sites, with20 ROMs
 checking zero/init state, counter wrap, readonly-array mutation, array identity,
 literal storage and cached callback behavior. Affected64/64 passed94.287s, exit0.
 [Matrix, independent requirements and capacity evidence](static-contracts.md).
-The separate5000-byte array still faults05 in both modes, not the required16;
-its endpoint/capacity requirement remains open. Ledger530/565,35 outstanding.
+Before RAM partitioning, the separate5000-byte array faulted05 in both modes;
+the newer closure above supersedes that limitation. At this checkpoint the
+ledger was530/565,35 outstanding.
 No capacity reduction is hidden behind test closure; full migration remains active.
 
 ### CGB prepared-map source ownership

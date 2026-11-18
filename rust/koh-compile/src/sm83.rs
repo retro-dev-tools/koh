@@ -557,6 +557,11 @@ impl Code<'_> {
         self.save_word(temp + 2);
         if aligned {
             self.copy(temp + 20, temp + 14, 2);
+            let heap = self.import("__koh_heap".into());
+            self.jump(0x21, heap);
+            self.bytes(&[0x44, 0x4d]);
+            self.save_word(temp + 16);
+            self.arithmetic(temp + 2, temp + 16, temp + 2, 2, 0x88);
             self.arithmetic(temp + 2, temp + 14, temp + 2, 2, 0x88);
             self.arithmetic(temp + 2, temp + 10, temp + 2, 2, 0x88);
             for byte in 0..2 {
@@ -566,6 +571,7 @@ impl Code<'_> {
                 self.bytes(&[0xa1]);
                 self.store_a(temp + 2 + byte);
             }
+            self.arithmetic(temp + 2, temp + 16, temp + 2, 2, 0x98);
             self.arithmetic(temp + 2, temp + 14, temp + 2, 2, 0x98);
         }
         self.arithmetic(temp, temp + 2, temp + 4, 2, 0x88);

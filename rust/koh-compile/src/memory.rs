@@ -28,8 +28,7 @@ impl Layout {
         entry: Definition,
         irq: u16,
     ) -> Result<Self, String> {
-        let mut requirement = 4096u64;
-        let mut origin = (entry, 0);
+        let mut allocations = Vec::new();
         for function in functions {
             let constants: BTreeMap<_, _> = function
                 .blocks
@@ -55,30 +54,52 @@ impl Layout {
                         element,
                         length,
                         alignment,
-                    } => count(length).map(|n| {
-                        n * u64::from(element.bytes()) + 2 + u64::from(alignment.saturating_sub(1))
-                    }),
+                    } => count(length).map(|n| (n * u64::from(element.bytes()), 2, *alignment)),
                     Op::NewRectangle {
                         element,
                         rows,
                         columns,
                     } => count(rows)
                         .zip(count(columns))
-                        .map(|(r, c)| r * c * u64::from(element.bytes()) + 6),
-                    Op::NewObject(class) => Some(u64::from(class.bytes())),
-                    Op::ArenaAllocate(size) => count(size),
+                        .map(|(r, c)| (r * c * u64::from(element.bytes()), 6, 1)),
+                    Op::NewObject(class) => Some((u64::from(class.bytes()), 0, 1)),
+                    Op::ArenaAllocate(size) => count(size).map(|bytes| (bytes, 0, 1)),
                     _ => None,
                 };
-                if let Some(bytes) = bytes.filter(|&bytes| bytes > requirement) {
-                    requirement = bytes;
-                    origin = (function.identity, instruction.il_offset);
+                if let Some((bytes, header, alignment)) = bytes {
+                    allocations.push((
+                        bytes,
+                        header,
+                        alignment,
+                        function.identity,
+                        instruction.il_offset,
+                    ));
                 }
             }
         }
-        if requirement == 4096 {
+        let mut capacity = 4096u64;
+        let mut requirement = 4096;
+        let mut origin = (entry, 0);
+        while capacity < 0x1f00 {
+            let base = 0xe000 - capacity;
+            let failure = allocations
+                .iter()
+                .find_map(|&(bytes, header, alignment, id, il)| {
+                    let mask = u64::from(alignment - 1);
+                    let payload = (base + header + mask) & !mask;
+                    let required = payload + bytes - base;
+                    (required > capacity).then_some((required, id, il))
+                });
+            let Some((bytes, id, il)) = failure else {
+                break;
+            };
+            requirement = bytes;
+            origin = (id, il);
+            capacity += 256;
+        }
+        if capacity == 4096 {
             return Ok(Self::default());
         }
-        let capacity = (requirement + 255) & !255;
         let context = || {
             format!(
                 "{} IL_{:04x}: known allocation requires {requirement} bytes",
@@ -184,6 +205,7 @@ mod tests {
     #[case(4097, 4352, 0xcf00)]
     #[case(5002, 5120, 0xcc00)]
     #[case(5257, 5376, 0xcb00)]
+    #[case(7680, 7680, 0xc200)]
     fn partitions_physical_wram(#[case] bytes: u64, #[case] capacity: u16, #[case] top: u16) {
         let f = allocation(bytes);
         let layout = Layout::for_program(std::slice::from_ref(&f), f.identity, 0).unwrap();
@@ -206,5 +228,69 @@ mod tests {
         let error = Layout::for_program(std::slice::from_ref(&f), f.identity, 2816).unwrap_err();
         assert!(error.contains("including IRQ reserve"), "{error}");
         assert!(error.contains("only 2816 remain"), "{error}");
+    }
+
+    #[rstest]
+    #[case(0, 4096)]
+    #[case(1, 4352)]
+    #[case(4096, 4352)]
+    fn aligns_payload_against_candidate_bus_address(#[case] count: u64, #[case] capacity: u16) {
+        use crate::ir::{ArrayKind, Scalar, Storage};
+        let mut f = allocation(count);
+        let element = Storage::Scalar(Scalar::U8);
+        f.blocks[0].instructions[1] = Instruction {
+            result: Some((1, Type::Array(element, ArrayKind::Vector))),
+            op: Op::NewArray {
+                element,
+                length: 0,
+                alignment: 4096,
+            },
+            il_offset: 7,
+        };
+        let layout = Layout::for_program(std::slice::from_ref(&f), f.identity, 0).unwrap();
+        assert_eq!(layout.heap_bytes, capacity);
+        let payload = (u32::from(layout.stack_top()) + 2 + 4095) & !4095;
+        assert!(u64::from(payload) + count <= 0xe000);
+    }
+
+    #[rstest]
+    #[case(1000, true)]
+    #[case(1500, false)]
+    fn bounds_nested_frames_against_selected_stack(#[case] bytes: u64, #[case] fits: bool) {
+        let mut root = allocation(5002);
+        root.blocks[0].instructions.extend([
+            Instruction {
+                result: Some((2, Type::I32)),
+                op: Op::Constant(bytes),
+                il_offset: 9,
+            },
+            Instruction {
+                result: Some((3, Type::Native)),
+                op: Op::StackAllocate { bytes: 2 },
+                il_offset: 10,
+            },
+        ]);
+        let mut child = root.clone();
+        child.identity.token += 1;
+        root.blocks[0].instructions.push(Instruction {
+            result: None,
+            op: Op::Call {
+                target: child.identity,
+                signature: crate::ir::Signature {
+                    parameters: vec![],
+                    returns: None,
+                },
+                arguments: vec![],
+            },
+            il_offset: 11,
+        });
+        let id = root.identity;
+        let result = Layout::for_program(&[root, child], id, 0);
+        if fits {
+            assert_eq!(result.unwrap().stack_bytes(), 2816);
+        } else {
+            let error = result.unwrap_err();
+            assert!(error.contains("only 2816 remain"), "{error}");
+        }
     }
 }

@@ -91,12 +91,20 @@ fn rectangular_arrays_reject_invalid_dimensions_before_truncation(
         ("NegativeDimension", "06"),
         ("NegativeSize", "05"),
         ("TruncatedSize", "05"),
-        ("Capacity", "05"),
+        ("Capacity", "00"),
         ("ProductOverflow", "05"),
         ("NullIndex", "04"),
         ("NullDimension", "04"),
     ] {
         let entry = format!("InvalidShapes::{method}");
+        if method == "ProductOverflow" {
+            let error = compile::object(&resolver, Some(&entry)).unwrap_err();
+            assert!(
+                error.contains("insufficient physical WRAM") && error.contains("IL_"),
+                "{error}"
+            );
+            continue;
+        }
         let object = compile::object(&resolver, Some(&entry)).unwrap();
         let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
         let linked = koh_link::link(
@@ -115,12 +123,27 @@ fn rectangular_arrays_reject_invalid_dimensions_before_truncation(
             host,
             directory.path(),
             &linked,
-            "__koh_abort",
-            "--native-heap",
+            if method == "Capacity" {
+                "__koh_exit"
+            } else {
+                "__koh_abort"
+            },
+            if method == "Capacity" {
+                "--native-region:CF00"
+            } else {
+                "--native-heap"
+            },
         );
         let fields: Vec<_> = result.split_whitespace().collect();
         assert_eq!(fields[0], fault, "{entry}: {result}");
         assert_eq!(fields[3], "OK", "{entry}: static guard");
+        if method == "Capacity" {
+            assert_eq!(&fields[1..3], &["00001081", "CF00"]);
+            let mut expected = vec![0x5a; 4352];
+            expected[..4231].fill(0);
+            expected[..6].copy_from_slice(&[0x81, 0x10, 65, 0, 65, 0]);
+            super::assert_heap_snapshot(fields[4], &expected, &entry);
+        }
         if color {
             super::assert_heap_snapshot(fields[5], &[0x6b; 4096], &entry);
         }

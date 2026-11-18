@@ -61,7 +61,8 @@ reference cells and fields. Rank2 zero-based arrays use the normal checked heap
 and calling convention. The six-byte header stores total element count, rows,
 and columns as little-endian words, followed by row-major element storage.
 Dimensions must each fit an unsigned16-bit word, even when the other dimension
-is zero. The scaled payload and header must fit the existing4096-byte heap.
+is zero. The scaled payload and header must fit the
+[selected arena capacity](ram-layout.md); the default is4096 bytes.
 These are explicit target capacity limits, not claims about CLR array limits.
 
 Runtime-provided constructor/Get/Set/Address member signatures are validated.
