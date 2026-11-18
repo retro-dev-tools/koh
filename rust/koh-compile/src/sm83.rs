@@ -1578,31 +1578,19 @@ pub fn class_symbol(identity: Option<Definition>) -> String {
 }
 
 pub fn emit(function: &Function) -> Result<Object, String> {
-    emit_with_strings(function, None, false, None)
+    emit_with_pdb(function, None)
 }
 
-pub(crate) fn emit_with_strings(
+fn emit_with_pdb(
     function: &Function,
-    strings: Option<&BTreeMap<Vec<u16>, String>>,
-    banked: bool,
     pdb: Option<&crate::pdb::PortablePdb>,
-) -> Result<Object, String> {
-    emit_with_strings_origin(function, strings, banked, pdb, function.identity.token)
-}
-
-pub(crate) fn emit_with_strings_origin(
-    function: &Function,
-    strings: Option<&BTreeMap<Vec<u16>, String>>,
-    banked: bool,
-    pdb: Option<&crate::pdb::PortablePdb>,
-    source_method: u32,
 ) -> Result<Object, String> {
     emit_with_stack_reserve(
         function,
-        strings,
-        banked,
+        None,
+        false,
         pdb,
-        source_method,
+        function.identity.token,
         0,
         crate::memory::Layout::default(),
     )
@@ -3246,7 +3234,7 @@ mod debug_tests {
     fn runtime_helpers_and_prologues_have_no_source_ranges() {
         let function = multiplication_chain();
         let pdb = symbols("game.cs".into());
-        let object = emit_with_strings(&function, None, false, Some(&pdb)).unwrap();
+        let object = emit_with_pdb(&function, Some(&pdb)).unwrap();
         let text = &object.sections[0];
         assert!(!text.lines.is_empty());
         assert!(text.lines[0].offset > 0);
@@ -3259,7 +3247,7 @@ mod debug_tests {
     fn expanded_source_metadata_has_a_function_budget() {
         let function = multiplication_chain();
         let pdb = symbols("x".repeat(65_535));
-        let error = emit_with_strings(&function, None, false, Some(&pdb)).unwrap_err();
+        let error = emit_with_pdb(&function, Some(&pdb)).unwrap_err();
         assert!(error.contains("source metadata exceeds"), "{error}");
     }
 }

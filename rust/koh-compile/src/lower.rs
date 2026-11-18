@@ -656,6 +656,14 @@ impl Builder<'_, '_> {
         Ok((id, ty))
     }
 
+    fn effect(&mut self, op: Op) {
+        self.instructions.push(Instruction {
+            result: None,
+            op,
+            il_offset: self.offset,
+        });
+    }
+
     fn pop(&mut self) -> Result<(u32, Type), String> {
         self.stack
             .pop()
@@ -983,15 +991,18 @@ fn lower_inner(
 ) -> Result<Function, String> {
     let mut method = method.clone();
     let cil = decode(method.il)?;
-    if cil.len() >= 16_384
-        || cil
-            .iter()
-            .map(|i| match &i.operand {
-                Operand::Targets(targets) => targets.len(),
-                _ => 0,
-            })
-            .sum::<usize>()
-            > 262_144
+    let within_limits = |cil: &[Cil]| {
+        cil.len() < 16_384
+            && cil
+                .iter()
+                .map(|i| match &i.operand {
+                    Operand::Targets(targets) => targets.len(),
+                    _ => 0,
+                })
+                .sum::<usize>()
+                <= 262_144
+    };
+    if !within_limits(&cil)
         || method.max_stack > 1024
         || method.locals.len() + method.parameters.len() > 1024
     {
@@ -999,16 +1010,7 @@ fn lower_inner(
     }
     let normalized = finally::normalize(&mut method, cil, regions)?;
     let cil = normalized.instructions;
-    if cil.len() >= 16_384
-        || cil
-            .iter()
-            .map(|i| match &i.operand {
-                Operand::Targets(t) => t.len(),
-                _ => 0,
-            })
-            .sum::<usize>()
-            > 262_144
-    {
+    if !within_limits(&cil) {
         return Err("Finally expansion exceeds lowering resource limits".into());
     }
     let indices: HashMap<_, _> = cil
@@ -1042,13 +1044,9 @@ fn lower_inner(
         offset: 0,
     };
     for (i, _) in method.parameters.iter().enumerate() {
-        builder.instructions.push(Instruction {
-            result: None,
-            op: Op::StoreLocal {
-                local: i as u32,
-                value: i as u32,
-            },
-            il_offset: 0,
+        builder.effect(Op::StoreLocal {
+            local: i as u32,
+            value: i as u32,
         });
     }
     for (i, &ty) in method.locals.iter().enumerate() {
@@ -1065,13 +1063,9 @@ fn lower_inner(
                 },
             )?
             .0;
-        builder.instructions.push(Instruction {
-            result: None,
-            op: Op::StoreLocal {
-                local: (method.parameters.len() + i) as u32,
-                value,
-            },
-            il_offset: 0,
+        builder.effect(Op::StoreLocal {
+            local: (method.parameters.len() + i) as u32,
+            value,
         });
     }
     let entry = Block {
@@ -1268,13 +1262,9 @@ fn lower_inner(
     builder.offset = 0;
     for &(local, shape) in &constructions {
         let zero = builder.value(Type::Struct(shape), Op::ZeroStruct)?;
-        builder.instructions.push(Instruction {
-            result: None,
-            op: Op::StoreLocal {
-                local,
-                value: zero.0,
-            },
-            il_offset: 0,
+        builder.effect(Op::StoreLocal {
+            local,
+            value: zero.0,
         });
     }
     blocks[0].instructions.append(&mut builder.instructions);
@@ -1305,14 +1295,10 @@ fn construct(
     if let Type::Object(class) = ty {
         let object = b.value(Type::Object(class), Op::NewObject(class))?;
         arguments.insert(0, object.0);
-        b.instructions.push(Instruction {
-            result: None,
-            op: Op::Call {
-                target,
-                signature,
-                arguments,
-            },
-            il_offset: b.offset,
+        b.effect(Op::Call {
+            target,
+            signature,
+            arguments,
         });
         b.stack.push(object);
         return Ok(());
@@ -1332,13 +1318,9 @@ fn construct(
             local as u32
         };
         let zero = b.value(Type::Struct(shape), Op::ZeroStruct)?;
-        b.instructions.push(Instruction {
-            result: None,
-            op: Op::StoreLocal {
-                local,
-                value: zero.0,
-            },
-            il_offset: b.offset,
+        b.effect(Op::StoreLocal {
+            local,
+            value: zero.0,
         });
         let address = b.value(
             Type::StructRef(shape),
@@ -1348,14 +1330,10 @@ fn construct(
             },
         )?;
         arguments.insert(0, address.0);
-        b.instructions.push(Instruction {
-            result: None,
-            op: Op::Call {
-                target,
-                signature,
-                arguments,
-            },
-            il_offset: b.offset,
+        b.effect(Op::Call {
+            target,
+            signature,
+            arguments,
         });
         let value = b.value(
             Type::Struct(shape),
@@ -1416,20 +1394,16 @@ fn translate(
         } else {
             b.coerce(value, ty)?
         };
-        b.instructions.push(Instruction {
-            result: None,
-            op: if pinned {
-                Op::StorePinned {
-                    local: index as u32,
-                    value: value.0,
-                }
-            } else {
-                Op::StoreLocal {
-                    local: index as u32,
-                    value: value.0,
-                }
-            },
-            il_offset: b.offset,
+        b.effect(if pinned {
+            Op::StorePinned {
+                local: index as u32,
+                value: value.0,
+            }
+        } else {
+            Op::StoreLocal {
+                local: index as u32,
+                value: value.0,
+            }
         });
         Ok(())
     };
@@ -1464,11 +1438,7 @@ fn translate(
                 let receiver = b.pop()?;
                 let owner = owner_type(resolver, instantiated)?;
                 let receiver = b.coerce(receiver, Type::Object(class_type(resolver, owner)?))?;
-                b.instructions.push(Instruction {
-                    result: None,
-                    op: Op::CheckObject(receiver.0),
-                    il_offset: b.offset,
-                });
+                b.effect(Op::CheckObject(receiver.0));
             }
             let target = if virtual_pointer && flags & 0x40 != 0 {
                 crate::dispatch::identity(instantiated)
@@ -1591,14 +1561,10 @@ fn translate(
                     if value.1 != ty {
                         return Err("Typed scalar store value type mismatch".into());
                     }
-                    b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::StoreMemory {
-                            address: address.0,
-                            value: value.0,
-                            bits: storage.bytes() * 8,
-                        },
-                        il_offset: b.offset,
+                    b.effect(Op::StoreMemory {
+                        address: address.0,
+                        value: value.0,
+                        bits: storage.bytes() * 8,
                     });
                 } else {
                     let signed = matches!(storage, FieldStorage::Value(Storage::Scalar(scalar)) if scalar.signed());
@@ -1805,14 +1771,10 @@ fn translate(
                 b.stack.push(address);
             } else if let Some(value) = stored {
                 let value = b.coerce(value, element.stack_type())?;
-                b.instructions.push(Instruction {
-                    result: None,
-                    op: Op::StoreMemory {
-                        address: address.0,
-                        value: value.0,
-                        bits: element.bytes() * 8,
-                    },
-                    il_offset: b.offset,
+                b.effect(Op::StoreMemory {
+                    address: address.0,
+                    value: value.0,
+                    bits: element.bytes() * 8,
                 });
             } else {
                 let signed = if explicit.is_some() {
@@ -1917,14 +1879,10 @@ fn translate(
                     )?;
                     if let Some(stored) = stored {
                         let stored = b.coerce(stored, element.stack_type())?;
-                        b.instructions.push(Instruction {
-                            result: None,
-                            op: Op::StoreMemory {
-                                address: address.0,
-                                value: stored.0,
-                                bits: element.bytes() * 8,
-                            },
-                            il_offset: b.offset,
+                        b.effect(Op::StoreMemory {
+                            address: address.0,
+                            value: stored.0,
+                            bits: element.bytes() * 8,
                         });
                     } else if matches!(kind, ArrayMethod::Address) {
                         b.stack.push(address);
@@ -2090,13 +2048,9 @@ fn translate(
                 if b.data_bytes > 65536 {
                     return Err("Method RVA initializer data exceeds 64 KiB budget".into());
                 }
-                b.instructions.push(Instruction {
-                    result: None,
-                    op: Op::InitializeArray {
-                        array: array.0,
-                        bytes: bytes.to_vec(),
-                    },
-                    il_offset: b.offset,
+                b.effect(Op::InitializeArray {
+                    array: array.0,
+                    bytes: bytes.to_vec(),
                 });
                 return Ok(Control::Jump(b.edge(next()?)));
             }
@@ -2129,11 +2083,7 @@ fn translate(
                     {
                         return Err("Delegate construction requires a verified ldftn/newobj or dup/ldvirtftn/newobj sequence without branches into its interior".into());
                     }
-                    let declared = if crate::dispatch::is_dispatch(target) {
-                        crate::dispatch::declaration(target)
-                    } else {
-                        target
-                    };
+                    let declared = crate::dispatch::declaration(target);
                     let bound = declared;
                     let declared = resolver
                         .instance(declared)?
@@ -2156,11 +2106,7 @@ fn translate(
                         let owner = owner_type(resolver, bound)?;
                         let receiver =
                             b.coerce(receiver, Type::Object(class_type(resolver, owner)?))?;
-                        b.instructions.push(Instruction {
-                            result: None,
-                            op: Op::CheckObject(receiver.0),
-                            il_offset: b.offset,
-                        });
+                        b.effect(Op::CheckObject(receiver.0));
                         receiver
                     } else {
                         receiver
@@ -2195,11 +2141,7 @@ fn translate(
                         let value = b.value(ty, op)?;
                         b.stack.push(value);
                     } else {
-                        b.instructions.push(Instruction {
-                            result: None,
-                            op,
-                            il_offset: b.offset,
-                        });
+                        b.effect(op);
                     }
                 }
                 return Ok(Control::Jump(b.edge(next()?)));
@@ -2402,50 +2344,30 @@ fn translate(
                     b.value(Type::Native, Op::Constant(u64::from(address)))
                 };
                 match intrinsic {
-                    Intrinsic::HBlankStream(register) => b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::HBlankStream {
-                            source: arguments[0],
-                            first: arguments[1],
-                            count: arguments[2],
-                            register,
-                        },
-                        il_offset: b.offset,
+                    Intrinsic::HBlankStream(register) => b.effect(Op::HBlankStream {
+                        source: arguments[0],
+                        first: arguments[1],
+                        count: arguments[2],
+                        register,
                     }),
-                    Intrinsic::PaletteWrite(port) => b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::PaletteWrite {
-                            port,
-                            index: arguments[0],
-                            color: arguments[1],
-                        },
-                        il_offset: b.offset,
+                    Intrinsic::PaletteWrite(port) => b.effect(Op::PaletteWrite {
+                        port,
+                        index: arguments[0],
+                        color: arguments[1],
                     }),
-                    Intrinsic::VramWrite => b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::VramWrite {
-                            address: arguments[0],
-                            value: arguments[1],
-                        },
-                        il_offset: b.offset,
+                    Intrinsic::VramWrite => b.effect(Op::VramWrite {
+                        address: arguments[0],
+                        value: arguments[1],
                     }),
-                    Intrinsic::MemoryFill => b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::MemoryFill {
-                            address: arguments[0],
-                            value: arguments[1],
-                            count: arguments[2],
-                        },
-                        il_offset: b.offset,
+                    Intrinsic::MemoryFill => b.effect(Op::MemoryFill {
+                        address: arguments[0],
+                        value: arguments[1],
+                        count: arguments[2],
                     }),
-                    Intrinsic::MemoryCopy => b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::MemoryCopy {
-                            destination: arguments[0],
-                            source: arguments[1],
-                            count: arguments[2],
-                        },
-                        il_offset: b.offset,
+                    Intrinsic::MemoryCopy => b.effect(Op::MemoryCopy {
+                        destination: arguments[0],
+                        source: arguments[1],
+                        count: arguments[2],
                     }),
                     Intrinsic::VBlankCopy => {
                         let copied = b.value(
@@ -2463,21 +2385,9 @@ fn translate(
                         let pointer = b.value(Type::Native, Op::ArenaAllocate(arguments[0]))?;
                         b.stack.push(pointer);
                     }
-                    Intrinsic::ResetArena => b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::ArenaReset,
-                        il_offset: b.offset,
-                    }),
-                    Intrinsic::CpuControl(control) => b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::CpuControl(control),
-                        il_offset: b.offset,
-                    }),
-                    Intrinsic::OamDma => b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::OamDma(arguments[0]),
-                        il_offset: b.offset,
-                    }),
+                    Intrinsic::ResetArena => b.effect(Op::ArenaReset),
+                    Intrinsic::CpuControl(control) => b.effect(Op::CpuControl(control)),
+                    Intrinsic::OamDma => b.effect(Op::OamDma(arguments[0])),
                     Intrinsic::Read(a) => {
                         let pointer = address(b, a)?;
                         let value = b.value(
@@ -2492,14 +2402,10 @@ fn translate(
                     }
                     Intrinsic::Write(a) => {
                         let pointer = address(b, a)?;
-                        b.instructions.push(Instruction {
-                            result: None,
-                            op: Op::StoreMemory {
-                                address: pointer.0,
-                                value: arguments[0],
-                                bits: 8,
-                            },
-                            il_offset: b.offset,
+                        b.effect(Op::StoreMemory {
+                            address: pointer.0,
+                            value: arguments[0],
+                            bits: 8,
                         });
                     }
                     Intrinsic::Region(a) => {
@@ -2516,11 +2422,7 @@ fn translate(
             let returns = signature.returns;
             if i.opcode == 0x6f && !constrained_value {
                 let receiver = *arguments.first().ok_or("Missing callvirt receiver")?;
-                b.instructions.push(Instruction {
-                    result: None,
-                    op: Op::CheckObject(receiver),
-                    il_offset: b.offset,
-                });
+                b.effect(Op::CheckObject(receiver));
             }
             let op = Op::Call {
                 target: if i.opcode == 0x6f
@@ -2548,11 +2450,7 @@ fn translate(
                 }
                 b.stack.push(value);
             } else {
-                b.instructions.push(Instruction {
-                    result: None,
-                    op,
-                    il_offset: b.offset,
-                });
+                b.effect(op);
             }
         }
         0x00 | 0xfe16 => {}
@@ -2865,14 +2763,10 @@ fn translate(
                 )?;
                 if let Some(value) = stored {
                     let value = b.coerce(value, storage.stack_type())?;
-                    b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::StoreMemory {
-                            address: address.0,
-                            value: value.0,
-                            bits: storage.bytes() * 8,
-                        },
-                        il_offset: b.offset,
+                    b.effect(Op::StoreMemory {
+                        address: address.0,
+                        value: value.0,
+                        bits: storage.bytes() * 8,
                     });
                 } else if i.opcode == 0x7c {
                     b.stack.push(address);
@@ -2921,14 +2815,10 @@ fn translate(
                 )?;
                 if let Some(value) = stored {
                     let value = b.coerce(value, storage.stack_type())?;
-                    b.instructions.push(Instruction {
-                        result: None,
-                        op: Op::StoreMemory {
-                            address: address.0,
-                            value: value.0,
-                            bits: storage.bytes() * 8,
-                        },
-                        il_offset: b.offset,
+                    b.effect(Op::StoreMemory {
+                        address: address.0,
+                        value: value.0,
+                        bits: storage.bytes() * 8,
                     });
                 } else if i.opcode == 0x7c {
                     b.stack.push(address);
@@ -2990,11 +2880,7 @@ fn translate(
             .flatten()
             {
                 if constructor != current {
-                    b.instructions.push(Instruction {
-                        result: None,
-                        op: crate::initialize::guard(constructor),
-                        il_offset: b.offset,
-                    });
+                    b.effect(crate::initialize::guard(constructor));
                 }
             }
             let signature = storage_type(resolver, field_signature.assembly, &field_signature.ty)?;
@@ -3036,14 +2922,10 @@ fn translate(
             if i.opcode == 0x80 {
                 let value = b.pop()?;
                 let value = b.coerce(value, ty)?;
-                b.instructions.push(Instruction {
-                    result: None,
-                    op: Op::StoreMemory {
-                        address: address.0,
-                        value: value.0,
-                        bits,
-                    },
-                    il_offset: b.offset,
+                b.effect(Op::StoreMemory {
+                    address: address.0,
+                    value: value.0,
+                    bits,
                 });
             } else if i.opcode == 0x7f {
                 b.stack.push(address);
@@ -3071,14 +2953,10 @@ fn translate(
             };
             if let Some(value) = stored {
                 let value = b.coerce(value, cell.stack_type())?;
-                b.instructions.push(Instruction {
-                    result: None,
-                    op: Op::StoreMemory {
-                        address: address.0,
-                        value: value.0,
-                        bits: 16,
-                    },
-                    il_offset: b.offset,
+                b.effect(Op::StoreMemory {
+                    address: address.0,
+                    value: value.0,
+                    bits: 16,
                 });
             } else {
                 let value = b.value(
@@ -3136,14 +3014,10 @@ fn translate(
             if !address.1.addresses(bits) || value.1 != ty {
                 return Err("Indirect store operand type mismatch".into());
             }
-            b.instructions.push(Instruction {
-                result: None,
-                op: Op::StoreMemory {
-                    address: address.0,
-                    value: value.0,
-                    bits,
-                },
-                il_offset: b.offset,
+            b.effect(Op::StoreMemory {
+                address: address.0,
+                value: value.0,
+                bits,
             });
         }
         0xd6..=0xdb => checked::arithmetic(b, i.opcode)?,

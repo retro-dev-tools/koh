@@ -17,6 +17,9 @@ pub(crate) fn identity(method: Definition) -> Definition {
 }
 
 pub(crate) fn declaration(method: Definition) -> Definition {
+    if !is_dispatch(method) {
+        return method;
+    }
     Definition {
         token: if method.token >> 24 == 0xfa {
             0xfb000000
@@ -375,16 +378,8 @@ impl<'r, 'a> Binder<'r, 'a> {
                 }
                 let mut candidate = None;
                 for target in self.methods(base)? {
-                    let image = self.resolver.assembly(target.assembly)?;
                     let row = self.row(target)?;
-                    if row.flags & 0x57 != 0x46
-                        || image
-                            .metadata()
-                            .strings
-                            .get(row.name)
-                            .map_err(|e| e.to_string())?
-                            != name
-                    {
+                    if row.flags & 0x57 != 0x46 || self.name(target)? != name {
                         continue;
                     }
                     if self.signatures_equal(method, target)? {
@@ -481,16 +476,8 @@ impl<'r, 'a> Binder<'r, 'a> {
             for base in self.chain(class)?.into_iter().skip(1) {
                 let mut matched = None;
                 for candidate in self.methods(base)? {
-                    let other = self.resolver.assembly(candidate.assembly)?;
                     let row = self.row(candidate)?;
-                    if row.flags & 0x50 != 0x40
-                        || other
-                            .metadata()
-                            .strings
-                            .get(row.name)
-                            .map_err(|e| e.to_string())?
-                            != name
-                    {
+                    if row.flags & 0x50 != 0x40 || self.name(candidate)? != name {
                         continue;
                     }
                     if !self.signatures_equal(method, candidate)? {
@@ -588,15 +575,8 @@ impl<'r, 'a> Binder<'r, 'a> {
             }
             let mut implementation = None;
             for candidate in self.methods(owner)? {
-                let image = self.resolver.assembly(candidate.assembly)?;
                 let row = self.row(candidate)?;
-                if image
-                    .metadata()
-                    .strings
-                    .get(row.name)
-                    .map_err(|e| e.to_string())?
-                    != name
-                {
+                if self.name(candidate)? != name {
                     continue;
                 }
                 if !self.signatures_equal(method, candidate)? {

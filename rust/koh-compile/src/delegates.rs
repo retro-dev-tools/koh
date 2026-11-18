@@ -92,11 +92,7 @@ pub(crate) fn callback(
     target: crate::resolve::Definition,
 ) -> Result<crate::resolve::Definition, String> {
     use crate::ir::ClassType;
-    let declared = if crate::dispatch::is_dispatch(target) {
-        crate::dispatch::declaration(target)
-    } else {
-        target
-    };
+    let declared = crate::dispatch::declaration(target);
     let bound = declared;
     let specialization = resolver.instance(declared)?;
     let declared = specialization
@@ -228,11 +224,7 @@ pub(crate) fn function(
     let target = binding.target;
     let signature = binding.signature.clone();
     drop(entries);
-    let declared = if crate::dispatch::is_dispatch(target) {
-        crate::dispatch::declaration(target)
-    } else {
-        target
-    };
+    let declared = crate::dispatch::declaration(target);
     let bound = declared;
     let specialization = resolver.instance(declared)?;
     let declared = specialization

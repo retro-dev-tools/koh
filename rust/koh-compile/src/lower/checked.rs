@@ -105,11 +105,7 @@ pub(super) fn arithmetic(b: &mut Builder<'_, '_>, opcode: u16) -> Result<(), Str
             right: zero.0,
         },
     )?;
-    b.instructions.push(Instruction {
-        result: None,
-        op: Op::RequireRange(valid.0),
-        il_offset: b.offset,
-    });
+    b.effect(Op::RequireRange(valid.0));
     let result = if mixed {
         convert(b, result, if unsigned { 0x8b } else { 0xd4 })?
     } else {
@@ -202,11 +198,7 @@ fn multiply(
             right: expected,
         },
     )?;
-    b.instructions.push(Instruction {
-        result: None,
-        op: Op::RequireRange(valid.0),
-        il_offset: b.offset,
-    });
+    b.effect(Op::RequireRange(valid.0));
     Ok((low, Type::I64))
 }
 
@@ -251,11 +243,7 @@ pub(super) fn convert(
                 arguments: vec![raw_value.0, width.0, sign.0],
             },
         )?;
-        b.instructions.push(Instruction {
-            result: None,
-            op: Op::RequireRange(valid.0),
-            il_offset: b.offset,
-        });
+        b.effect(Op::RequireRange(valid.0));
         let key = match (wide, bits == 64, signed) {
             (false, true, true) => "f32.toI64",
             (false, true, false) => "f32.toU64",
@@ -332,11 +320,7 @@ pub(super) fn convert(
                 right: zero.0,
             },
         )?;
-        b.instructions.push(Instruction {
-            result: None,
-            op: Op::RequireRange(valid.0),
-            il_offset: b.offset,
-        });
+        b.effect(Op::RequireRange(valid.0));
     }
     b.value(
         destination,

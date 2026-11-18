@@ -98,14 +98,10 @@ pub(super) fn call(
                     "Readonly byte-span constructor requires its exact local storage".into(),
                 );
             }
-            b.instructions.push(Instruction {
-                result: None,
-                op: Op::StoreMemory {
-                    address: receiver.0,
-                    value: value.0,
-                    bits: 48,
-                },
-                il_offset: b.offset,
+            b.effect(Op::StoreMemory {
+                address: receiver.0,
+                value: value.0,
+                bits: 48,
             });
         }
     } else {

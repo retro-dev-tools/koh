@@ -19,7 +19,6 @@ public static class SoftFloat
         return r;
     }
 
-    [KohRuntime("f32.neg")]
     public static uint NegF32(uint a)
     {
         return a ^ 0x80000000;
@@ -304,7 +303,6 @@ public static class SoftFloat
 
     // ---- Comparisons (return bool) --------------------------------------------
 
-    [KohRuntime("f32.isNan")]
     public static byte IsNanF32(uint a)
     {
         if (((a >> 23) & 0xFF) == 0xFF && (a & 0x7FFFFF) != 0)
@@ -343,39 +341,33 @@ public static class SoftFloat
         return 2;
     }
 
-    [KohRuntime("f32.lt")]
     public static bool LtF32(uint a, uint b)
     {
         return CmpF32(a, b) == 1;
     }
 
-    [KohRuntime("f32.le")]
     public static bool LeF32(uint a, uint b)
     {
         byte c = CmpF32(a, b);
         return c == 1 || c == 0;
     }
 
-    [KohRuntime("f32.gt")]
     public static bool GtF32(uint a, uint b)
     {
         return CmpF32(a, b) == 2;
     }
 
-    [KohRuntime("f32.ge")]
     public static bool GeF32(uint a, uint b)
     {
         byte c = CmpF32(a, b);
         return c == 2 || c == 0;
     }
 
-    [KohRuntime("f32.eq")]
     public static bool EqF32(uint a, uint b)
     {
         return CmpF32(a, b) == 0;
     }
 
-    [KohRuntime("f32.ne")]
     public static bool NeF32(uint a, uint b)
     {
         return CmpF32(a, b) != 0;
@@ -549,7 +541,6 @@ public static class SoftFloat
         return r;
     }
 
-    [KohRuntime("f64.neg")]
     public static ulong NegF64(ulong a)
     {
         return a ^ 0x8000000000000000;
@@ -847,7 +838,6 @@ public static class SoftFloat
         return sign | ((ulong)exp << 52) | (q & 0xFFFFFFFFFFFFF);
     }
 
-    [KohRuntime("f64.isNan")]
     public static byte IsNanF64(ulong a)
     {
         if (((a >> 52) & 0x7FF) == 0x7FF && (a & 0xFFFFFFFFFFFFF) != 0)
@@ -885,39 +875,33 @@ public static class SoftFloat
         return 2;
     }
 
-    [KohRuntime("f64.lt")]
     public static bool LtF64(ulong a, ulong b)
     {
         return CmpF64(a, b) == 1;
     }
 
-    [KohRuntime("f64.le")]
     public static bool LeF64(ulong a, ulong b)
     {
         byte c = CmpF64(a, b);
         return c == 1 || c == 0;
     }
 
-    [KohRuntime("f64.gt")]
     public static bool GtF64(ulong a, ulong b)
     {
         return CmpF64(a, b) == 2;
     }
 
-    [KohRuntime("f64.ge")]
     public static bool GeF64(ulong a, ulong b)
     {
         byte c = CmpF64(a, b);
         return c == 2 || c == 0;
     }
 
-    [KohRuntime("f64.eq")]
     public static bool EqF64(ulong a, ulong b)
     {
         return CmpF64(a, b) == 0;
     }
 
-    [KohRuntime("f64.ne")]
     public static bool NeF64(ulong a, ulong b)
     {
         return CmpF64(a, b) != 0;
