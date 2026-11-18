@@ -436,22 +436,22 @@ Value returns must remain copies through factories, chained calls, loops, recurs
 
 ### CilStructTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStructTests.cs`. Future Rust test group: `cil_struct`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilStructTests.cs`. Native `driver::struct_contracts` and the earlier aggregate-array case; all12 complete. [Matrix, independent semantics and evidence](struct-contracts.md).
 
 Struct copies do not alias; nested/array layouts, pointers, stackalloc, ref/byval parameters, switch defaults and enum values remain correct. CIL memory/value semantics justify results; a real Switch IR opcode is optional.
 
-- **PORT** `StructFieldRoundTrip_WholeCopyDoesNotAlias`.
+- **PORT, complete** `StructFieldRoundTrip_WholeCopyDoesNotAlias`.
 - **PORT** `NestedStructsAndArraysOfStructs_FieldsRoundTrip` — completed in Rust `driver::aggregate_arrays_copy_alias_scale_and_preserve_banks`, fixture `StructArrays::NestedValues`; Debug/Release × DMG/CGB verifies independent BGP28 and full array bytes.
-- **PORT** `PointerWriteToVram_ReadBack`.
-- **PORT** `PointerArithmetic_OffsetWriteReadBack`.
-- **PORT** `StackAllocBuffer_RoundTrips`.
-- **PORT** `RefParameter_MutatedByCallee`.
-- **PORT** `RefStructParameter_MutatesCallersStorage`.
-- **PORT** `ByValStructParameter_CalleeMutationNotVisibleToCaller`.
-- **PORT** `SwitchDispatch_JumpTable_SelectsCorrectCase`.
-- **REPLACE** `SwitchDispatch_LowersToRealSwitchInstruction` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
-- **PORT** `SwitchDispatch_OutOfRange_FallsThroughToDefault`.
-- **PORT** `Enum_UnderlyingIntegerRoundTrips`.
+- **PORT, complete** `PointerWriteToVram_ReadBack`.
+- **PORT, complete** `PointerArithmetic_OffsetWriteReadBack`.
+- **PORT, complete** `StackAllocBuffer_RoundTrips`.
+- **PORT, complete** `RefParameter_MutatedByCallee`.
+- **PORT, complete** `RefStructParameter_MutatesCallersStorage`.
+- **PORT, complete** `ByValStructParameter_CalleeMutationNotVisibleToCaller`.
+- **PORT, complete** `SwitchDispatch_JumpTable_SelectsCorrectCase`.
+- **REPLACE, complete** `SwitchDispatch_LowersToRealSwitchInstruction` — genuine Roslyn CIL switch plus dynamic/full-width/default ROM values replace the private C# IR node requirement.
+- **PORT, complete** `SwitchDispatch_OutOfRange_FallsThroughToDefault`.
+- **PORT, complete** `Enum_UnderlyingIntegerRoundTrips`.
 
 ### CilTileSetTests.cs
 

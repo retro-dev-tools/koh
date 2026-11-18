@@ -10,6 +10,16 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Struct, pointer and switch closure
+
+Eleven remaining source methods now have native replacements for64 expanded
+assertions:44 Debug/Release × DMG/CGB ROMs retain field copies, ref/by-value
+mutation, valid raw pointers/stackalloc, enums and dynamic switch/default results.
+Actual input CIL switch and28-value result packets replace private IR-node shape.
+Affected21/21 passed54.439s, exit0, including aggregate/byref/return/switch neighbors.
+[Source matrix and independent semantics](struct-contracts.md). Ledger547/565,
+18 outstanding; final acceptance and C# compiler removal remain open.
+
 ### Tile subrange and row closure
 
 Two remaining tile-set source methods now have native replacements for10 assertion

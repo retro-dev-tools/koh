@@ -75,6 +75,8 @@ mod softfloat_host;
 mod sprites;
 #[path = "driver/static_contracts.rs"]
 mod static_contracts;
+#[path = "driver/struct_contracts.rs"]
+mod struct_contracts;
 #[path = "driver/struct_returns.rs"]
 mod struct_returns;
 mod support;

@@ -31,8 +31,13 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:536/565 methods (535 native behavioral replacements,
+**Complete dispositions:547/565 methods (546 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
+Eleven [struct/pointer/switch methods](struct-contracts.md) now retain64 expanded
+assertions through44 ROMs. Ten PORT decisions preserve actual values/aliasing;
+one REPLACE checks genuine input CIL switch and executable full-width/default
+behavior instead of a private IR node. The earlier nested/value-array method is
+not counted twice. Shared helper sites are accounted for explicitly.
 Two [tile subrange/row methods](tile-set-contracts.md) now have native replacements
 for10 assertion sites/two original cases/40 expanded assertions. Four Rust cases
 execute28 ROMs with whole VRAM-bank checks, LCDon/off copies, row/clear boundaries,
@@ -122,7 +127,7 @@ for36 source assertion sites, with32 real-library ROM executions checking exact
 planes, clipping, page flips and actual GDMA transfers.
 Seven [referenced-memory/string-table methods](reference-memory-contracts.md)
 now have native replacements for23 source assertion sites, with28 ROM executions.
-The remaining 29 methods still have
+The remaining 18 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
