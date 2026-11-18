@@ -7,7 +7,7 @@ mod machine_effects;
 
 #[rstest::fixture]
 #[once]
-fn debugger() -> Host {
+pub(super) fn debugger() -> Host {
     super::support::build_fixture_host("DebuggerHost")
 }
 
@@ -271,7 +271,7 @@ fn source_document<'a>(lines: &'a [koh_link::LinkedLine], source: &Path, line: u
     Path::new(&document.file)
 }
 
-fn debugger_replies(debugger: &Host, requests: &[String]) -> Vec<serde_json::Value> {
+pub(super) fn debugger_replies(debugger: &Host, requests: &[String]) -> Vec<serde_json::Value> {
     use std::{io::Write, process::Stdio};
     let mut child = super::dotnet()
         .arg(&debugger.dll)

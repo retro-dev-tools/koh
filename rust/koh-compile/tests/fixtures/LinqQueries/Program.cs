@@ -6,6 +6,18 @@ using Koh.GameBoy;
 
 public static unsafe class Program
 {
+    private static int Project(int value)
+    {
+        return value * 2;
+    }
+
+    public static int DebugQuery()
+    {
+        int result = new[] { 1, 2, 3, 4, 5 }.Where(x => x > 2).Select(Project).Sum();
+        Hardware.BGP = (byte)result;
+        return result + 18;
+    }
+
     public static int Pipeline()
     {
         int[] values = { 1, 2, 3, 4, 5 };
@@ -71,6 +83,90 @@ public static unsafe class Program
     public static int Materialize() => Finish(new[] { 1, 2 }.Where(x => true).ToArray().Length);
 
     public static int CustomComparer() => Finish(new[] { 1, 2 }.Max((IComparer<int>)null!));
+
+    public static int FloatEdges()
+    {
+        uint firstBits = 0x7FC00011,
+            secondBits = 0xFFC00022,
+            zeroBits = 0x80000000;
+        float first = *(float*)&firstBits,
+            second = *(float*)&secondBits,
+            negativeZero = *(float*)&zeroBits;
+        float[] values = { -7f, first, 42f, second };
+        float[] nan = { first, second };
+        float[] zeros = { negativeZero, 0f };
+        float* p = (float*)0xDF00;
+        p[0] = values.Min();
+        p[1] = values.Max();
+        p[2] = values.Where(x => true).Min();
+        p[3] = values.Where(x => true).Max();
+        p[4] = nan.Min();
+        p[5] = nan.Max();
+        p[6] = nan.Where(x => true).Min();
+        p[7] = nan.Where(x => true).Max();
+        p[8] = zeros.Min();
+        p[9] = zeros.Max();
+        p[10] = zeros.Min(x => x);
+        p[11] = zeros.Max(x => x);
+        return 42;
+    }
+
+    public static int DoubleEdges()
+    {
+        ulong firstBits = 0x7FF8000000000011,
+            secondBits = 0xFFF8000000000022,
+            zeroBits = 0x8000000000000000;
+        double first = *(double*)&firstBits,
+            second = *(double*)&secondBits,
+            negativeZero = *(double*)&zeroBits;
+        double[] values = { -7d, first, 42d, second };
+        double[] nan = { first, second };
+        double[] zeros = { negativeZero, 0d };
+        double* p = (double*)0xDF00;
+        p[0] = values.Min();
+        p[1] = values.Max();
+        p[2] = values.Where(x => true).Min();
+        p[3] = values.Where(x => true).Max();
+        p[4] = nan.Min();
+        p[5] = nan.Max();
+        p[6] = nan.Where(x => true).Min();
+        p[7] = nan.Where(x => true).Max();
+        p[8] = zeros.Min();
+        p[9] = zeros.Max();
+        p[10] = zeros.Min(x => x);
+        p[11] = zeros.Max(x => x);
+        return 42;
+    }
+
+    public static int NaNDisposal()
+    {
+        uint bits = 0x7FC00011;
+        float nan = *(float*)&bits;
+        var source = new ProbeSequence<float>(new[] { -7f, nan, 42f });
+        int calls = 0;
+        ProbeSequence<float>.ResetCounts();
+        float* f = (float*)0xDF00;
+        int* p = (int*)0xDF00;
+        f[0] = source.Min(x =>
+        {
+            calls++;
+            return x;
+        });
+        p[1] = calls;
+        p[2] = ProbeSequence<float>.Moved;
+        p[3] = ProbeSequence<float>.Closed;
+        calls = 0;
+        ProbeSequence<float>.ResetCounts();
+        f[4] = source.Max(x =>
+        {
+            calls++;
+            return x;
+        });
+        p[5] = calls;
+        p[6] = ProbeSequence<float>.Moved;
+        p[7] = ProbeSequence<float>.Closed;
+        return 42;
+    }
 
     private static IEnumerable<int> Build(int[] values) => values.Where(x => x > 2);
 
@@ -210,6 +306,23 @@ public static unsafe class Program
             .Select(x => x.Wide + x.Value);
         *(long*)0xDF00 = query.Sum();
         *(int*)0xDF08 = query.Count();
+        return 42;
+    }
+
+    public static int MixedSelectors()
+    {
+        byte[] bytes = { 250, 1, 2 };
+        *(long*)0xDF00 = bytes.Sum(x => (long)x * 1000000000L);
+        *(double*)0xDF08 = bytes.Sum(x => x * 0.5);
+        *(int*)0xDF10 = bytes.Sum(x => (int)x);
+        GameRecord[] records =
+        {
+            new GameRecord { Value = 3, Wide = 10000000000L },
+            new GameRecord { Value = 7, Wide = 20000000000L },
+        };
+        *(long*)0xDF14 = records.Sum(x => x.Wide);
+        *(int*)0xDF1C = records.Max(x => x.Value);
+        *(long*)0xDF20 = records.Min(x => x.Wide);
         return 42;
     }
 

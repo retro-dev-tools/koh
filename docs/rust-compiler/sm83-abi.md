@@ -139,6 +139,11 @@ Frame guards run before allocation/writes; a stack failure branches to
 `__koh_trap_stack`. A caller must reserve/check its complete argument/return block
 and the two-byte CALL return address before CALL. Integer divide-by-zero and signed
 division overflow branch to `__koh_trap_arithmetic`. Trap entry does not return.
+Empty non-nullable LINQ extrema branch to `__koh_trap_empty_sequence` with fault11
+(0B); null query arguments use existing fault4 and checked sums use fault2.
+These fatal exits do not unwind managed cleanup. Query/cursor calls use the same
+ordinary ABI and bounded monotonic arena as other managed objects; enumeration
+allocates fresh cursors. See the [LINQ runtime contract](linq-runtime.md).
 Signed remainder of minimum/-1 also faults, matching the chosen division-overflow
 behavior required by C# remainder semantics. Hardware/native stack overflow is not
 allowed to become a successful ROM build or silent WRAM corruption.

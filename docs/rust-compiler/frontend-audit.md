@@ -207,15 +207,15 @@ Referenced SoftFloat code must be discoverable, lower transitively and produce c
 
 ### CilLinqTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilLinqTests.cs`. Future Rust test group: `cil_linq`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilLinqTests.cs`. Native groups: `driver::linq` and `sdk::linq`.
 
-Where/Select/Sum and direct-array Max must compute correct reductions. Pipeline Max rejection is an implementation restriction, not a language contract; replace it with correct execution. Preserve this useful source API; old fused-loop IR and provenance restrictions are not mandatory. All five methods remain outstanding. See the [native probe and semantic audit](linq-audit.md).
+All five methods have native replacements. Where/Select/Sum and direct-array Max compute independently expected24/9; pipeline Max now executes3 instead of preserving an unjustified rejection. Ordinary deferred runtime objects replace old fused-loop placeholders. See the [decision audit](linq-audit.md) and [test matrix and evidence](linq-runtime.md#source-test-disposition).
 
-- **PORT** `WhereSelectSum_VerifiesCleanAndComputesExpectedValue`.
-- **REPLACE** `WhereSelectSum_DebugAndReleaseProduceIdenticalObservableState` — independently assert 24 in each mode.
-- **PORT** `MaxDirectlyOnArray_VerifiesCleanAndComputesExpectedValue`.
-- **REPLACE** `MaxDirectlyOnArray_DebugAndReleaseProduceIdenticalObservableState` — independently assert 9 in each mode.
-- **REPLACE** `MaxAfterPipeline_IsDiagnosedNotThrown` — execute the valid query and assert 3; retain explicit diagnostics for deliberately unsupported overloads.
+- **PORT, complete** `WhereSelectSum_VerifiesCleanAndComputesExpectedValue`.
+- **REPLACE, complete** `WhereSelectSum_DebugAndReleaseProduceIdenticalObservableState` — independently assert24 in each mode.
+- **PORT, complete** `MaxDirectlyOnArray_VerifiesCleanAndComputesExpectedValue`.
+- **REPLACE, complete** `MaxDirectlyOnArray_DebugAndReleaseProduceIdenticalObservableState` — independently assert9 in each mode.
+- **REPLACE, complete** `MaxAfterPipeline_IsDiagnosedNotThrown` — execute the valid query and assert3; preserve operator/IL diagnostics for intentionally unsupported overloads.
 
 ### CilLiteralTests.cs
 

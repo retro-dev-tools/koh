@@ -20,8 +20,11 @@ Min/Max execute through ELF and the Rust linker. Twelve rstest cases passed with
 69.522s, exit0. Full result packets cover effects, disposal, repeat enumeration,
 foreign types, numeric widths and distinct failure traps.
 [Contract, evidence and remaining validation](linq-runtime.md).
-LINQ-specific PDB/SDK/metadata mutation and floating edge cases remain open;
-ledger509/565,56 outstanding, no source closure credited yet.
+The acceptance extension adds exact floating edge cases, metadata mutations,
+deterministic PDB/ELF/KDBG provenance, four ordinary SDK build/run cases and four
+real selector breakpoint/disassembly/unwind sessions. Expanded30/30 passed308.833s;
+all four SDK cases passed separately. Five source methods now have replacements:
+ledger514/565,51 outstanding. Full migration acceptance and legacy deletion remain open.
 
 ### Cross-assembly callback arguments
 

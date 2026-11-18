@@ -6,6 +6,8 @@ mod game;
 mod iterators;
 #[path = "sdk/jrpg.rs"]
 mod jrpg;
+#[path = "sdk/linq.rs"]
+mod linq;
 #[path = "sdk/original_2048.rs"]
 mod original_2048;
 mod support;

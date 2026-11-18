@@ -1,10 +1,10 @@
 # LINQ semantic audit and current blockers
 
-Status: this audit records the original blockers. The subsequent
-[native target runtime](linq-runtime.md) executes the supported queries and
-numeric reductions. Its remaining acceptance checks are explicit there. All five
-original methods remain outstanding until that unit completes; the source ledger
-stays 509/565, with 56 outstanding.
+Status: this audit records historical blockers, not current acceptance status.
+All five original methods now have native replacements; the source ledger is
+514/565 with51 outstanding. The [native runtime contract and disposition matrix](linq-runtime.md)
+record executed queries, numeric reductions, metadata, SDK and actual debugger
+acceptance. Full compiler migration and legacy deletion remain incomplete.
 
 ## Original assertions
 
@@ -21,10 +21,11 @@ BGP observations in the two parameterized execution methods.
 | MaxDirectlyOnArray_DebugAndReleaseProduceIdenticalObservableState | Optimization-mode parity | REPLACE parity alone with independent BGP 9 in each mode |
 | MaxAfterPipeline_IsDiagnosedNotThrown | Former compiler boundary | REPLACE: filtering 1,2,3 by positivity leaves maximum 3; rejection has no semantic justification |
 
-None is yet backed by a completed native LINQ acceptance test. This table does
-not retire the old project or count planned Rust tests as migrated.
+All five now map to completed native acceptance in the linked matrix. Two PORT
+and three REPLACE decisions preserve source semantics rather than placeholder IR
+or an unjustified pipeline rejection. The old project remains until final deletion.
 
-## Empirical native probe
+## Empirical native probe (historical baseline)
 
 At compiler commit `7191ce6`, rebuild the debug CLI with:
 

@@ -452,57 +452,73 @@ fn runtime_declaration(
     assembly: usize,
     attribute: &CustomAttributeRow,
 ) -> Result<(String, Definition), String> {
-    if attribute.parent.table != Some(TableId::MethodDef) {
-        return Err("KohRuntime must target a static method".into());
-    }
-    let metadata = resolver.assembly(assembly)?.metadata();
-    let method = row(&metadata.method_defs, attribute.parent.row)?;
-    let signature = crate::signature::method(
-        metadata
-            .blobs
-            .get(method.signature)
-            .map_err(|e| e.to_string())?,
-    )?;
-    let owner = metadata
-        .type_defs
-        .partition_point(|ty| ty.method_list <= attribute.parent.row) as u32;
-    if owner == 0 {
-        return Err("KohRuntime method has no declaring type".into());
-    }
-    if method.flags & 0x10 == 0
-        || method.flags & 0x400 != 0
-        || signature.calling_convention.0
-            != if signature.generic_param_count == 0 {
-                0
-            } else {
-                0x10
-            }
-        || signature.sentinel.is_some()
-    {
-        return Err("KohRuntime requires a static method with standard calling convention".into());
-    }
-    resolver
-        .check_arity(
-            Definition {
-                assembly,
-                token: 0x02000000 | owner,
-            },
-            0,
+    let result = (|| {
+        if attribute.parent.table != Some(TableId::MethodDef) {
+            return Err("KohRuntime must target a static method".into());
+        }
+        let metadata = resolver.assembly(assembly)?.metadata();
+        let method = row(&metadata.method_defs, attribute.parent.row)?;
+        let signature = crate::signature::method(
+            metadata
+                .blobs
+                .get(method.signature)
+                .map_err(|e| e.to_string())?,
+        )?;
+        let owner = metadata
+            .type_defs
+            .partition_point(|ty| ty.method_list <= attribute.parent.row)
+            as u32;
+        if owner == 0 {
+            return Err("KohRuntime method has no declaring type".into());
+        }
+        if method.flags & 0x10 == 0
+            || method.flags & 0x400 != 0
+            || signature.calling_convention.0
+                != if signature.generic_param_count == 0 {
+                    0
+                } else {
+                    0x10
+                }
+            || signature.sentinel.is_some()
+        {
+            return Err(
+                "KohRuntime requires a static method with standard calling convention".into(),
+            );
+        }
+        resolver
+            .check_arity(
+                Definition {
+                    assembly,
+                    token: 0x02000000 | owner,
+                },
+                0,
+            )
+            .map_err(|error| format!("KohRuntime declaring type must be nongeneric: {error}"))?;
+        let definition = Definition {
+            assembly,
+            token: 0x06000000 | attribute.parent.row,
+        };
+        resolver.check_arity(definition, signature.generic_param_count as usize)?;
+        let key = runtime_payload(
+            metadata
+                .blobs
+                .get(attribute.value)
+                .map_err(|e| e.to_string())?,
         )
-        .map_err(|error| format!("KohRuntime declaring type must be nongeneric: {error}"))?;
-    let definition = Definition {
-        assembly,
-        token: 0x06000000 | attribute.parent.row,
-    };
-    resolver.check_arity(definition, signature.generic_param_count as usize)?;
-    let key = runtime_payload(
-        metadata
-            .blobs
-            .get(attribute.value)
-            .map_err(|e| e.to_string())?,
-    )
-    .map_err(|error| format!("Runtime method {definition:?}: {error}"))?;
-    Ok((key.to_owned(), definition))
+        .map_err(|error| format!("Runtime method {definition:?}: {error}"))?;
+        Ok((key.to_owned(), definition))
+    })();
+    result.map_err(|error: String| {
+        let target = if attribute.parent.table == Some(TableId::MethodDef) {
+            resolver
+                .assembly(assembly)
+                .and_then(|image| image.method_name(0x06000000 | attribute.parent.row))
+                .unwrap_or_else(|_| format!("{:?}", attribute.parent))
+        } else {
+            format!("{:?}", attribute.parent)
+        };
+        format!("Assembly{assembly} {target}: {error}")
+    })
 }
 
 fn discover_runtime(resolver: &Resolver<'_>) -> Result<(), String> {
