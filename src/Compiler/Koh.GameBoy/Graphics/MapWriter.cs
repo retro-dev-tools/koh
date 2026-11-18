@@ -234,22 +234,17 @@ internal static unsafe class MapWriter
         }
     }
 
-    /// <summary>CGB-only: do ALL of the expensive arithmetic for both maps' pending GDMA transfers —
-    /// the aligned range and every HDMA1-5 register byte — with NO vblank timing pressure at all. Called
-    /// by <see cref="Video.EndFrame"/> as its very first statement, BEFORE <see cref="Ppu.WaitVBlank"/>
-    /// (see the class remarks' "split into PREPARE + COMMIT" section for why this exists: doing this same
-    /// arithmetic INSIDE vblank, right before the trigger, was the actual bug this split fixes — i32
-    /// arithmetic from a <c>ushort &amp;</c>/<c>|</c>'s C# promotion costs hundreds of M-cycles on an
-    /// 8-bit CPU, enough to blow the whole vblank window). A true no-op on DMG — gated on
-    /// <see cref="Video.IsCgb"/> once, up front, rather than inside each per-map helper, since the DMG
-    /// drip path never calls this at all (only <see cref="Video.EndFrame"/> does, unconditionally, so the
-    /// gate has to live here).</summary>
-    internal static void PrepareFlush()
+    /// <summary>Pending map preparation.</summary>
+    internal static bool PrepareFlush()
     {
-        if (!Video.IsCgb)
-            return;
-        PrepareFlushBg();
-        PrepareFlushWin();
+        if (DirtyBg == 0 && DirtyWin == 0)
+            return false;
+        if (Video.IsCgb)
+        {
+            PrepareFlushBg();
+            PrepareFlushWin();
+        }
+        return true;
     }
 
     /// <summary>Precompute the BG map's five HDMA1-5 register bytes from its dirty range, if any. Mirrors
@@ -305,15 +300,15 @@ internal static unsafe class MapWriter
     /// written cell is atomic and in vblank; the remaining rows stay dirty for next frame.</summary>
     internal static void Flush()
     {
-        FlushBg();
-        FlushWin();
+        if (DirtyBg != 0)
+            FlushBg();
+        if (DirtyWin != 0)
+            FlushWin();
     }
 
     /// <summary>Prepared background commit.</summary>
     private static void FlushBg()
     {
-        if (DirtyBg == 0)
-            return;
         if (Video.IsCgb)
         {
             if (PreparedBgReady == 0)
@@ -345,8 +340,6 @@ internal static unsafe class MapWriter
     /// CGB prepared-commit branch) against <see cref="Gb.TileMap1"/>/<see cref="ShadowWin"/>.</summary>
     private static void FlushWin()
     {
-        if (DirtyWin == 0)
-            return;
         if (Video.IsCgb)
         {
             if (PreparedWinReady == 0)

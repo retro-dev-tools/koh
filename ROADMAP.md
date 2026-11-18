@@ -35,8 +35,8 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   vectors with saved registers, a reserved stack budget and bank-preserving ROM0
   bodies and shared scalar helper calls; allocation/nested IRQ enabling remain
   explicit diagnostics.
-  The current ledger has309/565 complete dispositions and256 partial/outstanding
-  (308 native replacements, one obsolete private-parser DELETE decision);
+  The current ledger has534/565 complete dispositions and31 partial/outstanding
+  (533 native replacements, one obsolete private-parser DELETE decision);
   23 [backend allocation contracts](docs/rust-compiler/allocation-contracts.md)
   replace private residency choices with actual arithmetic, ABI, liveness and
   source mapping. Legacy128-bit arithmetic still requires explicit acceptance;
@@ -161,7 +161,12 @@ than a test count or a working standalone compiler. All work stays in PR #55.
    Container cleanup is complete. Keep the single PR draft until all gates pass;
    do not merge it automatically.
 
-Current increment: the unchanged graphics showcase executes through Roslyn,
+Latest increments: [expanded RAM capacity](docs/rust-compiler/ram-layout.md)
+closes the5000-byte array requirement; [video/input acceptance](docs/rust-compiler/video-joypad-contracts.md)
+retains real VBlank pacing and rising input edges while skipping clean-map
+commit overhead. Full acceptance and legacy compiler removal remain required.
+
+Earlier SDK increment: the unchanged graphics showcase executes through Roslyn,
 native compiler, canonical ELF, Rust linker and real DMG/CGB boot in the existing
 emulator. Stronger HUD checks exposed late flushes; full-map tests exposed unsafe
 LCD-on clear. Both are corrected with independent graphics/data/timing checks.

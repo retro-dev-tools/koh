@@ -468,14 +468,14 @@ Tile copies/subranges, 1bpp-to-2bpp ink/paper masks, row writes and clear preser
 
 ### CilVideoJoypadTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilVideoJoypadTests.cs`. Future Rust test group: `cil_video_joypad`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilVideoJoypadTests.cs`. Native group: `driver::video_joypad`, plus the earlier initialization driver. All four complete; [matrix and independent evidence](video-joypad-contracts.md).
 
 Layer LCDC bits compose; initialization clears maps/OAM and sets palettes; EndFrame advances after vblank; held inputs emit one rising edge. Hardware and frame-loop API justify these.
 
-- **PORT** `LcdcComposesAcrossShowCallsAndStart`.
+- **PORT, complete** `LcdcComposesAcrossShowCallsAndStart` — actual F7/WX31/WY40 plus stop/restart/layer transitions in Debug/Release × DMG/CGB.
 - **PORT, complete** `Init_ClearsBothTileMapsAndOamAndSetsDefaultDmgPalette` — native same driver, `VideoInit` entry; every map/OAM byte, palettes and LCD state in D/R × DMG/CGB.
-- **PORT** `EndFrame_WaitsForVblankAndAdvancesFrameCount`.
-- **PORT** `Pressed_ReportsRisingEdgeOnceForAHeldButton`.
+- **PORT, complete** `EndFrame_WaitsForVblankAndAdvancesFrameCount` — real PPU line/tick observations, three distinct frames and1/2/0 counter wrap; clean-map runtime overhead corrected.
+- **PORT, complete** `Pressed_ReportsRisingEdgeOnceForAHeldButton` — first two calls hold Right unchanged; release/Left phases extend edge/mask checks.
 
 ### CilVirtualDispatchTests.cs
 

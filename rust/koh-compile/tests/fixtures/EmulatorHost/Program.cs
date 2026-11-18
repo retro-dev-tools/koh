@@ -15,6 +15,7 @@ bool copyWrap = args.Length > 0 && args[0] == "--native-copy-wrap";
 bool raster = args.Length > 0 && args[0] == "--native-raster";
 bool stack = args.Length > 0 && args[0] == "--native-stack";
 bool frame = args.Length > 0 && args[0] == "--native-frame";
+bool lifecycle = args.Length > 0 && args[0] == "--native-video-lifecycle";
 bool sprites = args.Length > 0 && args[0] == "--native-sprites";
 bool oamMode = sprites || (args.Length > 0 && args[0] == "--native-oam");
 bool rawOam = args.Length > 0 && args[0] == "--native-oam-trigger";
@@ -32,7 +33,8 @@ bool irqAbi = args.Length > 0 && args[0].StartsWith("--native-irq-abi:", StringC
 int irqReserve = irqAbi ? Convert.ToInt32(args[0].Split(':')[1], 16) : 0;
 bool irqCount = args.Length > 0 && args[0] == "--native-irq-count";
 bool video =
-    frame
+    lifecycle
+    || frame
     || oamMode
     || rawOam
     || maps
@@ -88,6 +90,15 @@ foreach (
     if (frameworkGame)
         gb.JoypadPress(JoypadButton.A);
     int inputPhase = 0;
+    var frameMarkers = new List<string>();
+    byte priorScroll = 0;
+    if (lifecycle)
+    {
+        gb.Mmu.DebugWrite(0xFF43, 0);
+        gb.Mmu.DebugWrite(0xFF42, 0);
+        gb.Mmu.DebugWrite(0xFF4A, 0);
+        gb.Mmu.DebugWrite(0xFF4B, 0);
+    }
     var videoGuard = new Koh.Emulator.Debug.Mode3WriteGuard(gb);
     var timing = new VideoTiming(gb, oamMode, sprites);
     var fillWrites = new WrapTrace(copyWrap);
@@ -97,7 +108,7 @@ foreach (
     var loopTiming = new LoopTiming(gb);
     if (loopCost)
         gb.Mmu.Hook = loopTiming;
-    if (cgbHal || sprites)
+    if (cgbHal || sprites || lifecycle)
     {
         gb.Mmu.DebugWrite(0xff40, 0);
         gb.Mmu.Banking.VramBank = 0;
@@ -240,6 +251,17 @@ foreach (
             && interrupted.HasValue
             && gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) == 0xD9;
         gb.StepInstruction();
+        if (lifecycle)
+        {
+            byte observedScroll = gb.Mmu.DebugRead(0xFF43);
+            if (observedScroll != priorScroll)
+            {
+                frameMarkers.Add(
+                    $"{observedScroll}:{gb.Ppu.LY}:{gb.Ppu.Dot}:{gb.Clock.SystemTicks}"
+                );
+                priorScroll = observedScroll;
+            }
+        }
         if (frameworkInput)
         {
             byte phase = gb.Mmu.DebugRead(0xFF43);
@@ -459,6 +481,9 @@ foreach (
                 $" {((rasterTrace.FinalIme ?? gb.Cpu.Ime) ? 1 : 0)}:{gb.Mmu.DebugRead(0xff70):X2}:{(gb.KeyOne.DoubleSpeed ? 1 : 0)} {string.Join(',', rasterTrace.Reads.DefaultIfEmpty("-"))} {string.Join(',', rasterTrace.Writes.DefaultIfEmpty("-"))}";
         if (scene)
             snapshot += " " + Convert.ToHexString(result);
+        if (lifecycle)
+            snapshot +=
+                $" {gb.Mmu.DebugRead(0xFF4B):X2}{gb.Mmu.DebugRead(0xFF4A):X2}{gb.Mmu.DebugRead(0xFF43):X2}{gb.Mmu.DebugRead(0xFF42):X2} {timing.OamStarts} {string.Join(',', frameMarkers.DefaultIfEmpty("-"))}";
         if (canvas)
             snapshot += $" {timing.GdmaStarts}";
         if (irqAbi)

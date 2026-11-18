@@ -86,6 +86,8 @@ mod symbols;
 mod variance;
 #[path = "driver/vblank.rs"]
 mod vblank;
+#[path = "driver/video_joypad.rs"]
+mod video_joypad;
 #[path = "driver/vram.rs"]
 mod vram;
 #[path = "driver/wide_arithmetic.rs"]

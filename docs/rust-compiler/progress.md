@@ -10,6 +10,17 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Video lifecycle and input closure
+
+Three remaining video/input source methods now have native replacements, with16
+Debug/Release × DMG/CGB ROMs. Physical register composition, distinct VBlanks,
+counter wrap and held/released/new input edges are checked. Clean maps previously
+entered heavy commit helpers after the wait; shared preparation now reports pending
+work so clean frames skip the dispatcher. Affected23/23 passed58.089s and map/sample
+10/10 passed53.425s, including all four real graphics showcase configurations.
+[Source matrix, independent hardware contract and evidence](video-joypad-contracts.md).
+Ledger534/565,31 outstanding; final acceptance and legacy deletion remain open.
+
 ### Expanded arena and static-capacity closure
 
 The5000-byte source contract now has complete native replacements, with58 total

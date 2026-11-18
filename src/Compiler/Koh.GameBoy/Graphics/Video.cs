@@ -117,9 +117,10 @@ public static unsafe class Video
     /// <summary>Vblank frame commit.</summary>
     public static void EndFrame()
     {
-        MapWriter.PrepareFlush();
+        bool mapsPending = MapWriter.PrepareFlush();
         Sprites.Flush();
-        MapWriter.Flush();
+        if (mapsPending)
+            MapWriter.Flush();
         FrameCount++;
     }
 
