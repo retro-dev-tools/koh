@@ -1,5 +1,7 @@
 #[path = "driver/bg_win.rs"]
 mod bg_win;
+#[path = "driver/canvas.rs"]
+mod canvas;
 #[path = "driver/cgb_hal.rs"]
 mod cgb_hal;
 #[path = "driver/checked_arithmetic.rs"]

@@ -3,6 +3,98 @@ using Koh.GameBoy.Graphics;
 
 public static unsafe class Program
 {
+    public static int CanvasPixels()
+    {
+        Video.Init();
+        Canvas.Init(2, 2, CanvasMode.SingleBuffered);
+        Canvas.Clear(0);
+        Canvas.SetPixel(0, 0, 3);
+        Canvas.SetPixel(8, 3, 2);
+        Canvas.SetPixel(15, 15, 1);
+        Canvas.Present();
+        return 42;
+    }
+
+    public static int CanvasRect()
+    {
+        Video.Init();
+        Canvas.Init(1, 1, CanvasMode.SingleBuffered);
+        Canvas.FillRect(0, 0, 8, 8, 6);
+        Canvas.Present();
+        return 42;
+    }
+
+    public static int CanvasDither()
+    {
+        Video.Init();
+        Canvas.Init(1, 1, CanvasMode.SingleBuffered);
+        Canvas.Clear(0);
+        Canvas.FillSpan(0, 0, 7, 3);
+        Canvas.FillSpan(1, 0, 7, 3);
+        Canvas.Present();
+        return 42;
+    }
+
+    public static int CanvasLine()
+    {
+        Video.Init();
+        Canvas.Init(2, 2, CanvasMode.SingleBuffered);
+        Video.Start();
+        Canvas.Clear(0);
+        Canvas.DrawLine(0, 0, 15, 15, 3);
+        Canvas.Present();
+        return 42;
+    }
+
+    public static int CanvasClippedLine()
+    {
+        Video.Init();
+        Canvas.Init(2, 2, CanvasMode.SingleBuffered);
+        Video.Start();
+        Canvas.Clear(0);
+        Canvas.DrawLine(-3, -3, 18, 18, 3);
+        Canvas.Present();
+        return 42;
+    }
+
+    public static int CanvasTriangle()
+    {
+        Video.Init();
+        Canvas.Init(1, 1, CanvasMode.SingleBuffered);
+        Video.Start();
+        Canvas.Clear(0);
+        Canvas.FillTriangle(0, 0, 7, 0, 7, 7, 6);
+        Canvas.Present();
+        return 42;
+    }
+
+    public static int CanvasDouble()
+    {
+        Video.Init();
+        Canvas.Init(1, 1, CanvasMode.DoubleBuffered);
+        Video.Start();
+        Canvas.Clear(0);
+        Canvas.SetPixel(0, 0, 3);
+        Canvas.Present();
+        *(byte*)0xDF00 = Hardware.LCDC;
+        Canvas.Clear(0);
+        Canvas.SetPixel(1, 0, 3);
+        Canvas.Present();
+        *(byte*)0xDF01 = Hardware.LCDC;
+        return 42;
+    }
+
+    public static int CanvasCgb()
+    {
+        Video.Init();
+        Canvas.Init(1, 1, CanvasMode.SingleBuffered);
+        Video.Start();
+        Canvas.Clear(0);
+        Canvas.SetPixel(0, 0, 3);
+        Canvas.Present();
+        return 42;
+    }
+
     private static void StartFont()
     {
         Video.Init();

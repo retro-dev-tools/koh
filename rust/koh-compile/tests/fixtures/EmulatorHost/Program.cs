@@ -13,7 +13,8 @@ bool stack = args.Length > 0 && args[0] == "--native-stack";
 bool frame = args.Length > 0 && args[0] == "--native-frame";
 bool oamMode = args.Length > 0 && args[0] == "--native-oam";
 bool rawOam = args.Length > 0 && args[0] == "--native-oam-trigger";
-bool maps = args.Length > 0 && args[0] == "--native-maps";
+bool canvas = args.Length > 0 && args[0] == "--native-canvas";
+bool maps = canvas || (args.Length > 0 && args[0] == "--native-maps");
 bool cpu = args.Length > 0 && args[0] == "--native-cpu";
 bool arena = args.Length > 0 && args[0] == "--native-arena";
 bool scroll = args.Length > 0 && args[0] == "--native-scroll";
@@ -433,6 +434,8 @@ foreach (
                 $" {((rasterTrace.FinalIme ?? gb.Cpu.Ime) ? 1 : 0)}:{gb.Mmu.DebugRead(0xff70):X2}:{(gb.KeyOne.DoubleSpeed ? 1 : 0)} {string.Join(',', rasterTrace.Reads.DefaultIfEmpty("-"))} {string.Join(',', rasterTrace.Writes.DefaultIfEmpty("-"))}";
         if (scene)
             snapshot += " " + Convert.ToHexString(result);
+        if (canvas)
+            snapshot += $" {timing.GdmaStarts}";
         if (irqAbi)
             snapshot += $" {irqChecks}:{irqSp:X4}";
         if (irqCount)
@@ -573,6 +576,7 @@ sealed class VideoTiming(GameBoySystem system, bool guardOam) : Koh.Emulator.Deb
     public List<string> Writes { get; } = [];
     public string? UnsafeDma { get; private set; }
     public int OamStarts { get; private set; }
+    public int GdmaStarts { get; private set; }
 
     public override void OnRead(ushort address, byte value)
     {
@@ -597,6 +601,8 @@ sealed class VideoTiming(GameBoySystem system, bool guardOam) : Koh.Emulator.Deb
                 );
             OamStarts++;
         }
+        if (address == 0xFF55 && (value & 0x80) == 0)
+            GdmaStarts++;
         if (address == 0xFF55 && (value & 0x80) == 0 && (system.Ppu.LCDC & 0x80) != 0)
         {
             int dots = ((value & 0x7F) + 1) * 32;

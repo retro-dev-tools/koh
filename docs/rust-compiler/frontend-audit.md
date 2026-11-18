@@ -31,17 +31,17 @@ Background/window map coordinates, fill/draw byte contents, CGB bank-1 attribute
 
 ### CilCanvasTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilCanvasTests.cs`. Future Rust test group: `cil_canvas`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilCanvasTests.cs`. Native Rust test group: `driver::canvas`; [independent pixels, planes, page flips and hardware transfer checks](canvas-contracts.md).
 
 Tile-planar pixel placement, shade/dither masks, line/triangle rasterization and double-buffer presentation with no mode-3 writes are useful authoring capabilities. Existing API names and shapes are not a baseline; preserve independently justified pixels and hardware behavior, with buffer addresses and DMA choice treated as implementation choices unless hardware requires them.
 
-- **PORT** `Init_Clear_SetPixel_Present_LcdOff_MatchesExpectedBuffer`.
-- **PORT** `FillRect_SolidShade_FillsEveryPlaneByteFF`.
-- **PORT** `FillSpan_DitherShade_ProducesExpectedPlaneBytesPerRow`.
-- **PORT** `DrawLine_LcdOn_NeverWritesDuringMode3_AndDrawsExpectedDiagonal`.
-- **PORT** `FillTriangle_LcdOn_NeverWritesDuringMode3_AndFillsExpectedSpans`.
-- **PORT** `Present_DoubleBuffered_LcdOn_FlipsLcdcBit4_NeverWritesDuringMode3`.
-- **PORT** `Present_Cgb_UsesGdma_NeverWritesDuringMode3_AndMatchesExpectedBuffer`.
+- **PORT, complete** `Init_Clear_SetPixel_Present_LcdOff_MatchesExpectedBuffer` — exact full VRAM/pixel planes, LCD/page states and hardware transfer safety in Debug/Release × DMG/CGB; [evidence](canvas-contracts.md).
+- **PORT, complete** `FillRect_SolidShade_FillsEveryPlaneByteFF` — exact full VRAM/pixel planes, LCD/page states and hardware transfer safety in Debug/Release × DMG/CGB; [evidence](canvas-contracts.md).
+- **PORT, complete** `FillSpan_DitherShade_ProducesExpectedPlaneBytesPerRow` — exact full VRAM/pixel planes, LCD/page states and hardware transfer safety in Debug/Release × DMG/CGB; [evidence](canvas-contracts.md).
+- **PORT, complete** `DrawLine_LcdOn_NeverWritesDuringMode3_AndDrawsExpectedDiagonal` — exact full VRAM/pixel planes, LCD/page states and hardware transfer safety in Debug/Release × DMG/CGB; [evidence](canvas-contracts.md).
+- **PORT, complete** `FillTriangle_LcdOn_NeverWritesDuringMode3_AndFillsExpectedSpans` — exact full VRAM/pixel planes, LCD/page states and hardware transfer safety in Debug/Release × DMG/CGB; [evidence](canvas-contracts.md).
+- **PORT, complete** `Present_DoubleBuffered_LcdOn_FlipsLcdcBit4_NeverWritesDuringMode3` — exact full VRAM/pixel planes, LCD/page states and hardware transfer safety in Debug/Release × DMG/CGB; [evidence](canvas-contracts.md).
+- **PORT, complete** `Present_Cgb_UsesGdma_NeverWritesDuringMode3_AndMatchesExpectedBuffer` — exact full VRAM/pixel planes, LCD/page states and hardware transfer safety in Debug/Release × DMG/CGB; [evidence](canvas-contracts.md).
 
 ### CilClassStringFieldTests.cs
 

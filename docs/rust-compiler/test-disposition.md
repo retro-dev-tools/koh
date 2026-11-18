@@ -31,7 +31,7 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:491/565 methods (490 native behavioral replacements,
+**Complete dispositions:498/565 methods (497 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
 All19 [narrowing methods](narrowing.md) now have native replacements for73 source
 assertion sites, with3224 executed ROMs and independently checked escaping widths.
@@ -82,7 +82,10 @@ byte checks.
 All five [framework methods](framework-contracts.md) now have native replacements
 for14 source assertion sites, with20 real-library ROM executions and independently
 checked RNG/timer/assets/input/clock observations.
-The remaining 74 methods still have
+All seven [canvas methods](canvas-contracts.md) now have native replacements
+for36 source assertion sites, with32 real-library ROM executions checking exact
+planes, clipping, page flips and actual GDMA transfers.
+The remaining 67 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -500,11 +503,11 @@ fixture and IR/backend cases assert exact stream reads/writes, faults, IME and
 bank/stack preservation. See [contract and evidence](raster-stream.md). This
 does not change the565-method completion count or defer any compiler coverage.
 
-The7 `CilCanvasTests.cs` methods (36 assertion sites) remain partial: the real
-cube exercises rasterization/presentation, but cannot replace their exact plane
-bytes, isolated span/line cases, LCD-off and page-flip assertions. No compiler
-coverage is DEFERred. See [transfer design](canvas-transfers.md) and
-[VBlank correction](vblank-window.md).
+All7 `CilCanvasTests.cs` methods (36 assertion sites) now have dedicated native
+[canvas replacements](canvas-contracts.md), separate from cube-sample evidence:
+exact plane bytes, isolated span/line/triangle cases, LCD-off, both page flips,
+actual CGB DMA and transfer safety. No compiler coverage is DEFERred. See also
+[transfer design](canvas-transfers.md) and [VBlank correction](vblank-window.md).
 
 ## Raw arena replacements
 
