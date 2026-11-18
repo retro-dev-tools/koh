@@ -3,6 +3,17 @@
 The [requirement-by-requirement acceptance audit](acceptance.md) is the current
 completion record. Sections below retain historical implementation checkpoints.
 
+### Migration acceptance complete
+
+Final full run44330863800 atf5a10e8 passes all14 jobs: Linux/macOS2239 native
+tests each, Windows2237, zero skipped, plus separate doctests, native artifact
+smoke, runtime notice staging, existing .NET/editor/SDL tests and NativeAOT
+publish/smoke. Downloaded native ZIPs match GitHub digests and contain all14
+runtime notice/provenance files on each host. The [acceptance audit](acceptance.md)
+records exact scope and limitations. PR55 remains draft and unmerged. Existing
+first-party/managed licensing gaps block release publication, not this completed
+compiler migration review; no release is published.
+
 ### Final platform validation at3d15f2d
 
 All14 jobs in [the full CI run](https://github.com/retro-dev-tools/koh/actions/runs/44316310945)
@@ -19,8 +30,8 @@ records90 fresh measurements, larger native ROM payloads and the historical-runt
 game capture differences without claiming game parity. Final release review remains
 open; this platform result does not resolve the notice gaps in [package evidence](packaged-tools.md).
 
-Status: implementation and full platform regression complete; final release
-review remains open. Native CIL reading, typed IR, optimization and
+Status: compiler migration acceptance complete; existing release-publication
+follow-ups are documented in the acceptance audit. Native CIL reading, typed IR, optimization and
 SM83/ELF emission are implemented, including banked managed calls and
 [bounded hardware interrupt roots](irq-calls.md). The
 [runtime boundaries](runtime-boundaries.md) document the rationale and alternatives

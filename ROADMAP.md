@@ -17,7 +17,11 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   report567 succeeded, zero failed and two unchanged opt-in SDL window/input
   skips. Unfiltered native2239/2239 passes, zero skipped, with separate doctests.
   All565 source dispositions are complete and legacy definitions retired. Final
-  current-head three-OS/product/release acceptance remains open. See the
+  run44330863800 atf5a10e8 passes all14 jobs, including native Linux/macOS2239
+  and Windows2237 cases, zero skipped, separate doctests and artifact/notice
+  checks. Compiler migration acceptance is complete in draft PR55; existing
+  first-party/managed notice gaps still block release publication. See the
+  [acceptance audit](docs/rust-compiler/acceptance.md) and
   [removal evidence](docs/rust-compiler/legacy-removal-validation.md).
 - Rust assembler [PR #53](https://github.com/retro-dev-tools/koh/pull/53) and Rust linker/ELF [PR #54](https://github.com/retro-dev-tools/koh/pull/54) are merged.
   `koh-objects` owns the canonical ELF32/SM83 model; the native assembler and linker share it.
@@ -40,7 +44,7 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
   retain separate declaring/method scopes through overrides, default/explicit
   interface bodies, captured callbacks and inherited MethodImpl bodies.
   [Runtime boundaries](docs/rust-compiler/runtime-boundaries.md) explicitly retain
-  exact variance identities and unboxed values; final diagnostic acceptance remains open.
+  exact variance identities and unboxed values, with explicit diagnostic acceptance.
   [Bounded interrupt handlers](docs/rust-compiler/irq-calls.md) now execute all five
   vectors with saved registers, a reserved stack budget and bank-preserving ROM0
   bodies and shared scalar helper calls; allocation/nested IRQ enabling remain

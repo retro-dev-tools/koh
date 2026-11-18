@@ -85,3 +85,9 @@ An initial check incorrectly expected local file links; correcting that check
 does not change the upstream HTML or staged payload. Both MIT and Apache texts
 are present. This validates the helper locally, not a new hosted three-platform
 release or the first-party/managed-payload licensing review.
+
+Final hosted validation44330863800 atf5a10e8 also passes notice staging and
+native artifact smoke on Linux, Windows and macOS. Downloaded native archives
+match their GitHub SHA256 metadata and each contains14 runtime notice/provenance
+files identifying Rust1.100.0. See [final acceptance](acceptance.md). No release
+is published, and existing first-party/managed notice gaps remain release blockers.

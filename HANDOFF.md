@@ -2,7 +2,7 @@
 
 ## Current integrated removal
 
-The native compiler and SDK pipeline remain under final migration acceptance.
+The native compiler and SDK migration acceptance is complete in draft PR55.
 The validated removal deletes the old compiler and compiler test tree, their solution
 entries and direct Roslyn/Cecil packages. GameBoy, tile-sheet build tools,
 emulator/debugger and standalone Superopt remain. Native compiler coverage lives
@@ -13,12 +13,17 @@ The unfiltered Linux native run passed2239/2239, zero skipped, exit0, with separ
 doctests passing. All565 source dispositions are complete and legacy definitions
 retired. Removal-candidate solution build produces all seven C# sample ROMs with
 zero warnings/errors; retained .NET tests pass567, with two existing opt-in SDL
-skips. The removal is integrated on the PR branch. Final current-head three-OS,
-diagnostic-boundary, broader performance and release-review gates remain open.
+skips. Final hosted run44330863800 atf5a10e8 passes all14 jobs: Linux/macOS2239
+native tests each, Windows2237, zero skipped, separate doctests, runtime notices,
+artifact smoke, live .NET/editor/SDL and NativeAOT publish/smoke. All three
+downloaded native ZIP digests match GitHub metadata and contain runtime notices.
 See [progress](docs/rust-compiler/progress.md),
 [removal checklist](docs/rust-compiler/legacy-removal-checklist.md) and
-[runtime boundaries](docs/rust-compiler/runtime-boundaries.md). Final platform,
-packaged-tool, source-debug and performance evidence remain required.
+[runtime boundaries](docs/rust-compiler/runtime-boundaries.md). The
+[acceptance audit](docs/rust-compiler/acceptance.md) records all requirements,
+the90-measurement performance refresh and known limitations. Existing first-party
+and managed-payload notice gaps remain release-publication blockers. No release
+is published; PR55 remains draft and must not be merged by the agent.
 
 The checkpoints below are historical implementation notes, not current counts,
 live process handles or commands for removed projects.

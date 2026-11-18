@@ -1,6 +1,7 @@
 # PR55 acceptance audit
 
-Implementation baseline:3d15f2d. Documentation consolidation:50561b2.
+Final validated implementation/package baseline:f5a10e8. Documentation-only
+closure follows that baseline; compiler implementation is unchanged from3d15f2d.
 This record maps the requested migration requirements to concrete sources and
 completed verification. It does not treat a green workflow as a language oracle.
 
@@ -32,11 +33,28 @@ filename/symlink semantics. No compiler test is excluded by this difference.
 The full run is unfiltered; the separate one-case packaged-executable smoke
 intentionally selects one SDK case and does not replace it.
 
-## Evidence limits and open review
+## Final validation
 
-- The full three-host run validates3d15f2d. Later changes listed above are docs;
-  they do not create new production verification claims. Local link and diff
-  checks cover the documentation additions.
+All14 jobs of [run44330863800](https://github.com/retro-dev-tools/koh/actions/runs/44330863800)
+completed successfully atf5a10e8. Completed native logs report Linux2239/2239
+in1580.550s, macOS2239/2239 in1741.666s and Windows2237/2237 in2091.354s,
+zero skipped. Separate doctests, native compiler artifact smoke, runtime notice
+staging and language-server publishing passed on each host. The retained Windows
+.NET job reports567 passed/zero failed/two opt-in SDL skips; the separate SDL
+job executes its native-window cases with five passed/zero skipped per backend.
+NativeAOT publishing and300-frame PNG smoke checks passed on all three hosts.
+
+Downloaded all three native artifacts and matched their ZIP SHA256 values to
+GitHub metadata. Each contains the native compiler, Cargo notices and14 active
+Rust runtime notice/provenance files; provenance identifies Rust1.100.0. Linux
+artifact14441083408, macOS14442292052, Windows14441833719. The separate local
+updated archive check preserves hashes/modes for all66 files, including runtime
+notices, and executes the extracted compiler/linker version commands.
+
+## Evidence limits and release follow-ups
+
+- The full three-host run validatesf5a10e8, including the notice helper. Final
+  documentation-only closure does not create new production verification claims.
 - Historical-runtime Graphics/Original2048 inputs used for compiler timing have
   different numeric HUD captures under the two compilers. They are not gameplay
   parity acceptance. Production samples use the current library and their own
@@ -47,10 +65,15 @@ intentionally selects one SDK case and does not replace it.
   LICENSE; attribution awaits maintainer input. The inventory does not establish
   toolchain-wide license compliance or the existing managed payload. The release
   now stages the active Rust sysroot's upstream library notices separately;
-  local1.88/1.99 byte-identity checks pass. Hosted staging remains to be validated.
-  Release readiness remains unproven.
+  local1.88/1.99 byte-identity checks and hosted three-platform staging pass.
+  First-party attribution and managed-payload notice review remain release
+  follow-ups, not claims of license compliance. No release is published by this PR.
 - No physical Game Boy validation or exhaustive game-route test is claimed.
   Documented exclusions include boxing, variance adaptation, exceptional unwind,
   general reflection/BCL, richer IRQ execution and bank-bearing immutable data.
 
-Final completion is not claimed while the release-review items remain open.
+The compiler migration acceptance is complete. This is a draft PR for review,
+not authorization to publish a toolchain release or merge it. The existing
+first-party/managed notice gaps remain release blockers under repository policy;
+recording them does not invent a copyright owner or expand this migration into
+a licensing redesign of the retained emulator/LSP/.NET distribution.

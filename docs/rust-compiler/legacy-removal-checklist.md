@@ -27,8 +27,9 @@ platform/product/release acceptance.
   exact Cargo dependency notices. [Evidence](packaged-tools.md).
 - [x] Finish full three-OS implementation validation at3d15f2d: all14 CI jobs
   passed, including native SDK/debug tests, editor tests and artifact smoke checks.
-- [ ] Finish release review; see the [acceptance audit](acceptance.md) for exact
-  verification scope, historical-runtime measurement limits and notice gaps.
+- [x] Finish migration/package review; see the [acceptance audit](acceptance.md)
+  for final three-platform results, historical-runtime measurement limits and
+  existing first-party/managed notice gaps that still block release publication.
 
 The additional Superopt consumers are outside the565-method legacy compiler
 source ledger. Their test ownership and disposition must be recorded separately;
