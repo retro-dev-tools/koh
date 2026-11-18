@@ -318,14 +318,14 @@ constructor and byte-count/prefix assertions.
 
 Classification: ISA encodings. ROM bytes must implement the selected SM83 instructions; agreement with another Koh table is corroboration, not an external ISA oracle.
 
-Proposed future location: `rust/koh-compiler/tests/encoding.rs` (not implemented).
+Complete native replacement: [independent encoding/length/execution contracts](encoding-contracts.md), `rust/koh-compile/tests/driver/{symbols,machine_effects}.rs`.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `Loads_MatchTable` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `Alu_MatchTable` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `ControlFlow_MatchTable` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
-| `CbShifts_MatchTable` | Requirement | REPLACE | Retain opcode vectors and required effects against an independent ISA oracle; use replacement types. |
+| `Loads_MatchTable` | Requirement | REPLACE complete | [Independent ISA bytes, names, boundaries and executable effects](encoding-contracts.md). |
+| `Alu_MatchTable` | Requirement | REPLACE complete | [Independent ISA bytes, names, boundaries and executable effects](encoding-contracts.md). |
+| `ControlFlow_MatchTable` | Requirement | REPLACE complete | [Independent ISA bytes, names, boundaries and executable effects](encoding-contracts.md). |
+| `CbShifts_MatchTable` | Requirement | REPLACE complete | [Independent ISA bytes, names, boundaries and executable effects](encoding-contracts.md). |
 
 ### Backends/Sm83GepFusionTests.cs (5)
 
@@ -612,11 +612,11 @@ Complete native replacement: [comparison/conversion contracts](optimizer-scalar-
 
 Classification: Two internal decoders agreeing. Instruction boundaries are ISA facts; matching two local implementations is insufficient if they share the same defect.
 
-Proposed future location: `rust/koh-compiler/tests/encoding.rs` (not implemented).
+Complete native replacement: [independent encoding/length/execution contracts](encoding-contracts.md), `rust/koh-compile/tests/driver/{symbols,machine_effects}.rs`.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `EveryOpcode_HasTheSameLength_InBothDecoders` | Requirement | REPLACE | Check all base/CB lengths against an independently specified ISA vector; compare emitted boundaries too. |
+| `EveryOpcode_HasTheSameLength_InBothDecoders` | Requirement | REPLACE complete | [All512 independently specified base/CB lengths and emitted boundaries](encoding-contracts.md). |
 
 ### Sm83/FlushRunLoopResidencyTests.cs (2)
 

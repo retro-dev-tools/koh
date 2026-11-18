@@ -62,10 +62,14 @@ fn expected(code: &[u8], initial: &State) -> State {
         0x06 | 0x0e | 0x16 | 0x1e | 0x26 | 0x2e | 0x36 | 0x3e => {
             s.store(((op >> 3) & 7) as usize, code[1]);
         }
-        0x80..=0xbf => {
+        0x80..=0xbf | 0xc6 => {
             let a = u16::from(s.r[7]);
-            let b = u16::from(s.operand((op & 7) as usize));
-            let group = (op >> 3) & 7;
+            let b = u16::from(if op == 0xc6 {
+                code[1]
+            } else {
+                s.operand((op & 7) as usize)
+            });
+            let group = if op == 0xc6 { 0 } else { (op >> 3) & 7 };
             let carry = u16::from(matches!(group, 1 | 3) && s.f & 0x10 != 0);
             let (value, subtract, half, carry) = match group {
                 0 | 1 => (
@@ -142,6 +146,34 @@ fn expected(code: &[u8], initial: &State) -> State {
         0x00 => {}
         0x76 => s.halted = true,
         0xc3 => s.pc = 0x3155,
+        0xc2 | 0xca | 0xd2 | 0xda => {
+            let take = match op {
+                0xc2 => s.f & 0x80 == 0,
+                0xca => s.f & 0x80 != 0,
+                0xd2 => s.f & 0x10 == 0,
+                0xda => s.f & 0x10 != 0,
+                _ => unreachable!(),
+            };
+            if take {
+                s.pc = 0x3155;
+            }
+        }
+        0x19 => {
+            let hl = u32::from(u16::from_be_bytes([s.r[4], s.r[5]]));
+            let de = u32::from(u16::from_be_bytes([s.r[2], s.r[3]]));
+            s.f = flags(
+                s.f & 0x80 != 0,
+                false,
+                (hl & 0xfff) + (de & 0xfff) > 0xfff,
+                hl + de > 0xffff,
+            );
+            [s.r[4], s.r[5]] = ((hl + de) as u16).to_be_bytes();
+        }
+        0x23 => {
+            [s.r[4], s.r[5]] = u16::from_be_bytes([s.r[4], s.r[5]])
+                .wrapping_add(1)
+                .to_be_bytes();
+        }
         0x18 => s.pc += 2,
         0x20 => {
             if s.f & 0x80 == 0 {
@@ -251,6 +283,13 @@ fn sm83_machine_effects_follow_independent_isa_contracts(debugger: &Host, #[case
             vec![0xf2],
             vec![0xe2],
             vec![0xfa, 0x20, 0xc0],
+            vec![0xc6, 0xa5],
+            vec![0x19],
+            vec![0x23],
+            vec![0xc2, 0x55, 0x31],
+            vec![0xca, 0x55, 0x31],
+            vec![0xd2, 0x55, 0x31],
+            vec![0xda, 0x55, 0x31],
         ],
         _ => panic!("Unknown ISA family {family}"),
     };
@@ -265,10 +304,23 @@ fn sm83_machine_effects_follow_independent_isa_contracts(debugger: &Host, #[case
     let mut requests = Vec::new();
     let mut expectations = Vec::new();
     for (index, code) in codes.iter().enumerate() {
-        for r in [
+        let mut patterns = vec![
             [0x0f, 0x10, 0x7f, 0x80, 0xc0, 0x20, 0x55, 0x81],
             [0xff, 1, 0, 0xff, 0xc0, 0x20, 0x80, 0],
-        ] {
+        ];
+        if code[0] == 0x19 {
+            for de in [0x0fe0u16, 0xffe0] {
+                let mut r = patterns[0];
+                [r[2], r[3]] = de.to_be_bytes();
+                patterns.push(r);
+            }
+        }
+        if code[0] == 0x23 {
+            let mut r = patterns[0];
+            r[4..6].fill(0xff);
+            patterns.push(r);
+        }
+        for r in patterns {
             for high_flags in 0..16 {
                 let mut state = State {
                     r,
@@ -298,7 +350,10 @@ fn sm83_machine_effects_follow_independent_isa_contracts(debugger: &Host, #[case
         }
     }
     let replies = debugger_replies(debugger, &requests);
-    assert_eq!(replies.len(), codes.len() * 32);
+    assert_eq!(
+        replies.len(),
+        codes.len() * 32 + if family == "control_memory" { 48 } else { 0 }
+    );
     for (actual, (code, initial, expected)) in replies.iter().zip(expectations) {
         assert_eq!(
             actual, &expected,

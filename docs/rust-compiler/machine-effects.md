@@ -21,8 +21,10 @@ HALT state, four stack bytes, the watched WRAM byte, LCDC, and ordered data-bus
 accesses including their values. Unchanged state is asserted as strictly as the
 result. No instruction-cycle or STOP/power-on behavior is claimed.
 
-Nine rstest cases execute436 opcode/sequence vectors under two register patterns
+The original nine rstest cases executed436 opcode/sequence vectors under two register patterns
 and every one of the16 initial flag patterns: **13952 fresh instruction probes**.
+The [encoding follow-up](encoding-contracts.md) adds272 pair/immediate/conditional
+probes, making14224 in the current matrix, including directed carry/wrap states.
 The families are63 register/memory loads,16 immediate loads,64 ALU instructions,
 16 INC/DEC instructions, all256 CB instructions and21 control/memory sequences.
 The immediate set checks both zero and a nonzero byte. The two register patterns

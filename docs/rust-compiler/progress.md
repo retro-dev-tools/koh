@@ -10,6 +10,17 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Independent ISA encoding coverage
+
+Five [encoding/parity source methods](encoding-contracts.md) now have native
+replacements for34 assertion sites. Four rstest cases preserve all33 named byte/
+operand vectors; the exhaustive boundary test replaces local decoder agreement.
+The execution matrix adds immediate/pair arithmetic and every conditional JP,
+including half-carry, carry, Z preservation and pair wrap:14224 probes. Expanded
+compiler/library/disassembly/effect/Roslyn rewrite validation passed245/245 in
+32.462s, exit0. The ledger is445/565 complete,120 outstanding; no production
+compiler/emulator/debugger code changed and full migration remains incomplete.
+
 ### Comparable compiler-core measurements
 
 The [performance checkpoint](compiler-performance.md) now records identical
@@ -24,7 +35,7 @@ execution difference is documented, not adopted as a native requirement.
 This is a scoped Linux baseline: no whole-SDK/full-game/warmed-JIT/cross-host speed
 claim. Native emitted payloads are larger for these kernels and are recorded
 alongside the lower first-call time/RSS observations. Broader performance/product
-acceptance remains open; the disposition ledger stays440/565 with125 outstanding.
+acceptance remains open; the disposition ledger is445/565 with120 outstanding.
 The optional host-native workflow adds no CI-per-commit job or container.
 
 ### Executable machine-effect migration
@@ -37,7 +48,7 @@ check every register/flag, PC/SP/IME, stack and exact ordered data accesses.
 Only the existing C# test adapter gains a bounded raw-state command; production
 emulator/debugger/compiler code is unchanged. No constructor/boot defaults or
 private effect bitsets become specifications. All19 source decoder methods now
-have dispositions; the full ledger is440/565 complete,125 outstanding.
+have dispositions; the full ledger is445/565 complete,120 outstanding.
 Expanded library/catalog/boundary/effect/real-Roslyn rewrite validation passed
 241/241 in29.956s, exit0, with703 explicitly unselected cases. Full migration,
 performance comparison and final hosted validation remain incomplete.
@@ -52,7 +63,7 @@ The actual CIL input boundary now rejects every proper truncation of all218 SDK
 catalog encodings. No private MIR/opaque-clobber model or second decoder is added.
 The other15 methods now have [separate execution proof](machine-effects.md). Focused decoder/catalog/debugger
 validation passed43/43 in10.504s, exit0;683 cases explicitly unselected. The ledger
-is440/565 complete (439 replacements, one DELETE),125 outstanding. Full migration
+is445/565 complete (444 replacements, one DELETE),120 outstanding. Full migration
 and current-head hosted acceptance remain incomplete.
 
 ### Native three-platform validation checkpoint
@@ -87,7 +98,7 @@ Six native driver cases independently check known opcode bytes, lengths and next
 instruction addresses through the existing debugger API. The expanded library/
 rewrite/ISA/mapper/production-banked-call selection passed236/236 in38.223s, exit0
 (`/tmp/koh-rewrite-contracts-final.log`), with695 explicitly unselected cases.
-The ledger is440/565 complete (439 native replacements, one DELETE),125 outstanding.
+The ledger is445/565 complete (444 native replacements, one DELETE),120 outstanding.
 No compiler-owned case is deferred; no private byte edit or cycle improvement is
 declared part of the public contract.
 
@@ -428,7 +439,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-440/565 dispositions complete (439 native replacements, one DELETE),125 outstanding,
+445/565 dispositions complete (444 native replacements, one DELETE),120 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

@@ -185,6 +185,75 @@ fn sm83_disassembly_preserves_mixed_stream_bytes_and_offsets(debugger: &Host) {
     }
 }
 
+#[rstest]
+#[case("loads")]
+#[case("alu")]
+#[case("control")]
+#[case("cb")]
+fn sm83_disassembly_names_independent_encoding_vectors(debugger: &Host, #[case] family: &str) {
+    let vectors: &[(&[u8], &str)] = match family {
+        "loads" => &[
+            (&[0x3e, 0xa5], "LD A,$A5"),
+            (&[0xfa, 0x20, 0xc0], "LD A,($C020)"),
+            (&[0xea, 0x20, 0xc0], "LD ($C020),A"),
+            (&[0x47], "LD B,A"),
+            (&[0x7e], "LD A,(HL)"),
+            (&[0x77], "LD (HL),A"),
+            (&[0x5f], "LD E,A"),
+            (&[0x57], "LD D,A"),
+            (&[0x6f], "LD L,A"),
+            (&[0x67], "LD H,A"),
+        ],
+        "alu" => &[
+            (&[0x80], "ADD A,B"),
+            (&[0x88], "ADC A,B"),
+            (&[0x90], "SUB A,B"),
+            (&[0x98], "SBC A,B"),
+            (&[0xa0], "AND A,B"),
+            (&[0xb0], "OR A,B"),
+            (&[0xa8], "XOR A,B"),
+            (&[0xa7], "AND A,A"),
+            (&[0xc6, 0xa5], "ADD A,$A5"),
+            (&[0x19], "ADD HL,DE"),
+            (&[0x23], "INC HL"),
+        ],
+        "control" => &[
+            (&[0xc9], "RET"),
+            (&[0xc3, 0x55, 0x31], "JP $3155"),
+            (&[0xc2, 0x55, 0x31], "JP NZ,$3155"),
+            (&[0xca, 0x55, 0x31], "JP Z,$3155"),
+            (&[0xd2, 0x55, 0x31], "JP NC,$3155"),
+            (&[0xda, 0x55, 0x31], "JP C,$3155"),
+            (&[0xcd, 0x55, 0x31], "CALL $3155"),
+        ],
+        "cb" => &[
+            (&[0xcb, 0x23], "SLA E"),
+            (&[0xcb, 0x12], "RL D"),
+            (&[0xcb, 0x3b], "SRL E"),
+            (&[0xcb, 0x2b], "SRA E"),
+            (&[0xcb, 0x1b], "RR E"),
+        ],
+        _ => panic!("Unknown encoding family {family}"),
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let mut data = Vec::new();
+    let mut addresses = Vec::new();
+    for &(bytes, _) in vectors {
+        addresses.push((0x3000 + data.len(), 2));
+        data.extend_from_slice(bytes);
+        data.push(0);
+    }
+    let (rom, kdbg) = instruction_rom(directory.path(), &data);
+    let replies = disassemble_vectors(debugger, &rom, &kdbg, &addresses);
+    for ((instructions, &(bytes, text)), &(address, _)) in
+        replies.iter().zip(vectors).zip(&addresses)
+    {
+        assert_instruction(&instructions[0], bytes, address);
+        assert_eq!(instructions[0]["instruction"], text);
+        assert_instruction(&instructions[1], &[0], address + bytes.len());
+    }
+}
+
 fn source_document<'a>(lines: &'a [koh_link::LinkedLine], source: &Path, line: usize) -> &'a Path {
     let physical = source.canonicalize().unwrap();
     let document = lines
