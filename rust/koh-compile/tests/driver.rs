@@ -20,6 +20,8 @@ mod interrupts;
 mod ir_contracts;
 #[path = "driver/literals.rs"]
 mod literals;
+#[path = "driver/reference_contracts.rs"]
+mod reference_contracts;
 use koh_compile::{compile, resolve::Resolver};
 use rstest::rstest;
 use std::path::{Path, PathBuf};

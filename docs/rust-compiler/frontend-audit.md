@@ -260,8 +260,8 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilMdArrayTests.cs`. Future
 
 Rank-2 array construction/indexing, ROM-initializer and heap paths, dimension headers and string-reference elements must retain values and lengths across calls. Preserve useful arrays; header representation is internal.
 
-- **PORT** `RectangularArrays_RomFoldHeapCtorAndHeaderPath`.
-- **PORT** `StringArrays_ReferenceElementsAndLengths`.
+- **REPLACE, complete** `RectangularArrays_RomFoldHeapCtorAndHeaderPath` — existing mutable/dimension/fault native contracts replace the private immutable ROM header; [evidence](test-disposition.md#rectangular-array-replacement).
+- **PORT, complete** `StringArrays_ReferenceElementsAndLengths` — original reference table, runtime strings, parameter reads, lengths and alias mutation; [evidence](reference-memory-contracts.md).
 
 ### CilNarrowingEndToEndTests.cs
 
@@ -316,17 +316,17 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilReferenceTests.cs`. Futu
 
 Reachable non-BCL library bodies lower transitively; unsupported BCL calls diagnose; Mem arena blocks are distinct and reset reclaims them. On-demand graph traversal and exact heap-top addresses are old mechanisms, while bounded ROM size and valid allocation matter.
 
-- **PORT** `HalAndMemMethods_LowerOnDemandAndProduceExpectedState`.
-- **PORT** `HalAndMemMethods_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `SingleSetTile_LowersOnDemandAndWritesTheRightCell`.
-- **PORT** `TilemapClear_TransitivelyLowersSetTileAndClearsEveryCell`.
-- **PORT** `TilemapClear_DebugAndReleaseProduceIdenticalObservableState`.
-- **REPLACE** `UncalledHalMethods_AreNeverLoweredIntoTheModule` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
+- **PORT, complete** `HalAndMemMethods_LowerOnDemandAndProduceExpectedState` — exact native memory/register packets, full target map and uncalled-body/symbol exclusion; [evidence](reference-memory-contracts.md).
+- **REPLACE, complete** `HalAndMemMethods_DebugAndReleaseProduceIdenticalObservableState` — exact native memory/register packets, full target map and uncalled-body/symbol exclusion; [evidence](reference-memory-contracts.md).
+- **PORT, complete** `SingleSetTile_LowersOnDemandAndWritesTheRightCell` — exact native memory/register packets, full target map and uncalled-body/symbol exclusion; [evidence](reference-memory-contracts.md).
+- **REPLACE, complete** `TilemapClear_TransitivelyLowersSetTileAndClearsEveryCell` — exact native memory/register packets, full target map and uncalled-body/symbol exclusion; [evidence](reference-memory-contracts.md).
+- **REPLACE, complete** `TilemapClear_DebugAndReleaseProduceIdenticalObservableState` — exact native memory/register packets, full target map and uncalled-body/symbol exclusion; [evidence](reference-memory-contracts.md).
+- **REPLACE, complete** `UncalledHalMethods_AreNeverLoweredIntoTheModule` — exact native memory/register packets, full target map and uncalled-body/symbol exclusion; [evidence](reference-memory-contracts.md).
 - **PORT** `CallIntoBcl_IsADiagnosticNeverLoweredOrMiscompiled`.
-- **REPLACE** `MemAlloc_IsACompilerOwnedIntrinsic_AndAllocatesAtTheExpectedAddress` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
-- **PORT** `MemAlloc_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `Arena_AllocatesDistinctBlocks`.
-- **PORT** `Arena_ResetReclaimsEverything`.
+- **REPLACE, complete** `MemAlloc_IsACompilerOwnedIntrinsic_AndAllocatesAtTheExpectedAddress` — previously counted raw allocation/lifetime/capacity contracts; [evidence](raw-arena.md).
+- **PORT, complete** `MemAlloc_DebugAndReleaseProduceIdenticalObservableState` — previously counted raw allocation/lifetime/capacity contracts; [evidence](raw-arena.md).
+- **PORT, complete** `Arena_AllocatesDistinctBlocks` — previously counted raw allocation/lifetime/capacity contracts; [evidence](raw-arena.md).
+- **PORT, complete** `Arena_ResetReclaimsEverything` — previously counted raw allocation/lifetime/capacity contracts; [evidence](raw-arena.md).
 
 ### CilSpritePaletteHardwareTests.cs
 

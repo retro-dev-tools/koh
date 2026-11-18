@@ -10,6 +10,20 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### String tables and referenced-memory closure
+
+Seven [reference/string-table source methods](reference-memory-contracts.md),23
+assertion sites, now have native replacements.28 Debug/Release × DMG/CGB ROMs
+check original string table/local values, alias mutation, null/bounds traps,
+referenced stackalloc copy/fill/palette writes, full target-map clears and dead
+method exclusion despite a missing unreachable dependency. Explicit LCD-off/map
+initialization replaces old implicit VRAM/PPU assumptions. Expanded243/243 passed
+29.177s, exit0,530 explicitly unselected (/tmp/koh-reference-contracts-final.log).
+Four already-counted raw-arena rows and the existing rectangular method were
+reconciled without duplicate credit. Ledger505/565 (504 replacements, one DELETE),
+60 outstanding. The old blanket BCL-rejection test remains open. No production
+compiler/emulator/API changes; final hosted acceptance remains open.
+
 ### Canvas pixel and presentation closure
 
 All seven [canvas source methods](canvas-contracts.md),36 assertion sites, now
@@ -613,7 +627,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-498/565 dispositions complete (497 native replacements, one DELETE),67 outstanding,
+505/565 dispositions complete (504 native replacements, one DELETE),60 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

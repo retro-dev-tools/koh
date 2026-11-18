@@ -31,7 +31,7 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:498/565 methods (497 native behavioral replacements,
+**Complete dispositions:505/565 methods (504 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
 All19 [narrowing methods](narrowing.md) now have native replacements for73 source
 assertion sites, with3224 executed ROMs and independently checked escaping widths.
@@ -85,7 +85,9 @@ checked RNG/timer/assets/input/clock observations.
 All seven [canvas methods](canvas-contracts.md) now have native replacements
 for36 source assertion sites, with32 real-library ROM executions checking exact
 planes, clipping, page flips and actual GDMA transfers.
-The remaining 67 methods still have
+Seven [referenced-memory/string-table methods](reference-memory-contracts.md)
+now have native replacements for23 source assertion sites, with28 ROM executions.
+The remaining 60 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable
@@ -347,9 +349,10 @@ layout is checked by `primitive_arrays_are_zeroed_checked_and_bank_safe`.
 
 Decision: REPLACE; the obsolete immutable-ROM/private-IR assertion is removed in
 favor of mutable-array execution and bank/heap guards. The separate source
-method `StringArrays_ReferenceElementsAndLengths` remains outstanding here;
-rectangular support does not close the entire source file. No source definitions
-are physically retired until final legacy compiler/test deletion.
+method `StringArrays_ReferenceElementsAndLengths` now has a dedicated native
+[string-reference table replacement](reference-memory-contracts.md), closing both
+methods in the source file. No source definitions are physically retired until
+final legacy compiler/test deletion.
 
 ## 2048 scene-game replacements
 

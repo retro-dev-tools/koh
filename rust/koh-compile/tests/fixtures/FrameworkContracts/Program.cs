@@ -159,3 +159,79 @@ public static unsafe class Program
         return 42;
     }
 }
+
+public static unsafe class ReferenceRules
+{
+    public static int Memory()
+    {
+        Lcd.SetPalette(0x1B);
+        byte* source = stackalloc byte[8];
+        byte* target = stackalloc byte[8];
+        byte* fill = stackalloc byte[8];
+        for (int i = 0; i < 8; i++)
+            source[i] = (byte)(i + 1);
+        Mem.Copy(target, source, 8);
+        Mem.Fill(fill, 0x7A, 8);
+        byte* packet = (byte*)0xDF00;
+        for (int i = 0; i < 8; i++)
+        {
+            packet[i] = target[i];
+            packet[8 + i] = fill[i];
+        }
+        packet[16] = Hardware.BGP;
+        return 42;
+    }
+
+    public static int SingleCell()
+    {
+        Lcd.Off();
+        Tilemap.Clear(0);
+        Tilemap.SetTile(5, 3, 9);
+        return 42;
+    }
+
+    public static int Clear()
+    {
+        Lcd.Off();
+        Tilemap.Clear(7);
+        return 42;
+    }
+
+    public static void Unreached() => System.Console.WriteLine("unreached");
+}
+
+public static unsafe class StringTables
+{
+    private static readonly string[] lines = { "HELLO", "WORLD!", "GB" };
+
+    private static byte First(string[] values, int i) => (byte)values[i][0];
+
+    private static int Count(string[] values) => values.Length;
+
+    public static int Values()
+    {
+        byte* p = (byte*)0xDF00;
+        p[0] = (byte)Count(lines);
+        p[1] = First(lines, 0);
+        p[2] = First(lines, 1);
+        p[3] = First(lines, 2);
+        p[4] = (byte)lines[1].Length;
+        string[] local = new string[2];
+        local[0] = "AB";
+        local[1] = "CDE";
+        p[5] = (byte)local[0].Length;
+        p[6] = First(local, 1);
+        p[7] = (byte)local[1].Length;
+        string[] alias = lines;
+        alias[1] = "Z";
+        p[8] = First(lines, 1);
+        p[9] = (byte)lines[1].Length;
+        return 42;
+    }
+
+    public static int NullElement() => First(new string[1], 0);
+
+    public static int EndIndex() => First(lines, 3);
+
+    public static int NegativeIndex() => First(lines, -1);
+}
