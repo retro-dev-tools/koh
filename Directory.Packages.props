@@ -4,13 +4,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
-    <PackageVersion Include="Mono.Cecil" Version="0.11.6" />
     <PackageVersion Include="Microsoft.Build.Framework" Version="17.14.28" />
     <PackageVersion Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />
     <PackageVersion Include="Microsoft.VisualStudio.LanguageServer.Protocol" Version="17.2.8" />
     <PackageVersion Include="StreamJsonRpc" Version="2.26.150" />
-    <PackageVersion Include="Testcontainers" Version="4.15.0" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <PackageVersion Include="TUnit" Version="1.28.7" />
     <PackageVersion Include="YamlDotNet" Version="16.3.0" />

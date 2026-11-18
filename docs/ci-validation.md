@@ -22,7 +22,9 @@ dotnet test --solution Koh.Fast.slnf --no-build --configuration Release --max-pa
 
 Only the expensive compiler `driver`, `cubes` and `sdk` targets are excluded from ordinary pushes. All other workspace targets, including native compiler IR/backend, metadata/reference and malformed-input tests, remain selected. These three targets still run unfiltered in full validation on all three platforms. No test is ignored, removed or assigned retries to obtain a fast green result. The default local nextest command remains unfiltered.
 
-`Koh.Fast.slnf` excludes the legacy C# compiler test project. Those tests remain in full validation until their migration is complete. Fast checks are an iteration signal, not compiler migration acceptance.
+`Koh.Fast.slnf` contains live .NET component tests; compiler-owned tests are native
+Rust targets. The legacy C# compiler/test project is removed. Fast checks are an
+iteration signal, not compiler migration acceptance.
 
 Full validation retains Rust tests and native SDK artifact checks on Linux, Windows and macOS; the full .NET suite; SDL3 renderer checks; emulator/UI NativeAOT publishing; extension tests; sample assembly; and benchmark discovery. RGBDS reference checks run the assembler and linker packages, without repeating compiler tests in that job. Tag-triggered release workflows retain their packaging checks.
 

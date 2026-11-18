@@ -3,7 +3,6 @@
     "path": "Koh.slnx",
     "projects": [
       "src\\Compiler\\Koh.Build.Tasks\\Koh.Build.Tasks.csproj",
-      "src\\Compiler\\Koh.Compiler\\Koh.Compiler.csproj",
       "src\\Asm\\Koh.Native\\Koh.Native.csproj",
       "src\\Compiler\\Koh.GameBoy\\Koh.GameBoy.csproj",
       "src\\Common\\Koh.Common\\Koh.Common.csproj",
@@ -19,7 +18,6 @@
       "src\\UI\\KohUI.Backends.Sdl3\\KohUI.Backends.Sdl3.csproj",
       "tools\\Koh.Superopt\\Koh.Superopt.csproj",
       "tests\\Tools\\Koh.Superopt.Tests\\Koh.Superopt.Tests.csproj",
-      "tests\\Compiler\\Koh.Compiler.Tests\\Koh.Compiler.Tests.csproj",
       "tests\\Common\\Koh.Objects.Tests\\Koh.Objects.Tests.csproj",
       "tests\\Common\\Koh.Opcodes.Tests\\Koh.Opcodes.Tests.csproj",
       "tests\\Link\\Koh.Linker.Tests\\Koh.Linker.Tests.csproj",

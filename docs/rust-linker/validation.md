@@ -1,5 +1,10 @@
 # Rust linker migration validation
 
+Historical PR54 evidence follows. Compiler-specific C# commands below describe
+that baseline; PR55 replaces them with native tests. See the current
+[compiler disposition ledger](../rust-compiler/test-disposition.md) and
+[CI commands](../ci-validation.md).
+
 This evidence covers the ELF32/SM83 migration in draft PR #54. The
 [test-disposition matrix](test-disposition.md) records the pre-migration audit,
 individual contracts, replacements and deletion reasons. Passing counts below

@@ -16,9 +16,7 @@
   </Folder>
   <Folder Name="/Compiler/">
     <Project Path="src/Compiler/Koh.Build.Tasks/Koh.Build.Tasks.csproj" />
-    <Project Path="src/Compiler/Koh.Compiler/Koh.Compiler.csproj" />
     <Project Path="src/Compiler/Koh.GameBoy/Koh.GameBoy.csproj" />
-    <Project Path="tests/Compiler/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj" />
   </Folder>
   <Folder Name="/Emulator/">
     <Project Path="src/Emulator/Koh.Boot/Koh.Boot.csproj" />

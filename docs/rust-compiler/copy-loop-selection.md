@@ -75,7 +75,7 @@ New parameterized tests are discoverable through cargo-nextest:
   dataflow fix; the other cases already passed.
 - `sm83::loop_local_flow_preserves_initial_values_backedges_and_alias_writes`:
   three cases,72 ROM observations, including zero iterations and16-bit wrap.
-- `driver::real_loop_cost_baselines`: actual Roslyn assemblies, external C#
+- `sm83::real_loop_cost_baselines`: actual Roslyn assemblies, external C#
   emulator execution, exact memory and stack observations, and retained timing
   ceilings.
 

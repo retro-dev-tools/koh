@@ -124,8 +124,8 @@ Invoke as `dotnet msbuild build.proj -t:<Target>` (no external tool install).
 
 | Target                | Description                                                 |
 | --------------------- | ----------------------------------------------------------- |
-| `Test`                | Run the fast suite (everything except `Koh.Compiler.Tests`) |
-| `TestAll`             | Run the full .NET suite used by full validation                              |
+| `Test`                | Run the .NET component tests |
+| `TestAll`             | Run all native tests, Rust doctests and .NET component tests |
 | `BuildSample2048`     | Build the assembly 2048 sample ROM                          |
 | `Benchmark`           | Run benchmarks                                              |
 | `PublishDev`          | Publish the LSP server for local VS Code debugging          |
@@ -185,12 +185,12 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 ## Repository Layout
 
 ```text
-rust/         koh-asm (assembler/service), koh-link (linker), koh-objects (ELF ABI)
+rust/         koh-asm, koh-link, koh-compile (CIL compiler), koh-objects (ELF ABI)
 src/
   Common/     Koh.Common (diagnostics, source text), Koh.Opcodes (SM83 opcode table),
               Koh.Objects (compiler output concepts and .kdbg reader)
   Asm/        Koh.Native (native bridge), Koh.Lsp (language server)
-  Compiler/   Koh.Compiler, Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
+  Compiler/   Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
   Emulator/   Koh.Emulator, Koh.Debugger, Koh.Boot (boot ROMs), Koh.Verify, Koh.Emulator.App
   UI/         KohUI, KohUI.Backends.Sdl3, KohUI.Backends.Dom
 tests/        mirrors src/ by area; tests/fixtures holds external test ROMs
@@ -207,7 +207,8 @@ Koh aims to make small Game Boy games practical to build, understand, and debug 
 ## Native Rust assembler
 
 The native Rust assembler is built with `cargo build --release -p koh-asm` and
-tested with `cargo test --workspace`. It replaces the C# assembler and CLI; the
+tested with `cargo nextest run --workspace --all-features --locked` and separate
+`cargo test --workspace --all-features --doc --locked`. It replaces the C# assembler and CLI; the
 C# language server uses the native service. See [Rust assembler status and validation](docs/rust-assembler.md)
 and [object-format decisions](docs/rust-assembler-objects.md).
 

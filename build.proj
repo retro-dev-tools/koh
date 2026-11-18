@@ -3,8 +3,8 @@
   Requirements: .NET 10 SDK, Rust/Cargo
 
   Quick reference:
-    dotnet msbuild build.proj -t:Test      (fast suite — no Koh.Compiler.Tests)
-    dotnet msbuild build.proj -t:TestAll   (everything; needs RAM, see below)
+    dotnet msbuild build.proj -t:Test      (.NET component tests)
+    dotnet msbuild build.proj -t:TestAll   (Rust and .NET tests)
     dotnet msbuild build.proj -t:Benchmark
     dotnet msbuild build.proj -t:PublishDev
     dotnet msbuild build.proj -t:PublishEmulatorApp
@@ -19,14 +19,6 @@
     <EmulatorExecutableName Condition="$(EmulatorRuntimeIdentifier.StartsWith('win-'))">Koh.Emulator.App.exe</EmulatorExecutableName>
   </PropertyGroup>
 
-  <!--
-    Test is the DEFAULT development loop and deliberately excludes Koh.Compiler.Tests.
-    That project's 522 cases each Roslyn-compile a source fixture to a real assembly on
-    disk and then run an emulator over the result; run in parallel they exhaust memory on
-    a normal desktop and take the machine down with them. Everything else in the repo is
-    ordinary unit testing.
-
-  -->
   <Target Name="Test">
     <!-- The solution flag is required: a bare positional arg is ambiguous to the .NET 10 SDK's
          `dotnet test` when the repo root has multiple sln/slnf files (see ci.yml, fixed the same way). -->
@@ -34,6 +26,8 @@
   </Target>
 
   <Target Name="TestAll">
+    <Exec Command="cargo nextest run --workspace --all-features --locked" />
+    <Exec Command="cargo test --workspace --all-features --doc --locked" />
     <Exec Command="dotnet test --solution Koh.Ci.slnf" />
   </Target>
 
@@ -62,7 +56,8 @@
   </Target>
 
   <Target Name="TestRustAssembler">
-    <Exec Command="cargo test --workspace --locked" />
+    <Exec Command="cargo nextest run --workspace --all-features --locked" />
+    <Exec Command="cargo test --workspace --all-features --doc --locked" />
   </Target>
 
   <Target Name="BuildRustLinker">

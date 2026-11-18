@@ -1,5 +1,25 @@
 # Native compiler migration handoff
 
+## Current removal candidate
+
+The native compiler and SDK pipeline remain under final migration acceptance.
+This candidate removes the old compiler and compiler test tree, their solution
+entries and direct Roslyn/Cecil packages. GameBoy, tile-sheet build tools,
+emulator/debugger and standalone Superopt remain. Native compiler coverage lives
+under `rust/koh-compile/tests` and runs through cargo-nextest; doctests run
+separately. No compiler fallback is retained.
+
+The candidate is being validated separately from the PR branch's active
+unfiltered workspace regression. Do not publish or claim final removal
+acceptance until both results are known and the disposition ledger is reconciled.
+See [progress](docs/rust-compiler/progress.md),
+[removal checklist](docs/rust-compiler/legacy-removal-checklist.md) and
+[runtime boundaries](docs/rust-compiler/runtime-boundaries.md). Final platform,
+packaged-tool, source-debug and performance evidence remain required.
+
+The checkpoints below are historical implementation notes, not current counts,
+live process handles or commands for removed projects.
+
 ## Active scalar control-flow test migration
 
 Published7109d8e0baf03062937ee5710b39137aaa94d0ac; draft PR55/master,

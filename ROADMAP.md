@@ -10,6 +10,14 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 
 ## Current condition
 
+- Legacy compiler removal is prepared in a separate validation checkout: both
+  C# compiler/test trees and direct compiler packages are removed, while the SDK,
+  runtime, emulator and useful tools remain. The serial Linux solution build
+  produces all seven C# sample ROMs with zero warnings/errors; retained .NET tests
+  report567 succeeded, zero failed and two unchanged opt-in SDL window/input
+  skips. The PR branch's native workspace run and doctests are still pending;
+  this candidate is not final migration acceptance. See the
+  [removal evidence](docs/rust-compiler/legacy-removal-validation.md).
 - Rust assembler [PR #53](https://github.com/retro-dev-tools/koh/pull/53) and Rust linker/ELF [PR #54](https://github.com/retro-dev-tools/koh/pull/54) are merged.
   `koh-objects` owns the canonical ELF32/SM83 model; the native assembler and linker share it.
   The linker migration removes the C# linker and retired object formats and retains C# game development.
