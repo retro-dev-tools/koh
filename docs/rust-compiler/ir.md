@@ -8,6 +8,12 @@ legalization. Promoting locals to SSA is optional optimization, not a correctnes
 prerequisite. A stack-machine IR would leave merge/type errors implicit; reproducing
 the old C# IR would import assumptions about widths and static frames.
 
+[Local definite assignment](local-assignment.md) is a verifier invariant:
+every local load must follow a full assignment on all incoming paths, including
+first loop entry. Entry-only initialization is not required. Nonzeroed CIL omits
+user-local zero stores; normal initialized CIL retains them. Address-taking and
+pinned ownership keep their stricter initialized-storage contracts.
+
 `I128` represents the full bit pattern of [framework 128-bit integers](int128.md).
 Signedness belongs to operations and scalar storage. Its 16-byte values are not
 compressed by the backend's 64-bit range analysis. `Constant(u64)` zero-extends;
@@ -136,9 +142,9 @@ then sign- or zero-extend into the result type. Thus `conv.i8` of int32 -1 is
 int64 -1; `conv.u8` zero-extends the int32 bit pattern. Small argument/local/return
 storage has explicit narrowing operations; byte/sbyte/short/ushort/char/bool use
 int32 evaluation values rather than silently acquiring 32-bit storage semantics.
-Local loads require entry initialization, including an earlier entry store for
-entry-block loads. The initial frontend rejects non-initlocals methods with locals
-until definite-assignment lowering is implemented.
+Local loads require definite assignment on every incoming path, including an
+earlier store for same-block loads. Methods without initlocals use the same
+verification without synthetic user-local initialization.
 
 The initial lowerer builds one block per reachable CIL instruction, transporting
 stack values as parameters. This simple checked form preserves every original

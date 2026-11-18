@@ -83,6 +83,11 @@ entry parameters from the argument block, and writes its result to the caller's
 return buffer before restoring SP and executing RET. All registers/flags are
 caller-clobbered. SP and caller storage survive the call.
 
+[Nonzeroed locals](local-assignment.md) occupy the same guarded frame slots.
+Their values must be definitely assigned before reads; their user slots receive
+no synthetic entry zero stores. Normal initlocals methods keep typed zero stores,
+and normal finally dispatch does not change the source method's initialization flag.
+
 [Aggregate values](aggregates.md) occupy their complete metadata layout
 in argument/return buffers. Typed aggregate references occupy two bytes. A value
 constructor uses the ordinary void-call ABI, with `this` as the first reference

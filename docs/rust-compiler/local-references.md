@@ -10,8 +10,10 @@ types alone cannot distinguish those storage types.
 `ByRef(Scalar)`. Argument storage is copied into the callee's own slots, so mutating
 a by-value argument through its address changes the callee's copy. Taking the address
 of an already-managed-reference slot is unsupported; ordinary reference forwarding
-loads its value instead. Uninitialized IL local storage still diagnoses pending
-definite-assignment support.
+loads its value instead. [Nonzeroed IL locals](local-assignment.md) can be addressed
+after assignment on every incoming path. Taking an unassigned local's address
+for initialization through an alias or an out call still diagnoses pending that
+additional analysis.
 
 ## Frame identity and narrow storage
 

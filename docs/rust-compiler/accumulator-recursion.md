@@ -23,8 +23,10 @@ returned value. Inputs and contributions are evaluated before the loop backedge;
 the original entry initializes locals on every iteration. A fresh entry initializes
 the accumulator once. Preserve original source offsets and verify the resulting
 CFG, types, dominance and use/definition invariants before accepting it.
-The fresh entry also initializes old scalar locals for the IR's entry-store rule;
-the original entry still assigns their original values each iteration. Moved
+The fresh entry also conservatively initializes old scalar locals;
+the original entry still assigns their original values each iteration. The IR's
+[definite-assignment rule](local-assignment.md) no longer requires these additional
+entry stores. Moved
 continuation constants must already have the return type. Mixed-width widening
 is left recursive rather than erasing its source width.
 

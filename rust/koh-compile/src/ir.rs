@@ -1,6 +1,7 @@
 use crate::resolve::Definition;
 use std::collections::HashMap;
 mod escape;
+mod local_init;
 mod pins;
 mod stack;
 pub(crate) use stack::allocations as stack_allocations;
@@ -1141,8 +1142,12 @@ fn verify_inner(function: &Function) -> Result<(), String> {
             _ => None,
         })
         .collect();
-    let mut initialized = vec![false; function.locals.len()];
+    let incoming = local_init::incoming(function, &predecessors)?;
+    let mut entry_initialized = vec![false; function.locals.len()];
     for (block, body) in blocks.iter().enumerate() {
+        let mut initialized: Vec<_> = (0..function.locals.len())
+            .map(|local| incoming[block][local / 64] & (1u64 << (local % 64)) != 0)
+            .collect();
         let check = |value: u32, position: usize| -> Result<Type, String> {
             let def = definitions
                 .get(&value)
@@ -1913,7 +1918,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                     Op::LoadLocal(index) => {
                         let ty = local(index)?;
                         if !initialized[index as usize] {
-                            return Err("Local load lacks dominating entry initialization".into());
+                            return Err("Local load lacks definite assignment".into());
                         }
                         Some(ty)
                     }
@@ -1924,7 +1929,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         let ty = local(index)?;
                         if pinned.contains(&index)
                             && (block != 0
-                                || initialized[index as usize]
+                                || entry_initialized[index as usize]
                                 || !zeroes.contains(&value))
                         {
                             return Err(
@@ -1935,8 +1940,9 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         if check(value, position)? != ty {
                             return Err("Local store type mismatch".into());
                         }
+                        initialized[index as usize] = true;
                         if block == 0 {
-                            initialized[index as usize] = true;
+                            entry_initialized[index as usize] = true;
                         }
                         None
                     }
@@ -1954,7 +1960,7 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                         if input != ty && !(ty.is_byref() && input == Type::Native) {
                             return Err("Pinned store type mismatch".into());
                         }
-                        if !initialized[index as usize] {
+                        if !entry_initialized[index as usize] {
                             return Err("Pinned local lacks entry initialization".into());
                         }
                         None

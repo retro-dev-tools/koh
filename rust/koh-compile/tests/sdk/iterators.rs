@@ -25,7 +25,7 @@ fn sdk_builds_iterators_and_finally_from_standard_references(
         &project,
         r#"<Project>
 <Import Project="$(KohRoot)src/Compiler/Koh.Sdk/Sdk/Sdk.props" />
-<PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+<PropertyGroup><TargetFramework>net10.0</TargetFramework><AllowUnsafeBlocks>true</AllowUnsafeBlocks></PropertyGroup>
 <Import Project="$(KohRoot)src/Compiler/Koh.Sdk/Sdk/Sdk.targets" />
 </Project>"#,
     )
@@ -34,7 +34,8 @@ fn sdk_builds_iterators_and_finally_from_standard_references(
         directory.path().join("Program.cs"),
         r#"using System.Collections.Generic;
 using Koh.GameBoy;
-public static class Program {
+[System.Runtime.CompilerServices.SkipLocalsInit]
+public static unsafe class Program {
     private static IEnumerable<byte> Steps(byte count) {
         for (byte i = 0; i < count; i++) yield return i;
     }

@@ -109,6 +109,102 @@ fn method(il: &[u8]) -> Method<'_> {
 }
 
 #[rstest]
+#[case(&[0x1f,42,0x0a,0x06,0x2a], 0, 42)]
+#[case(&[0x02,0x2c,5,0x1f,42,0x0a,0x2b,3,0x1f,7,0x0a,0x06,0x2a], 0, 7)]
+#[case(&[0x02,0x2c,5,0x1f,42,0x0a,0x2b,3,0x1f,7,0x0a,0x06,0x2a], 1, 42)]
+#[case(&[0x16,0x0a,0x06,0x17,0x58,0x0a,0x06,0x19,0x32,0xf8,0x06,0x2a], 0, 3)]
+#[case(&[0x1f,42,0x2a], 0, 42)]
+fn nonzeroed_locals_require_assignment_on_every_path(
+    #[case] il: &[u8],
+    #[case] argument: u64,
+    #[case] expected: u64,
+    #[values(false, true)] reverse_blocks: bool,
+) {
+    let mut input = method(il);
+    input.parameters = vec![Type::I32];
+    input.locals = vec![Type::I32];
+    input.init_locals = false;
+    let mut function = lower(input).unwrap();
+    if reverse_blocks {
+        let count = function.blocks.len();
+        function.blocks[1..].reverse();
+        for block in &mut function.blocks {
+            let remap = |edge: &mut Edge| edge.block = count - edge.block;
+            match &mut block.terminator.kind {
+                Control::Jump(edge) => remap(edge),
+                Control::Branch { yes, no, .. } => {
+                    remap(yes);
+                    remap(no);
+                }
+                Control::Switch { cases, default, .. } => {
+                    for edge in cases {
+                        remap(edge);
+                    }
+                    remap(default);
+                }
+                Control::Return(_) | Control::TypeFault => {}
+            }
+        }
+        verify(&function).unwrap();
+    }
+    assert!(
+        !function.blocks[0]
+            .instructions
+            .iter()
+            .any(|i| { matches!(i.op, Op::StoreLocal { local: 1, .. }) })
+    );
+    assert_eq!(execute_with(&function, &[argument]), expected);
+    koh_compile::optimize::simplify(&mut function).unwrap();
+    verify(&function).unwrap();
+    assert_eq!(execute_with(&function, &[argument]), expected);
+    koh_compile::sm83::emit(&function).unwrap();
+}
+
+#[rstest]
+#[case(&[0x06,0x2a])]
+#[case(&[0x02,0x2c,3,0x1f,42,0x0a,0x06,0x2a])]
+#[case(&[0x02,0x2c,5,0x1f,42,0x0a,0x2b,0xf8,0x06,0x2a])]
+#[case(&[0x06,0x26,0x1f,42,0x0a,0x06,0x2a])]
+fn nonzeroed_local_reads_without_definite_assignment_diagnose(#[case] il: &[u8]) {
+    let mut input = method(il);
+    input.parameters = vec![Type::I32];
+    input.locals = vec![Type::I32];
+    input.init_locals = false;
+    let error = lower(input).unwrap_err();
+    assert!(
+        error.contains("Local load lacks definite assignment") && error.contains("IL_"),
+        "{error}"
+    );
+}
+
+#[rstest]
+fn nonzeroed_local_bitsets_preserve_slot_boundaries(
+    #[values(0u8, 63, 64, 127, 255)] local: u8,
+    #[values(false, true)] assigned: bool,
+) {
+    let mut il = Vec::new();
+    if assigned {
+        il.extend([0x1f, 42, 0x13, local]);
+    }
+    il.extend([0x11, local, 0x2a]);
+    let mut input = method(&il);
+    input.locals = vec![Type::I32; usize::from(local) + 1];
+    input.init_locals = false;
+    match lower(input) {
+        Ok(function) => {
+            assert!(assigned);
+            assert_eq!(execute(&function), 42);
+        }
+        Err(error) => {
+            assert!(
+                !assigned && error.contains("Local load lacks definite assignment"),
+                "{error}"
+            );
+        }
+    }
+}
+
+#[rstest]
 #[case(0xd6u8)]
 #[case(0xd7)]
 #[case(0xd8)]

@@ -2,6 +2,73 @@ using Koh.GameBoy;
 using Koh.GameBoy.Framework;
 using Koh.GameBoy.Graphics;
 
+[System.Runtime.CompilerServices.SkipLocalsInit]
+public static unsafe class UninitializedRules
+{
+    private static int Pick(int value)
+    {
+        int result;
+        if (value == 0)
+            result = 7;
+        else
+            result = 42;
+        return result;
+    }
+
+    public static int Diamond() => Pick(0) + Pick(1) - 7;
+
+    private static int Sum(int count)
+    {
+        int total = 0;
+        for (int i = 0; i < count; i++)
+            total += i;
+        return total;
+    }
+
+    public static int Loop() => Sum(7) * 2;
+
+    public static int Aliased()
+    {
+        int value = 42;
+        int* pointer = &value;
+        *pointer += 7;
+        return *pointer - 7;
+    }
+
+    public static int Finally()
+    {
+        int value;
+        try
+        {
+            value = 7;
+        }
+        finally
+        {
+            *(byte*)0xDF00 = 0xA5;
+        }
+        return value + 35;
+    }
+
+    private static int Recurse(int depth)
+    {
+        int value;
+        if (depth == 0)
+            value = 39;
+        else
+            value = Recurse(depth - 1) + 1;
+        return value;
+    }
+
+    public static int Recursive() => Recurse(3);
+
+    public static int Wide()
+    {
+        long value = 0x123456780000002A;
+        *(long*)0xDF08 = value;
+        return (int)value;
+    }
+}
+
 public static unsafe class Program
 {
     private static Timer timer;

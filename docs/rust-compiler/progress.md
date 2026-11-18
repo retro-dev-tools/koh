@@ -10,6 +10,21 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Local definite assignment
+
+Nonzeroed CIL locals now use bounded verifier must-assignment analysis across
+branches and loops; lowering omits their user-local zero stores. Finally preserves
+the original flag. Raw CIL covers missing-path/first-iteration reads, block order
+and bitset boundaries. Actual SkipLocalsInit Roslyn fixtures execute24 DMG/CGB ROMs
+across Debug/Release, and four strengthened SDK iterator/finally build/run cases pass.
+Expanded1070/1070 passed457.594s, exit0;551 explicitly unselected.
+[Contract, evidence and conservative boundaries](local-assignment.md).
+Unassigned-address initialization, continuation-correlated nonzeroed cleanup and
+broader LINQ remain unsupported. The fresh LINQ probe now reaches generic declaring
+storage inside Where. No source-method closure is claimed:509/565,56 outstanding.
+Fresh discovery2047 workspace/1870 compiler cases, zero ignored. Full current-head
+cross-platform validation and legacy deletion remain open.
+
 ### LINQ investigation
 
 [Fresh Roslyn/native probes and semantic audit](linq-audit.md) identify separate

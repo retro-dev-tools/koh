@@ -9,6 +9,77 @@ use rstest::rstest;
 mod metadata;
 
 #[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn roslyn_nonzeroed_locals_execute_after_definite_assignment(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "FrameworkContracts");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
+    let mut locals_seen = 0;
+    for row in 1..=assembly.metadata().method_defs.len() {
+        let token = 0x06000000 | row as u32;
+        if !assembly
+            .method_name(token)
+            .unwrap()
+            .starts_with("UninitializedRules::")
+        {
+            continue;
+        }
+        let body = assembly.method_body(token).unwrap();
+        assert!(!body.init_locals);
+        locals_seen += assembly.local_types(token).unwrap().len();
+        let function =
+            koh_compile::lower::assembly_method(&resolver, Definition { assembly: 0, token })
+                .unwrap();
+        koh_compile::ir::verify(&function).unwrap();
+        assert!(function.blocks[0].instructions.iter().all(|i| {
+            !matches!(i.op, koh_compile::ir::Op::StoreLocal { local, .. } if local as usize >= function.parameters.len())
+        }), "{}", assembly.method_name(token).unwrap());
+    }
+    assert!(locals_seen > 0);
+    for entry in ["Diamond", "Loop", "Aliased", "Finally", "Recursive", "Wide"] {
+        let object = compile::object(&resolver, Some(&format!("UninitializedRules::{entry}")))
+            .unwrap_or_else(|e| panic!("{entry}: {e}"));
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+        let mut expected = vec![0x5a; 256];
+        if entry == "Finally" {
+            expected[0] = 0xa5;
+        }
+        if entry == "Wide" {
+            expected[8..16].copy_from_slice(&0x123456780000002Au64.to_le_bytes());
+        }
+        assert_heap_snapshot(&fields[4][0xf00 * 2..], &expected, entry);
+    }
+}
+
+#[rstest]
 #[case("Debug")]
 #[case("Release")]
 fn framework_object_definition_has_a_root_layout(host: &Host, #[case] configuration: &str) {

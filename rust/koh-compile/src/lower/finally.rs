@@ -208,7 +208,6 @@ pub(super) fn normalize(
     method
         .locals
         .extend(std::iter::repeat_n(Type::I32, regions.len()));
-    method.init_locals = true;
     let mut tail = Vec::new();
     let original_count = cil.len();
     let base = method.il.len() as u32;
@@ -426,10 +425,19 @@ mod tests {
         let error = super::super::lower_with(method(&bytes, 0), None, &[], &[], None, &[region])
             .unwrap_err();
         assert!(error.contains("declared maxstack"), "{error}");
+        let bytes = [0x06, 0x26, 0xde, 2, 0, 0xdc, 0x2a];
         let mut input = method(&bytes, 1);
         input.locals.push(Type::I32);
-        let error = super::super::lower_with(input, None, &[], &[], None, &[]).unwrap_err();
-        assert!(error.contains("Uninitialized locals"), "{error}");
+        let region = ExceptionRegion {
+            flags: 2,
+            protected: 0..4,
+            handler: 4..6,
+        };
+        let error = super::super::lower_with(input, None, &[], &[], None, &[region]).unwrap_err();
+        assert!(
+            error.contains("Local load lacks definite assignment"),
+            "{error}"
+        );
         let bytes = [0x16, 0, 0xde, 2, 0, 0xdc, 0x26, 0x2a];
         let region = ExceptionRegion {
             flags: 2,

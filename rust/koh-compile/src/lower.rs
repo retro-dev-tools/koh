@@ -996,9 +996,6 @@ fn lower_inner(
     {
         return Err("IL_0000: Method exceeds lowering resource limits".into());
     }
-    if !method.init_locals && !method.locals.is_empty() {
-        return Err("IL_0000: Uninitialized locals require definite-assignment lowering".into());
-    }
     let normalized = finally::normalize(&mut method, cil, regions)?;
     let cil = normalized.instructions;
     if cil.len() >= 16_384
@@ -1054,6 +1051,9 @@ fn lower_inner(
         });
     }
     for (i, &ty) in method.locals.iter().enumerate() {
+        if !method.init_locals {
+            continue;
+        }
         let value = builder
             .value(
                 ty,

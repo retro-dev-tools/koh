@@ -115,6 +115,12 @@ object (`/tmp/koh-framework-root-linq-probe.log`). That next supported-CIL gap
 needs definite-assignment analysis, not unconditional zero initialization or a
 blanket promise that ordinary framework LINQ now works.
 
+The subsequent [local-assignment implementation](local-assignment.md) removes that
+blanket gate with bounded verification and actual nonzeroed C# ROM tests. A fresh
+iterator pipeline probe now reaches generic declaring storage at Where IL_0020,
+exit1/no object. Recursive constraints and array/interface adaptation remain open;
+the five LINQ methods still have no completed native acceptance replacements.
+
 Fresh `cargo nextest list --workspace --all-features --locked --message-format
 json` discovery reports2019 workspace cases,1842 compiler cases and zero ignored
 (`/tmp/koh-framework-root-discovery.json`, exit0). Existing cubes dead-code warning
