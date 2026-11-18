@@ -86,3 +86,98 @@ fn variance_is_unsupported_but_contradictory_flags_are_invalid(
         "{error}"
     );
 }
+
+#[rstest]
+#[case("Debug", "Producer`1")]
+#[case("Release", "Producer`1")]
+#[case("Debug", "Consumer`1")]
+#[case("Release", "Consumer`1")]
+fn variant_delegates_accept_valid_flags_and_reject_malformed_variance(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] name: &str,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "Variance");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let image = resolver.assembly(0).unwrap();
+    let data = image.metadata();
+    let owner = data
+        .type_defs
+        .iter()
+        .position(|ty| data.strings.get(ty.type_name).unwrap() == name)
+        .unwrap() as u32
+        + 1;
+    let parameter = data
+        .generic_params
+        .iter()
+        .position(|p| p.owner.table == Some(clrmeta::TableId::TypeDef) && p.owner.row == owner)
+        .unwrap();
+    let entry = format!("Program::{}Call", name.trim_end_matches("`1"));
+    for flags in [
+        data.generic_params[parameter].flags,
+        0,
+        3,
+        0x0c,
+        0x0d,
+        0x0e,
+        0x40,
+        0x41,
+    ] {
+        let mut bytes = images[0].clone();
+        let (offset, _) = metadata::table_row(&bytes, clrmeta::TableId::GenericParam, parameter);
+        bytes[offset + 2..offset + 4].copy_from_slice(&flags.to_le_bytes());
+        let changed = Resolver::new(&[&bytes, &images[1]]).unwrap();
+        let result = compile::object(&changed, Some(&entry));
+        if flags == 0 || flags == data.generic_params[parameter].flags {
+            let object = result.unwrap_or_else(|error| panic!("{name} flags{flags}: {error}"));
+            let linked = koh_link::link(&[object], &Default::default()).unwrap();
+            let report = execute_mode(
+                host,
+                directory.path(),
+                &linked,
+                "__koh_exit",
+                "--native-heap",
+            );
+            let fields: Vec<_> = report.split_whitespace().collect();
+            assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"]);
+            assert_eq!(fields[4].len(), 8192);
+            let descriptor: Vec<_> = fields[4][..16]
+                .as_bytes()
+                .chunks_exact(2)
+                .map(|hex| u8::from_str_radix(std::str::from_utf8(hex).unwrap(), 16).unwrap())
+                .collect();
+            assert_eq!(&descriptor[..2], &[6, 0]);
+            assert_eq!(&descriptor[6..], &[0, 0]);
+            let address = u16::from_le_bytes([descriptor[2], descriptor[3]]);
+            let bank = u16::from_le_bytes([descriptor[4], descriptor[5]]);
+            assert!(
+                linked
+                    .symbols
+                    .iter()
+                    .any(|symbol| symbol.name.starts_with("__koh_a0_m")
+                        && symbol.value == i32::from(address)
+                        && symbol.bank.unwrap_or(0) == u32::from(bank)),
+                "Callback code/bank must identify linked code"
+            );
+            super::assert_heap_snapshot(&fields[4][16..], &[0x5a; 4088], &entry);
+        } else {
+            let error = result
+                .err()
+                .expect("Invalid generic delegate flags accepted");
+            assert!(
+                error.contains("Invalid delegate generic parameter flags")
+                    && error.contains(&entry)
+                    && error.contains("IL_"),
+                "{name} flags{flags}: {error}"
+            );
+        }
+    }
+    let entry = format!("Program::{}Shape", name.trim_end_matches("`1"));
+    let error = compile::object(&resolver, Some(&entry)).unwrap_err();
+    assert!(
+        error.contains("Compound generic arguments require instantiated type binding")
+            && error.contains(&entry)
+            && error.contains("IL_"),
+        "{error}"
+    );
+}

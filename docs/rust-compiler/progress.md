@@ -10,6 +10,19 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Generic delegate flag validation
+
+The native delegate binder now rejects [malformed generic parameter flag words](delegate-parameter-flags.md)
+without rejecting already-working exact covariant/contravariant delegate calls.
+Four new Debug/Release rstest cases run eight valid ROMs and reject24 malformed
+bindings with caller/IL diagnostics. Metadata scans use the existing work budget;
+zero-arity delegates incur no extra scan. Interface variance, cross-argument
+adaptation and unsupported compound generic shapes remain distinct limitations.
+Expanded compiler/reference/delegate/generic regressions pass326/326 in82.642s,
+exit0; final caller-context checks pass8/8 in6.593s. This production validation
+fix does not add legacy completion credit:455/565 remain resolved,110 outstanding.
+Full current-head hosted validation and the whole migration remain incomplete.
+
 ### Loop-carried pointer migration
 
 Five [pointer-phi/walk source methods](pointer-walks.md) now have native

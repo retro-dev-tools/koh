@@ -98,6 +98,23 @@ impl Resolver<'_> {
             return Err("Delegate definition must be a sealed AutoLayout class".into());
         }
         self.check_arity(owner, type_arguments.len())?;
+        if !type_arguments.is_empty() {
+            self.charge_delegate_work(metadata.generic_params.len())?;
+            for parameter in metadata.generic_params.iter().filter(|parameter| {
+                parameter.owner.table == Some(TableId::TypeDef)
+                    && parameter.owner.row == owner.token & 0xffffff
+            }) {
+                if parameter.flags & !0x3f != 0
+                    || parameter.flags & 3 == 3
+                    || parameter.flags & 0x0c == 0x0c
+                {
+                    return Err(format!(
+                        "Invalid delegate generic parameter flags for !{}",
+                        parameter.number
+                    ));
+                }
+            }
+        }
         for argument in &type_arguments {
             self.validate_type(assembly, argument, 0)?;
         }

@@ -74,7 +74,9 @@ faults. Null faults use code4; allocation exhaustion uses code5.
 
 ## Supported boundary
 
-Exact nominal target signatures are supported. Variance/adaptation, closed-static
+Exact nominal target signatures are supported, including valid variance-marked
+declarations with the exact instantiated signature. [Generic parameter flag
+words are validated](delegate-parameter-flags.md). Variance conversions/adaptation, closed-static
 and open-instance forms, multicast/equality APIs, async delegate APIs, arbitrary
 calli, constructed generic declaring-type targets and boxed value-type receivers still
 require explicit support decisions and diagnostics. This is a visible current
