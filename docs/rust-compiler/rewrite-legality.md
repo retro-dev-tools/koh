@@ -35,7 +35,8 @@ zero bytes, wrapped subtraction, both high-bit patterns and counts0/1/7/8/15/
 31/32/33/63/64/65/127. Independent Rust wrapping arithmetic and masked shifts
 define expected results. The initial1536 executions check full return buffers, restored
 SP and reserved guards. Five subsequent [indexed-address shapes](indexed-addresses.md)
-add320 executions, bringing the current fixture total to1856.
+add320 executions; [loop-carried pointer walks](pointer-walks.md) add192 more,
+bringing the current fixture total to2048.
 
 A small test-adapter `MemoryHook` records physical reads and writes at selected
 WRAM, HRAM, VRAM and LY addresses. Exact traces retain overwritten values,

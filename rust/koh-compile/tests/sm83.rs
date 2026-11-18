@@ -84,6 +84,10 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
                 .iter()
                 .map(|&(x, y)| (u64::from(x), u64::from(y)))
                 .collect(),
+            _ if shape.starts_with("Walk") => rewrites::WALK_INPUTS
+                .iter()
+                .map(|&(x, y)| (u64::from(x), u64::from(y)))
+                .collect(),
             _ => rewrites::INPUTS
                 .iter()
                 .map(|&(x, y)| (u64::from(x), u64::from(y)))
@@ -113,6 +117,7 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
                 for helper in match shape {
                     "Call" => &["Change"][..],
                     "Tail" | "NotTail" | "ReturnJoin" | "IndexedDelayed" => &["Leaf"][..],
+                    _ if shape.starts_with("Walk") => &["SeedWalk"][..],
                     _ => &[],
                 } {
                     functions.push(
@@ -137,7 +142,7 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
         executions += cases.len();
         run_roms_observed(host, &cases, 0xd000, Some(&observed));
     }
-    assert_eq!(executions, 928);
+    assert_eq!(executions, 1024);
 }
 
 #[rstest::rstest]

@@ -418,13 +418,16 @@ sealed class ObservedMemory : Koh.Emulator.Debug.MemoryHook
 
     public override void OnRead(ushort address, byte value)
     {
-        if (Events.Count < 64 && address is (>= 0xC020 and <= 0xC1FF) or 0xFF80 or 0x9800 or 0xFF44)
+        if (
+            Events.Count < 128
+            && address is (>= 0xC020 and <= 0xC3FF) or 0xFF80 or 0x9800 or 0xFF44
+        )
             Events.Add($"R{address:X4}");
     }
 
     public override void OnWrite(ushort address, byte value)
     {
-        if (Events.Count < 64 && address is (>= 0xC020 and <= 0xC1FF) or 0xFF80 or 0x9800)
+        if (Events.Count < 128 && address is (>= 0xC020 and <= 0xC3FF) or 0xFF80 or 0x9800)
             Events.Add($"W{address:X4}:{value:X2}");
     }
 }

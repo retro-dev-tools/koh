@@ -181,4 +181,64 @@ public static unsafe class Program
         *other = 2;
         return *other;
     }
+
+    private static void SeedWalk(int first)
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            ((byte*)0xC100)[i] = (byte)(first + i);
+            ((byte*)0xC200)[i] = (byte)(0x40 + i);
+        }
+    }
+
+    public static ulong WalkChoice(int pick, int count)
+    {
+        SeedWalk(0x10);
+        byte* pointer;
+        if (pick != 0)
+            pointer = (byte*)0xC100;
+        else
+            pointer = (byte*)0xC200;
+        byte left = (byte)count;
+        *(byte*)0xC300 = 0;
+        while (left != 0)
+        {
+            *(byte*)0xC300 = *pointer;
+            pointer++;
+            left--;
+        }
+        return ((ulong)(ushort)pointer << 32) | ((ulong)left << 8) | *(byte*)0xC300;
+    }
+
+    public static ulong WalkLinear(int pick, int count)
+    {
+        SeedWalk(1);
+        byte* pointer = (byte*)0xC100;
+        byte left = (byte)count;
+        *(byte*)0xC300 = 0;
+        while (left != 0)
+        {
+            *(byte*)0xC300 = *pointer;
+            pointer++;
+            left--;
+        }
+        return ((ulong)(ushort)pointer << 32) | ((ulong)left << 8) | *(byte*)0xC300;
+    }
+
+    public static ulong WalkStore(int pick, int count)
+    {
+        SeedWalk(0x10);
+        byte* pointer = pick != 0 ? (byte*)0xC100 : (byte*)0xC200;
+        byte left = (byte)count;
+        while (left != 0)
+        {
+            *pointer = 0xAA;
+            pointer++;
+            left--;
+        }
+        return ((ulong)(ushort)pointer << 32)
+            | ((ulong)left << 8)
+            | *(byte*)0xC100
+            | ((ulong)*(byte*)0xC200 << 16);
+    }
 }

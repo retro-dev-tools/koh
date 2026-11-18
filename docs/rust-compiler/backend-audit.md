@@ -346,15 +346,15 @@ Complete native replacement: [indexed address/liveness contracts](indexed-addres
 
 Classification: Loop edge behavior and private pair assignment. Each predecessor supplies its own pointer and each loop step accesses the intended byte. Pair names and synchronization structures are implementation details.
 
-Proposed future location: `rust/koh-compiler/tests/loops.rs` (not implemented).
+Complete native replacement: [loop-carried pointer behavior](pointer-walks.md), `rust/koh-compile/tests/{sm83.rs,support/rewrites.rs}`.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `MultiEntry_BothArmsGetTheirOwnInitSync` | Mixed | REPLACE | Run the predecessor/dereference fixture and verify correct pointer stepping; no fixed HL/DE allocation. |
-| `MultiEntry_EachArmWalksItsOwnBuffer_RunsCorrectlyOnHardware` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `LoadWalk_PhiGetsRegisterPair_AndDerefIsFused` | Mixed | REPLACE | Run the predecessor/dereference fixture and verify correct pointer stepping; no fixed HL/DE allocation. |
-| `StoreWalk_PhiGetsRegisterPair_PrefersHl` | Mixed | REPLACE | Run the predecessor/dereference fixture and verify correct pointer stepping; no fixed HL/DE allocation. |
-| `LoadWalk_RunsCorrectlyOnHardware` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `MultiEntry_BothArmsGetTheirOwnInitSync` | Mixed | REPLACE complete | [Predecessor-specific pointer stepping and exact bus observations](pointer-walks.md#source-dispositions). |
+| `MultiEntry_EachArmWalksItsOwnBuffer_RunsCorrectlyOnHardware` | Requirement | PORT complete | [Original distinct-buffer/linear results plus all accesses and final pointers](pointer-walks.md#source-dispositions). |
+| `LoadWalk_PhiGetsRegisterPair_AndDerefIsFused` | Mixed | REPLACE complete | [Predecessor-specific pointer stepping and exact bus observations](pointer-walks.md#source-dispositions). |
+| `StoreWalk_PhiGetsRegisterPair_PrefersHl` | Mixed | REPLACE complete | [Predecessor-specific pointer stepping and exact bus observations](pointer-walks.md#source-dispositions). |
+| `LoadWalk_RunsCorrectlyOnHardware` | Requirement | PORT complete | [Original distinct-buffer/linear results plus all accesses and final pointers](pointer-walks.md#source-dispositions). |
 
 ### Backends/Sm83OpsTests.cs (3)
 
@@ -634,22 +634,20 @@ Proposed future location: `rust/koh-compiler/tests/runtime_memory.rs` (not imple
 
 Classification: Runtime memory behavior and performance budgets. Zero count, exact extents, page boundaries, defined forward overlap and bounded target cycles are independently useful to games.
 
-Native fill replacements now live in `rust/koh-compile/tests/driver.rs`,
-`tests/ir.rs` and `tests/sm83.rs`; Copy and combined frontend acceptance remain
-open. See [test disposition status](test-disposition.md#runtime-fill-replacements).
+All ten methods already have native dispositions in the [central fill/copy matrix](test-disposition.md#runtime-fill-replacements). Fresh copy extent/overlap/cost checks passed12/12; see [reconciliation evidence](pointer-walks.md#verification). This audit correction does not increase the completed-method count.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `Frontend_ProducesVerifiableIr` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Copy_CountZero_IsNoOp` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Copy_SingleByte` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Copy_OddSize` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Copy_CrossesA256ByteBoundary` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Fill_VariousCounts` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Fill_CrossesA256ByteBoundary` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Copy_OverlapDestinationBeforeSource_IsDefined` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Copy_CostPerByte_IsWithinLooseCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `Copy_MarginalCostPerByte_IsWithinLooseCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Frontend_ProducesVerifiableIr` | Mixed | REPLACE complete | [Existing whole-bank memory, exact extents, zero/overlap and unchanged target budgets](test-disposition.md#runtime-copy-replacements). |
+| `Copy_CountZero_IsNoOp` | Requirement | PORT complete | [Existing whole-bank memory, exact extents, zero/overlap and unchanged target budgets](test-disposition.md#runtime-copy-replacements). |
+| `Copy_SingleByte` | Requirement | PORT complete | [Existing whole-bank memory, exact extents, zero/overlap and unchanged target budgets](test-disposition.md#runtime-copy-replacements). |
+| `Copy_OddSize` | Requirement | PORT complete | [Existing whole-bank memory, exact extents, zero/overlap and unchanged target budgets](test-disposition.md#runtime-copy-replacements). |
+| `Copy_CrossesA256ByteBoundary` | Requirement | PORT complete | [Existing whole-bank memory, exact extents, zero/overlap and unchanged target budgets](test-disposition.md#runtime-copy-replacements). |
+| `Fill_VariousCounts` | Requirement | PORT complete | [Existing whole-bank memory, exact extents, zero/overlap and unchanged target budgets](test-disposition.md#runtime-fill-replacements). |
+| `Fill_CrossesA256ByteBoundary` | Requirement | PORT complete | [Existing whole-bank memory, exact extents, zero/overlap and unchanged target budgets](test-disposition.md#runtime-fill-replacements). |
+| `Copy_OverlapDestinationBeforeSource_IsDefined` | Requirement | PORT complete | [Existing whole-bank memory, exact extents, zero/overlap and unchanged target budgets](test-disposition.md#runtime-copy-replacements). |
+| `Copy_CostPerByte_IsWithinLooseCeiling` | Mixed | REPLACE complete | [Existing whole-bank memory, exact extents, zero/overlap and unchanged target budgets](test-disposition.md#runtime-copy-replacements). |
+| `Copy_MarginalCostPerByte_IsWithinLooseCeiling` | Requirement | PORT complete | [Existing whole-bank memory, exact extents, zero/overlap and unchanged target budgets](test-disposition.md#runtime-copy-replacements). |
 
 ### Sm83/RedundantCompareLoopTests.cs (4)
 

@@ -10,6 +10,22 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Loop-carried pointer migration
+
+Five [pointer-phi/walk source methods](pointer-walks.md) now have native
+replacements for19 lexical assertion sites. Real Debug/Release CIL selects both
+incoming bases, walks loads/stores, preserves exit pointers/counters and checks
+every physical byte access. Runtime/bound inputs before/after optimization add
+192 ROMs; the shared rewrite fixture now executes2048. Register names, private
+fusion/edge-sync structures and static frame pokes are not copied.
+
+The stale backend audit's eight copy cases were reconciled with the existing
+complete central matrix; no duplicate completion credit is taken. Fresh copy
+checks passed12/12; final combined library/catalog/ISA/rewrite/copy validation
+passed257/257 in51.763s, exit0,691 explicitly unselected. The ledger is455/565
+complete,110 outstanding; separate loop timing, runtime/product and final hosted
+gates remain open. No production compiler/emulator/API code changed.
+
 ### Indexed pointer/liveness migration
 
 All five [GEP/fusion source methods](indexed-addresses.md) now have native
@@ -19,7 +35,7 @@ page crossings, signed offsets, multiple uses and pointer/data preservation
 across a real call. Full64 return data and exact watched memory traces replace
 private frame pokes/fusion flags. The complete rewrite fixture now runs1856 ROMs.
 Expanded library/catalog/ISA/rewrite selection passed245/245 in35.833s, exit0.
-The ledger is450/565 complete,115 outstanding. Production compiler/emulator and
+The ledger is455/565 complete,110 outstanding. Production compiler/emulator and
 ABI are unchanged; pointer-loop budgets and final migration gates remain open.
 
 ### Independent ISA encoding coverage
@@ -30,7 +46,7 @@ operand vectors; the exhaustive boundary test replaces local decoder agreement.
 The execution matrix adds immediate/pair arithmetic and every conditional JP,
 including half-carry, carry, Z preservation and pair wrap:14224 probes. Expanded
 compiler/library/disassembly/effect/Roslyn rewrite validation passed245/245 in
-32.462s, exit0. The ledger is450/565 complete,115 outstanding; no production
+32.462s, exit0. The ledger is455/565 complete,110 outstanding; no production
 compiler/emulator/debugger code changed and full migration remains incomplete.
 
 ### Comparable compiler-core measurements
@@ -47,7 +63,7 @@ execution difference is documented, not adopted as a native requirement.
 This is a scoped Linux baseline: no whole-SDK/full-game/warmed-JIT/cross-host speed
 claim. Native emitted payloads are larger for these kernels and are recorded
 alongside the lower first-call time/RSS observations. Broader performance/product
-acceptance remains open; the disposition ledger is450/565 with115 outstanding.
+acceptance remains open; the disposition ledger is455/565 with110 outstanding.
 The optional host-native workflow adds no CI-per-commit job or container.
 
 ### Executable machine-effect migration
@@ -60,7 +76,7 @@ check every register/flag, PC/SP/IME, stack and exact ordered data accesses.
 Only the existing C# test adapter gains a bounded raw-state command; production
 emulator/debugger/compiler code is unchanged. No constructor/boot defaults or
 private effect bitsets become specifications. All19 source decoder methods now
-have dispositions; the full ledger is450/565 complete,115 outstanding.
+have dispositions; the full ledger is455/565 complete,110 outstanding.
 Expanded library/catalog/boundary/effect/real-Roslyn rewrite validation passed
 241/241 in29.956s, exit0, with703 explicitly unselected cases. Full migration,
 performance comparison and final hosted validation remain incomplete.
@@ -75,7 +91,7 @@ The actual CIL input boundary now rejects every proper truncation of all218 SDK
 catalog encodings. No private MIR/opaque-clobber model or second decoder is added.
 The other15 methods now have [separate execution proof](machine-effects.md). Focused decoder/catalog/debugger
 validation passed43/43 in10.504s, exit0;683 cases explicitly unselected. The ledger
-is450/565 complete (449 replacements, one DELETE),115 outstanding. Full migration
+is455/565 complete (454 replacements, one DELETE),110 outstanding. Full migration
 and current-head hosted acceptance remain incomplete.
 
 ### Native three-platform validation checkpoint
@@ -110,7 +126,7 @@ Six native driver cases independently check known opcode bytes, lengths and next
 instruction addresses through the existing debugger API. The expanded library/
 rewrite/ISA/mapper/production-banked-call selection passed236/236 in38.223s, exit0
 (`/tmp/koh-rewrite-contracts-final.log`), with695 explicitly unselected cases.
-The ledger is450/565 complete (449 native replacements, one DELETE),115 outstanding.
+The ledger is455/565 complete (454 native replacements, one DELETE),110 outstanding.
 No compiler-owned case is deferred; no private byte edit or cycle improvement is
 declared part of the public contract.
 
@@ -451,7 +467,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-450/565 dispositions complete (449 native replacements, one DELETE),115 outstanding,
+455/565 dispositions complete (454 native replacements, one DELETE),110 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

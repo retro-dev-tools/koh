@@ -17,8 +17,9 @@ Five real C# methods extend `tests/fixtures/RewriteContracts`. The existing Rust
 test `sm83::machine_rewrites_preserve_carry_control_and_observed_memory` lowers
 their actual Debug/Release CIL and verifies programs before machine generation.
 Each of eight base/index pairs executes with runtime arguments and bound constants,
-before/after production optimization: **320 added ROM executions**. The complete
-fixture now executes1856 ROMs, including the preceding1536 rewrite cases.
+before/after production optimization: **320 added ROM executions**. That batch brought the
+fixture to1856 ROMs, including the preceding1536 rewrite cases. The subsequent
+[pointer-walk batch](pointer-walks.md) adds192 more, for2048 currently.
 
 Independent Rust arithmetic computes the16-bit address from the base plus signed
 16-bit index. Inputs retain every original physical address/value example:
@@ -35,8 +36,9 @@ at the same computed address. Full return buffers, restored stack pointer and
 reserved guards are checked by the existing native ABI harness.
 
 Only the existing test adapter's watched WRAM window is extended. No production
-emulator, compiler, linker or game API changes. The harness reserves a64-event
-trace; these indexed cases require at most four watched events, and equality
+emulator, compiler, linker or game API changes. The harness originally reserved a64-event
+trace, extended to128 for the subsequent pointer walks; these indexed cases
+require at most four watched events, and equality
 checks the entire captured trace. No writes to tracked assets or raw parameter
 injection into legacy static frame slots are used.
 

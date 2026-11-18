@@ -22,6 +22,19 @@ pub const SHAPES: &[&str] = &[
     "IndexedTwice",
     "IndexedDelayed",
     "IndexedReuse",
+    "WalkChoice",
+    "WalkLinear",
+    "WalkStore",
+];
+pub const WALK_INPUTS: &[(u32, u32)] = &[
+    (0, 0),
+    (1, 0),
+    (0, 4),
+    (1, 4),
+    (0, 8),
+    (1, 8),
+    (0, 20),
+    (1, 20),
 ];
 pub const INDEX_INPUTS: &[(u32, u32)] = &[
     (0xc050, 3),
@@ -63,6 +76,49 @@ pub fn expected(shape: &str, x: u32, y: u32) -> (u64, String) {
     let b = y as u8;
     let w = |address: u16, value: u8| format!("W{address:04X}:{value:02X}");
     let r = |address: u16| format!("R{address:04X}");
+    if shape.starts_with("Walk") {
+        let first = if shape == "WalkLinear" { 1 } else { 0x10 };
+        let start = if shape == "WalkLinear" || x != 0 {
+            0xc100
+        } else {
+            0xc200
+        };
+        let mut events = Vec::new();
+        for i in 0..20 {
+            events.push(w(0xc100 + i, first + i as u8));
+            events.push(w(0xc200 + i, 0x40 + i as u8));
+        }
+        let value = if shape == "WalkStore" {
+            for i in 0..y as u16 {
+                events.push(w(start + i, 0xaa));
+            }
+            events.extend([r(0xc100), r(0xc200)]);
+            let a: u8 = if start == 0xc100 && y != 0 {
+                0xaa
+            } else {
+                0x10
+            };
+            let b: u8 = if start == 0xc200 && y != 0 {
+                0xaa
+            } else {
+                0x40
+            };
+            u64::from(a) | (u64::from(b) << 16)
+        } else {
+            events.push(w(0xc300, 0));
+            let mut last = 0;
+            for i in 0..y as u16 {
+                last = if start == 0xc100 { first } else { 0x40 } + i as u8;
+                events.extend([r(start + i), w(0xc300, last)]);
+            }
+            events.push(r(0xc300));
+            u64::from(last)
+        };
+        return (
+            (u64::from(start + y as u16) << 32) | value,
+            events.join(","),
+        );
+    }
     if shape.starts_with("Indexed") {
         let address = (x as u16).wrapping_add(y as u16);
         let (value, events) = match shape {
