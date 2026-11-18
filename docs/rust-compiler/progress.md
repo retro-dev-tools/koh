@@ -10,6 +10,21 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Retained-IL reference support
+
+The reader now accepts bounded standalone ReadyToRun version16 references with
+retained IL, fixing rejection of valid managed Math.Max before lowering.
+Native-only bodies, native entries, unsupported image forms and malformed headers
+still diagnose. No native runtime code is executed or embedded. Four rstest cases
+cover eight Debug/Release × DMG/CGB ROMs, signed boundary results, reachability,
+Math.Sqrt rejection and36 header mutations. Expanded compiler/reference/IR
+validation passed242/242 in23.943s; reader/signature/opcode/layout/limits validation
+passed147/147 in40.257s. [Contract and evidence](retained-il.md).
+One old blanket-BCL-policy method (two assertion sites) is replaced:506/565
+complete (505 native replacements, one DELETE),59 outstanding. No legacy compiler
+source is deleted yet; full product and current-head hosted acceptance remain open.
+Fresh discovery:1959 workspace cases,1782 compiler cases, zero ignored.
+
 ### String tables and referenced-memory closure
 
 Seven [reference/string-table source methods](reference-memory-contracts.md),23
@@ -627,7 +642,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-505/565 dispositions complete (504 native replacements, one DELETE),60 outstanding,
+506/565 dispositions complete (505 native replacements, one DELETE),59 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

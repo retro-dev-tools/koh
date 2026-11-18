@@ -322,7 +322,7 @@ Reachable non-BCL library bodies lower transitively; unsupported BCL calls diagn
 - **REPLACE, complete** `TilemapClear_TransitivelyLowersSetTileAndClearsEveryCell` — exact native memory/register packets, full target map and uncalled-body/symbol exclusion; [evidence](reference-memory-contracts.md).
 - **REPLACE, complete** `TilemapClear_DebugAndReleaseProduceIdenticalObservableState` — exact native memory/register packets, full target map and uncalled-body/symbol exclusion; [evidence](reference-memory-contracts.md).
 - **REPLACE, complete** `UncalledHalMethods_AreNeverLoweredIntoTheModule` — exact native memory/register packets, full target map and uncalled-body/symbol exclusion; [evidence](reference-memory-contracts.md).
-- **PORT** `CallIntoBcl_IsADiagnosticNeverLoweredOrMiscompiled`.
+- **REPLACE, complete** `CallIntoBcl_IsADiagnosticNeverLoweredOrMiscompiled` — execute resolvable managed Math.Max IL; reject native-only Math.Sqrt and invalid/unsupported image shapes; [evidence](retained-il.md).
 - **REPLACE, complete** `MemAlloc_IsACompilerOwnedIntrinsic_AndAllocatesAtTheExpectedAddress` — previously counted raw allocation/lifetime/capacity contracts; [evidence](raw-arena.md).
 - **PORT, complete** `MemAlloc_DebugAndReleaseProduceIdenticalObservableState` — previously counted raw allocation/lifetime/capacity contracts; [evidence](raw-arena.md).
 - **PORT, complete** `Arena_AllocatesDistinctBlocks` — previously counted raw allocation/lifetime/capacity contracts; [evidence](raw-arena.md).

@@ -357,8 +357,35 @@ impl<'a> Assembly<'a> {
             return Err("Truncated CLI header".into());
         }
         let flags = u32_at(cli, 16)?;
-        if flags & 1 == 0 || flags & 0x10 != 0 {
-            return Err("Mixed-mode or native-entry assemblies are unsupported".into());
+        if flags & 0x10 != 0 {
+            return Err("Native-entry assemblies are unsupported".into());
+        }
+        if flags & 1 == 0 {
+            let rva = u32_at(cli, 64)?;
+            let size = u32_at(cli, 68)? as usize;
+            let header = sections.pe_data_at(bytes, rva).ok_or(
+                "Mixed-mode assembly without a retained-IL ReadyToRun header is unsupported",
+            )?;
+            let header = range(header, 0, size)?;
+            if flags & 4 == 0 || size < 16 || u32_at(header, 0)? != 0x00525452 {
+                return Err(
+                    "Mixed-mode assembly without a retained-IL ReadyToRun header is unsupported"
+                        .into(),
+                );
+            }
+            let version = u16_at(header, 4)?;
+            if version != 16 {
+                return Err(format!(
+                    "Unsupported ReadyToRun major version {version}; retained-IL version16 is supported"
+                ));
+            }
+            if u32_at(header, 8)? & 0x30 != 0 {
+                return Err("Composite or embedded-MSIL ReadyToRun images are unsupported".into());
+            }
+            let count = u32_at(header, 12)? as usize;
+            if count > (size - 16) / 12 {
+                return Err("Truncated ReadyToRun section directory".into());
+            }
         }
         let metadata_rva = u32_at(cli, 8)?;
         let metadata_size = u32_at(cli, 12)? as usize;

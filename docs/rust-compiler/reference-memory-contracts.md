@@ -37,8 +37,9 @@ appear inside Clear is replaced by complete observable results and reachability.
 The four raw-arena source methods were already counted complete in
 [raw-arena.md](raw-arena.md); their stale frontend markers are reconciled without
 extra credit. The separate `CallIntoBcl_IsADiagnosticNeverLoweredOrMiscompiled`
-case remains open: old blanket rejection is not automatically the right policy
-for every valid resolvable method. No unsupported feature is retired here.
+case is now replaced separately by [retained-IL method semantics](retained-il.md):
+resolvable managed Math.Max executes, while native-only Math.Sqrt diagnoses.
+This does not promise general BCL compatibility.
 
 Initial harness runs exposed two test assumptions, corrected before acceptance:
 the fixture copier uses Program.cs only, so the new classes were consolidated

@@ -162,6 +162,21 @@ public static unsafe class Program
 
 public static unsafe class ReferenceRules
 {
+    public static int BclMax() => System.Math.Max(3, 5);
+
+    public static int BclNative() => (int)System.Math.Sqrt(4);
+
+    public static int BclMaxEdges()
+    {
+        int* packet = (int*)0xDF00;
+        packet[0] = System.Math.Max(-5, -3);
+        packet[1] = System.Math.Max(int.MinValue, int.MaxValue);
+        packet[2] = System.Math.Max(int.MaxValue, int.MinValue);
+        packet[3] = System.Math.Max(0, 0);
+        packet[4] = System.Math.Max(-1, 0);
+        return 42;
+    }
+
     public static int Memory()
     {
         Lcd.SetPalette(0x1B);
