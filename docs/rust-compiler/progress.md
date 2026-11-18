@@ -10,6 +10,16 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Tile subrange and row closure
+
+Two remaining tile-set source methods now have native replacements for10 assertion
+sites/40 expanded assertions. Four Rust cases execute28 Debug/Release × DMG/CGB
+ROMs with exact source offsets, complete VRAM banks, row/clear boundaries, selected
+banks and observed DMA requests. Affected12/12 passed46.984s, exit0, including
+existing tile initialization/rendering and1bpp cases. No production code changes.
+[Independent contract and source matrix](tile-set-contracts.md). Ledger536/565,
+29 outstanding; final full acceptance and legacy deletion remain required.
+
 ### Video lifecycle and input closure
 
 Three remaining video/input source methods now have native replacements, with16

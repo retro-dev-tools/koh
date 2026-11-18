@@ -455,16 +455,16 @@ Struct copies do not alias; nested/array layouts, pointers, stackalloc, ref/byva
 
 ### CilTileSetTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilTileSetTests.cs`. Future Rust test group: `cil_tile_set`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilTileSetTests.cs`. Native tile/mono groups plus `driver::tile_set`; all six complete. [Remaining-method matrix and evidence](tile-set-contracts.md).
 
 Tile copies/subranges, 1bpp-to-2bpp ink/paper masks, row writes and clear preserve bytes with safe LCD-on scheduling. Hardware bitplanes and public API justify behavior.
 
 - **PORT, complete** `Load_LcdOff_CopiesTileBytesVerbatimIntoVram` — native `driver::actual_tileset_load_copies_vram_and_preserves_banks`; whole-bank byte checks and real initialization dependency.
-- **PORT** `Load_SubRange_CopiesFromStartTileNotFromDataStart`.
+- **PORT, complete** `Load_SubRange_CopiesFromStartTileNotFromDataStart` — all32 bytes from source tiles1/2 reach destination10/11; aligned/unaligned LCDon/off cases execute in Debug/Release × DMG/CGB.
 - **PORT, complete** `Load1bpp_ExpandsSetBitsToInkClearBitsToPaper` — native `driver::mono::mono_tiles_preserve_ink_paper_wrap_and_selected_banks`; independent per-pixel masks, all16 color pairs, LCDon/off, banks, wrap and empty input in D/R×DMG/CGB.
 - **PORT, complete** `Load1bpp_MixedInkPaper_ProducesCorrectPlaneMasks` — native `driver::mono::mono_tiles_preserve_ink_paper_wrap_and_selected_banks`; independent per-pixel masks, all16 color pairs, LCDon/off, banks, wrap and empty input in D/R×DMG/CGB.
 - **PORT, complete** `Load_LcdOn_ChunksAcrossVblanksAndNeverWritesDuringMode3` — native actual_tileset driver retains32 distinct bytes at tile7, adds D/R×DMG/CGB and1920-byte split GDMA; zero mode-3 writes and bounded DMA duration. See [timing evidence](lcd-on-transfers.md).
-- **PORT** `SetRowAndClear_PassThroughToTileData`.
+- **PORT, complete** `SetRowAndClear_PassThroughToTileData` — row0 clear and row3 bytes retained, extended to tiles16/255/final row and selected CGB bank1 with complete memory snapshots.
 
 ### CilVideoJoypadTests.cs
 

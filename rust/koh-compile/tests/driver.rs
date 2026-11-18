@@ -82,6 +82,8 @@ mod support;
 mod symbol_addresses;
 #[path = "driver/symbols.rs"]
 mod symbols;
+#[path = "driver/tile_set.rs"]
+mod tile_set;
 #[path = "driver/variance.rs"]
 mod variance;
 #[path = "driver/vblank.rs"]
