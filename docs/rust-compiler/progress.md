@@ -10,6 +10,19 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Immediate arithmetic in the SM83 backend
+
+Known right-hand constants now use [immediate arithmetic](immediate-arithmetic.md),
+avoiding right-frame addressing and HL increments while preserving multi-byte
+carry/borrow. Four new rstest cases run800 independently checked ROMs across
+32/64-bit values, all five operations and frames beyond127-byte offsets.
+Compiler library plus the full SM83 target passed436/436 in127.245s, exit0,
+zero skipped (/tmp/koh-alu-immediate-final.log). Marked Release costs improve
+709->689 dots/count and2666.25->2610.25 dots/copied byte; original190/740 ceilings
+remain open. Real-C# int128/wide arithmetic8/8 passed98.049s, exit0
+(/tmp/koh-alu-immediate-wide.log). Discovery1930/1753/0ignored.
+No ABI/API change or additional legacy disposition credit.
+
 ### Isolated source-loop timing
 
 Test-only [marked source windows](loop-costs.md#marked-source-windows) now exclude

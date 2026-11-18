@@ -688,17 +688,20 @@ impl Code<'_> {
         destination: u16,
         width: u16,
         opcode: u8,
+        literal: Option<u64>,
     ) {
         self.address(left.offset);
         self.bytes(&[0x44, 0x4d]);
         self.address(destination);
         self.bytes(&[0x54, 0x5d]);
-        if right.offset > 127 {
-            self.bytes(&[0xd5]);
-            self.address(right.offset + 2);
-            self.bytes(&[0xd1]);
-        } else {
-            self.address(right.offset);
+        if literal.is_none() {
+            if right.offset > 127 {
+                self.bytes(&[0xd5]);
+                self.address(right.offset + 2);
+                self.bytes(&[0xd1]);
+            } else {
+                self.address(right.offset);
+            }
         }
         self.bytes(&[0xaf]);
         for byte in 0..width {
@@ -707,14 +710,27 @@ impl Code<'_> {
             } else {
                 &[0x3e, 0]
             });
-            if byte < right.bytes {
+            if let Some(literal) = literal {
+                self.bytes(&[
+                    opcode + 0x46,
+                    if byte < 8 {
+                        (literal >> (byte * 8)) as u8
+                    } else {
+                        0
+                    },
+                ]);
+            } else if byte < right.bytes {
                 self.bytes(&[opcode + 6]);
             } else {
                 self.bytes(&[opcode + 0x46, 0]);
             }
             self.bytes(&[0x12]);
             if byte + 1 < width {
-                self.bytes(&[0x03, 0x23, 0x13]);
+                self.bytes(if literal.is_some() {
+                    &[0x03, 0x13]
+                } else {
+                    &[0x03, 0x23, 0x13]
+                });
             }
         }
     }
@@ -2389,6 +2405,7 @@ pub(crate) fn emit_with_stack_reserve(
                             destination,
                             width,
                             opcode,
+                            constants.get(&right).copied(),
                         );
                     }
                     Binary::Multiply => {

@@ -2319,6 +2319,65 @@ fn narrow_arithmetic_preserves_carry_at_large_stack_offsets(
 }
 
 #[rstest::rstest]
+#[case(Type::I32, 0)]
+#[case(Type::I32, 80)]
+#[case(Type::I64, 0)]
+#[case(Type::I64, 80)]
+fn literal_alu_preserves_carry_borrow_and_large_frames(
+    host: &Host,
+    #[case] ty: Type,
+    #[case] locals: usize,
+) {
+    let mask = if ty == Type::I64 {
+        u64::MAX
+    } else {
+        u32::MAX as u64
+    };
+    let mut cases = Vec::new();
+    for literal in [0, 1, 0x80, 0xff, mask] {
+        for left in [
+            0,
+            1,
+            0x7f,
+            0xff,
+            0xffff,
+            0xffffffff,
+            0x8000000000000000,
+            u64::MAX,
+        ] {
+            let left = left & mask;
+            for (op, expected) in [
+                (Binary::Add, left.wrapping_add(literal)),
+                (Binary::Subtract, left.wrapping_sub(literal)),
+                (Binary::And, left & literal),
+                (Binary::Or, left | literal),
+                (Binary::Xor, left ^ literal),
+            ] {
+                let mut f = function(
+                    ty,
+                    Op::Binary {
+                        op,
+                        left: 0,
+                        right: 3,
+                    },
+                );
+                f.locals = vec![Type::Native; locals];
+                f.blocks[0].instructions.insert(
+                    0,
+                    Instruction {
+                        result: Some((3, ty)),
+                        op: Op::Constant(literal),
+                        il_offset: 0,
+                    },
+                );
+                cases.push((f, vec![left, 0], Ok(expected & mask)));
+            }
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
 #[case("Debug")]
 #[case("Release")]
 fn roslyn_methods_execute_as_sm83(host: &Host, #[case] configuration: &str) {

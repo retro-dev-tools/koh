@@ -74,3 +74,7 @@ Marked-window validation passed225/225 in31.807s, exit0,207 explicitly
 unselected: `/tmp/koh-loop-window-final.log`. The empty marker pair measures96
 T-cycles. Fresh discovery1926 workspace/1749 compiler/zero ignored. Stable fmt,
 CSharpier and diff checks passed. Both performance dispositions remain open.
+
+The first [immediate-arithmetic improvement](immediate-arithmetic.md) reduces
+these marked windows to68900 and83528 T-cycles. Both original performance
+requirements remain open; the pre-optimization values above are historical.
