@@ -15,6 +15,8 @@ public static class Program
 
     public static int NeedsArgument(int value) => value;
 
+    public static int Args(string[] args) => args == null ? 42 : -1;
+
     public static long LongEntry() => 42;
 
     public static void Unsupported() => throw new System.Exception();

@@ -225,8 +225,11 @@ pub fn entry(resolver: &Resolver<'_>, selected: Option<&str>) -> Result<Definiti
     {
         return Err("Entry must be static and non-generic".into());
     }
-    if !signature.params.is_empty() {
-        return Err("Entry must have no parameters".into());
+    let string_array = clrmeta::TypeSig::SzArray(Box::new(clrmeta::TypeSig::Primitive(
+        clrmeta::ElementType::String,
+    )));
+    if !(signature.params.is_empty() || signature.params == [string_array]) {
+        return Err("Entry must have no parameters or one string[] parameter".into());
     }
     if !matches!(
         signature.return_type,
@@ -305,13 +308,28 @@ pub fn reachable(resolver: &Resolver<'_>, entry: Definition) -> Result<Vec<Funct
     }
     loop {
         while let Some(identity) = queue.pop_front() {
-            let function = if identity.token >> 24 == 0xfc {
+            let mut function = if identity.token >> 24 == 0xfc {
                 crate::delegates::function(resolver, identity)?
             } else if matches!(identity.token >> 24, 0xf7 | 0xff) {
                 crate::initialize::function(resolver, identity)?
             } else {
                 crate::lower::assembly_method(resolver, identity)?
             };
+            if identity == entry {
+                // Main(string[] args): no host supplies arguments, so args is null.
+                let block = &mut function.blocks[0];
+                for (id, ty) in std::mem::take(&mut block.parameters).into_iter().rev() {
+                    block.instructions.insert(
+                        0,
+                        crate::ir::Instruction {
+                            result: Some((id, ty)),
+                            op: Op::Constant(0),
+                            il_offset: 0,
+                        },
+                    );
+                }
+                function.parameters.clear();
+            }
             instructions += function
                 .blocks
                 .iter()

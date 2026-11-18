@@ -1981,6 +1981,33 @@ fn roslyn_switch_tables_execute(host: &Host, #[case] configuration: &str) {
 }
 
 #[rstest]
+fn string_array_entry_receives_null_args(host: &Host) {
+    let directory = tempfile::Builder::new()
+        .prefix("koh entry args ")
+        .tempdir_in(host.directory.path())
+        .unwrap();
+    let path = build(directory.path(), "Release", "Library", false);
+    let output = directory.path().join("args.o");
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_koh-compile"))
+        .arg(&path)
+        .args(["--entry", "Program::Args", "-o"])
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let object = koh_objects::read_elf(&std::fs::read(output).unwrap()).unwrap();
+    let linked = koh_link::link(&[object], &koh_link::LinkOptions::default()).unwrap();
+    assert_eq!(
+        execute(host, directory.path(), &linked, "__koh_exit"),
+        "00 0000002A D000 OK"
+    );
+}
+
+#[rstest]
 #[case("Debug", false, 1)]
 #[case("Release", false, 257)]
 #[case("Debug", true, 257)]

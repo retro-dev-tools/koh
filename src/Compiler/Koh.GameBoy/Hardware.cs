@@ -47,7 +47,11 @@ public static class Hardware
     public static byte IE { get; set; }
 
     [KohIntrinsic("register", 0xFF4D)]
-    public static byte KEY1 { get; set; } = 0xFF;
+    public static byte KEY1
+    {
+        get => 0xFF; // desktop models a DMG: KEY1 reads $FF and ignores writes
+        set { }
+    }
 
     [KohIntrinsic("register", 0xFF4F)]
     public static byte VBK { get; set; }

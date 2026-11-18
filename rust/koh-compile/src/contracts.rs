@@ -381,12 +381,12 @@ fn interrupt_declaration(
         .get(attribute.value)
         .map_err(|e| e.to_string())?;
     let key = named_payload(bytes, "Interrupt").map_err(|e| format!("{name}: {e}"))?;
-    let vector = match key {
-        "VBlank" => 0x40,
-        "Stat" | "LcdStat" | "Lcd" => 0x48,
-        "Timer" => 0x50,
-        "Serial" => 0x58,
-        "Joypad" => 0x60,
+    let vector = match key.to_ascii_lowercase().as_str() {
+        "vblank" => 0x40,
+        "stat" | "lcdstat" | "lcd" => 0x48,
+        "timer" => 0x50,
+        "serial" => 0x58,
+        "joypad" => 0x60,
         _ => return Err(format!("{name}: Unknown Interrupt kind {key}")),
     };
     Ok((vector, definition))

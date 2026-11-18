@@ -49,7 +49,7 @@ public static class Program
     [Interrupt("Timer")]
     static void OnTimer() => timer++;
 
-    [Interrupt("Serial")]
+    [Interrupt("serial")]
     static void OnSerial() => serial++;
 
     [Interrupt("Joypad")]
