@@ -18,11 +18,12 @@ bool frame = args.Length > 0 && args[0] == "--native-frame";
 bool lifecycle = args.Length > 0 && args[0] == "--native-video-lifecycle";
 bool paletteTrap = args.Length > 0 && args[0] == "--native-palettes-trap";
 bool palettes = paletteTrap || (args.Length > 0 && args[0] == "--native-palettes");
+bool mapCommit = args.Length > 0 && args[0] == "--native-map-commit";
 bool sprites = palettes || (args.Length > 0 && args[0] == "--native-sprites");
-bool oamMode = sprites || (args.Length > 0 && args[0] == "--native-oam");
+bool oamMode = mapCommit || sprites || (args.Length > 0 && args[0] == "--native-oam");
 bool rawOam = args.Length > 0 && args[0] == "--native-oam-trigger";
 bool canvas = args.Length > 0 && args[0] == "--native-canvas";
-bool maps = canvas || (args.Length > 0 && args[0] == "--native-maps");
+bool maps = mapCommit || canvas || (args.Length > 0 && args[0] == "--native-maps");
 bool cpu = args.Length > 0 && args[0] == "--native-cpu";
 bool arena = args.Length > 0 && args[0] == "--native-arena";
 bool scroll = args.Length > 0 && args[0] == "--native-scroll";
@@ -93,8 +94,9 @@ foreach (
         gb.JoypadPress(JoypadButton.A);
     int inputPhase = 0;
     var frameMarkers = new List<string>();
+    var mapMarkers = new List<string>();
     byte priorScroll = 0;
-    if (lifecycle || palettes)
+    if (lifecycle || palettes || mapCommit)
     {
         gb.Mmu.DebugWrite(0xFF43, 0);
         gb.Mmu.DebugWrite(0xFF42, 0);
@@ -216,7 +218,7 @@ foreach (
     {
         if (oamMode && gb.OamDma.IsBusLocking)
         {
-            if (sprites && (gb.Ppu.LCDC & 0x80) != 0 && gb.Ppu.LY < 144)
+            if ((sprites || mapCommit) && (gb.Ppu.LCDC & 0x80) != 0 && gb.Ppu.LY < 144)
                 throw new InvalidOperationException(
                     $"Sprite DMA overlaps visible scanline: LY={gb.Ppu.LY},dot={gb.Ppu.Dot},pc={gb.Cpu.Registers.Pc:X4}"
                 );
@@ -253,6 +255,22 @@ foreach (
             && interrupted.HasValue
             && gb.Mmu.DebugRead(gb.Cpu.Registers.Pc) == 0xD9;
         gb.StepInstruction();
+        if (mapCommit)
+        {
+            byte phase = gb.Mmu.DebugRead(0xFF43);
+            if (phase != priorScroll)
+            {
+                if (phase == 62)
+                {
+                    gb.Mmu.VramArray[0x1800 + 98] = 0xAA;
+                    gb.Mmu.VramArray[0x1C00 + 98] = 0xAA;
+                }
+                mapMarkers.Add(
+                    $"{phase}:{timing.GdmaStarts}:{Convert.ToHexString(gb.Mmu.VramArray.AsSpan(0x1800, 2048))}"
+                );
+                priorScroll = phase;
+            }
+        }
         if (lifecycle)
         {
             byte observedScroll = gb.Mmu.DebugRead(0xFF43);
@@ -468,6 +486,8 @@ foreach (
             snapshot += $" {(gb.KeyOne.DoubleSpeed ? 1 : 0)}:{(gb.KeyOne.SwitchArmed ? 1 : 0)}";
         if (arena)
             snapshot += $" {gb.Mmu.DebugRead(0xff47):X2}";
+        if (mapCommit)
+            snapshot += " " + string.Join(',', mapMarkers);
         if (scroll)
             snapshot += $" {gb.Mmu.DebugRead(0xff42):X2}{gb.Mmu.DebugRead(0xff43):X2}";
         if (registers)

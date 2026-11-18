@@ -3,6 +3,37 @@ using Koh.GameBoy.Graphics;
 
 public static unsafe class Program
 {
+    public static int CommitBackground() => Commit(false);
+
+    public static int CommitWindow() => Commit(true);
+
+    private static int Commit(bool window)
+    {
+        Video.Init();
+        Video.Start();
+        if (window)
+        {
+            Win.SetTile(2, 3, 7);
+            Win.SetTile(19, 3, 9);
+            Win.SetTile(5, 10, 4);
+        }
+        else
+        {
+            Bg.SetTile(2, 3, 7);
+            Bg.SetTile(19, 3, 9);
+            Bg.SetTile(5, 10, 4);
+        }
+        for (byte frame = 1; frame <= 61; frame++)
+        {
+            Video.EndFrame();
+            Hardware.SCX = frame;
+        }
+        Hardware.SCX = 62;
+        Video.EndFrame();
+        Hardware.SCX = 63;
+        return 42;
+    }
+
     public static int BankedFrame()
     {
         Video.Init();

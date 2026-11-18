@@ -251,12 +251,12 @@ Register IO, ordinary calls, stack joins, arithmetic/comparisons/conversions and
 
 ### CilMapWriterGdmaTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilMapWriterGdmaTests.cs`. Future Rust test group: `cil_map_writer_gdma`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilMapWriterGdmaTests.cs`. Native group: `driver::bg_win::scattered_map_commit_drains_and_does_not_replay_clean_state`; both methods complete. See [assertion audit and latency decision](map-commit-contracts.md).
 
 LCD-on CGB scattered map updates complete safely and DMG updates eventually drain correctly. Safe content/frame behavior is public runtime behavior; exact drip count or GDMA implementation is not a universal language requirement.
 
-- **PORT** `Cgb_ScatteredRun_LandsCompletelyAfterOneEndFrame_ViaGdma`.
-- **PORT** `Dmg_ScatteredRun_StillDripsAcrossSeveralFrames_DripPathUnchanged`.
+- **PORT, complete** `Cgb_ScatteredRun_LandsCompletelyAfterOneEndFrame_ViaGdma`.
+- **REPLACE, complete** `Dmg_ScatteredRun_StillDripsAcrossSeveralFrames_DripPathUnchanged` — safe bounded drainage and no CGB DMA; retire the requirement to take more than one frame.
 
 ### CilMdArrayTests.cs
 

@@ -10,6 +10,19 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Scattered map commit closure
+
+Both [map-commit source methods](map-commit-contracts.md) now have native
+replacements for13 assertion sites. Eight BG/window ROMs cover Debug/Release
+and DMG/CGB, each with63 complete map checkpoints, physical hardware-side edits,
+DMA counts and timing guards. CGB retains one-frame completion; DMG retains safe
+bounded drainage without requiring an artificial minimum delay. Final20/20
+passed55.128s, exit0,631 explicitly unselected, including pinned-bank, full-map,
+lazy-map and palette neighbors. Fresh workspace discovery lists2147 cases,
+1970 compiler-owned, zero ignored. Formatting and diff checks pass.
+Ledger554/565,11 outstanding. Legacy definitions
+remain until final replacement acceptance and removal.
+
 ### Palette transactions and hardware detection
 
 Five [palette/RGB methods](palette-contracts.md) now have native replacements:
