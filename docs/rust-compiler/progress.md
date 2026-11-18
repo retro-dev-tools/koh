@@ -12,6 +12,20 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Legacy removal candidate and minimum toolchain
+
+The [isolated removal candidate](legacy-removal-validation.md) deletes both C#
+compiler/test trees, solution/filter entries and direct compiler-only packages,
+while retaining GameBoy, useful SDK tasks and other live .NET components.
+Its serial Linux solution build produces all seven C# sample ROMs with zero
+warnings/errors. The retained .NET suite reports567 succeeded, zero failed and
+two unchanged opt-in SDL native-window/input skips, exit0. Separately, Rust1.88.0
+passes the workspace all-targets/all-features check, exit0, with one existing
+unused cube-helper warning; the declared minimum and build docs now match.
+This candidate is not yet published to the PR branch. The source ledger remains
+564/565 while that branch's unfiltered native regression and doctests finish;
+final current-head cross-platform and packaged-tool acceptance remain required.
+
 ### Superopt compiler dependency removed
 
 The [standalone tool](superopt-boundary.md) now uses the existing opcode table

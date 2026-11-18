@@ -67,3 +67,16 @@ A tracked-file container scan found no Docker/Podman/Testcontainers dependency
 outside historical/compiler-audit documentation and incidental third-party npm
 metadata. The active host-native benchmark project remains. Final release
 archive contents, licensing and cross-platform tests are still acceptance gates.
+
+## Minimum Rust version
+
+The workspace now requires Rust1.88. The compiler uses let-chain syntax and
+integer APIs newer than the previous advertised1.85 requirement. Rust1.88.0
+checks the complete workspace with `--all-targets --all-features --locked`, exit0,
+in1m36s using a separate target directory. The selected compiler is explicitly
+`rustc1.88.0 (6b00bc388 2025-06-23)`; both RUSTC and RUSTDOC point at that
+toolchain instead of the host's Gentoo compiler. Completed log:
+`/tmp/koh-msrv-check.log`. One existing unused cube-test `build_host` warning
+remains. This is minimum-version compilation evidence, not test execution on
+that compiler or cross-platform evidence. README/build-debug requirements match
+the Cargo manifest. No extra per-push CI job is added.

@@ -18,6 +18,7 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 |------|---------|
 | `koh-asm` | Assembler for RGBDS-style Game Boy assembly |
 | `koh-link` | Native Rust linker for ELF32/SM83 objects |
+| `koh-compile` | Native Rust CIL-to-SM83 compiler for C# games |
 | `koh-lsp` | Language server for diagnostics, navigation, and refactoring |
 | VS Code extension | VS Code integration for Koh projects |
 | `Koh.Sdk` | MSBuild integration that compiles C# games to Game Boy ROMs |
@@ -57,6 +58,15 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 - `.sym` and `.kdbg` output
 - canonical [ELF32/SM83 ABI](docs/rust-linker/elf32-sm83.md) with checked complex relocations
 
+### C# compiler
+
+The .NET SDK/Roslyn builds game DLLs and optional Portable PDBs. The Rust compiler
+resolves reachable game/runtime references, verifies typed IR and emits ELF32/SM83
+for the native linker. Ordinary game `dotnet build` runs this pipeline through
+Koh.Sdk; the existing C# emulator/debugger runs the ROM and consumes KDBG.
+See the [runtime boundaries](docs/rust-compiler/runtime-boundaries.md),
+[ABI](docs/rust-compiler/sm83-abi.md) and [validation record](docs/rust-compiler/progress.md).
+
 ## Status
 
 Koh is under active development. RGBDS assembly syntax compatibility is a goal, not a guarantee that every RGBDS project builds unchanged. Compiler and emulator behavior is covered by tests and sample games; this does not establish complete language or hardware compatibility.
@@ -75,7 +85,7 @@ See the [roadmap](ROADMAP.md) for current gaps and acceptance criteria, and [CON
 ### Requirements
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [Rust 1.85 or newer](https://www.rust-lang.org/tools/install) with Cargo
+- [Rust 1.88 or newer](https://www.rust-lang.org/tools/install) with Cargo
 - [Node.js](https://nodejs.org) and npm only when developing the VS Code extension
 
 Run commands below from the repository root. SDK selection is controlled by `global.json`.

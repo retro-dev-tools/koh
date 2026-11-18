@@ -1,8 +1,8 @@
 # Build and debug a sample
 
 Run these commands from a Git checkout's root, using the .NET SDK selected by
-`global.json` (10.0.115 or a compatible newer .NET 10 SDK) and Rust 1.85 or newer
-with Cargo for the assembler. Restore needs network
+`global.json` (10.0.115 or a compatible newer .NET 10 SDK) and Rust 1.88 or newer
+with Cargo for the native tools. Restore needs network
 access. The local Koh.Sdk feed imports projects from this checkout; it is not a
 standalone SDK installation.
 
