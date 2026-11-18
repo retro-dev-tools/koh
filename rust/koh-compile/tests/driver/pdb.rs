@@ -252,7 +252,7 @@ fn source_ranges_survive_elf_linking_and_preserve_rom_execution(
             .iter()
             .any(|p| p.file.ends_with("mapped source.cs") && p.line == 100)
     );
-    assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+    assert!(linked.dwarf().unwrap().starts_with(b"\x7fELF"));
     let plain = compile::object(&resolver, None).unwrap();
     assert!(plain.sections.iter().all(|s| s.lines.is_empty()));
     let plain = koh_link::link(&[plain], &Default::default()).unwrap();

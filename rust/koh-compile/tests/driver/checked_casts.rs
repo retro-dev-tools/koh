@@ -265,7 +265,7 @@ fn checked_casts_preserve_values_or_fault_before_observable_writes(
             },
         )
         .unwrap();
-        assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+        assert!(linked.dwarf().unwrap().starts_with(b"\x7fELF"));
         let report = execute_mode(
             host,
             directory.path(),

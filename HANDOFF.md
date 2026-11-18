@@ -7,22 +7,38 @@ See `docs/dwarf-migration.md` for the first writer checkpoint and next step;
 `docs/gpui-migration.md` retains full UI parity/removal acceptance.
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
-`LinkResult::dwarf()` writer and bounded `read_dwarf` reader implemented.
-CLI `koh-link --read-debug-info` reads ELF bytes on stdin and returns JSON.
-35 linker tests pass (18 library +5 CLI +12 DWARF), exit 0, actual log re-read:
-`/tmp/koh-dwarf-macro-tests.log`. Assembly expansion ancestry now round-trips
-through a documented DWARF vendor tag. Real assembly 2048 metadata compares
-exactly: 514 symbols,3951 source ranges,3710 expanded ranges, exit 0.
-Native CLI reader and LLVM verification exit 0; verifier ends `No errors.`.
-Focused Clippy clean; two pre-existing all-target
-findings documented in `docs/dwarf-migration.md`, left unchanged.
-Production still uses KDBG. No C# reader binding, CLI/SDK producer cutover or
-GPUI runtime implemented. Next: managed reader binding and real debugger
-cutover, then complete UI replacement/removal. No agents spawned.
+Production now emits and consumes DWARF: -d/--debug, SDK/editor/sample .elf
+sidecars, neutral records, managed native-reader binding, updated fixtures.
+KDBG writer/reader/format/kind/builder removed, no fallback retained. Range
+counts support600bytes; signed constants stay values, not code addresses.
+The emulator still rejects banks above255 explicitly; native metadata preserves
+wide banks. Loading invalid data preserves maps; symbol-free loading clears them.
+Assembly expansion ancestry uses the documented vendor extension.
+
+Final local checks: CI solution build exit0, zero warnings/errors, all7C# ROMs;
+fast suite574total/572passed/0failed/2existing opt-in SDL skips, including42
+debugger tests, exit0.35Rust linker cases pass. Workspace all-target/all-feature
+check passes with existing unused cube-helper warning.44extension tests pass
+under owned Xvfb, which was stopped. All7SDK ELF sidecars parse with symbols/
+sources. See docs/dwarf-migration.md for exact completed logs and limitations.
+All3new Cargo notices checked against archives/source and copied output.
+Focused Clippy/format checks pass; pre-existing all-target findings unchanged.
+
+Next: real C# source-breakpoint/stack/SDK debugger acceptance (checkpoint6),
+NativeAOT/hosted proof, then engine session and complete GPUI/KohUI replacement.
+No GPUI runtime exists yet. No agents spawned.
 User authorized opening a draft PR and keeping it updated; push this branch and
 update its description as increments land. No merge or release authorized.
 User requests an ASCII progress bar and detailed checkpoints. Whole-goal ledger
-is in `docs/gpui-migration.md`: [###>------]3/10 checkpoints complete, not effort.
+is in `docs/gpui-migration.md`: [#####>----]5/10 checkpoints complete, not effort.
+
+Host gotcha: a stopped orphan aspire-managed template-search process holds the
+shared NuGet lock. Leave it alone. Use NUGET_SCRATCH=/tmp/koh-nuget-scratch on
+all dotnet/cargo-driven dotnet checks. Pinned SDK:
+/home/minorum/.local/share/koh-dotnet-10.0.115; set PATH,DOTNET_ROOT,KOH_DOTNET.
+DOTNET_PROCESSOR_COUNT=4; serial builds/tests. No NuGet audit suppression.
+Final fast log /tmp/koh-dwarf-cutover-fast-tests-final.log; build log
+/tmp/koh-dwarf-cutover-solution-build.log. No local build/test process live now.
 
 Unrelated modified `samples/csharp/gb-jrpg/screenshots/battle.png` remains intact,
 SHA256 `fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454`.

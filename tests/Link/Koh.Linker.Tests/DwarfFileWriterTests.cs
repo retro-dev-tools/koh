@@ -5,7 +5,7 @@ using Koh.Objects;
 
 namespace Koh.Linker.Tests;
 
-public class KdbgFileWriterTests
+public class DwarfFileWriterTests
 {
     private static byte[] Link(string source)
     {
@@ -21,26 +21,25 @@ public class KdbgFileWriterTests
     }
 
     [Test]
-    public async Task Header_Magic_And_Version()
+    public async Task ElfHeaderAndDwarfProfile()
     {
         var bytes = Link("SECTION \"Main\", ROM0\nnop");
         await Assert.That(bytes.Length).IsGreaterThanOrEqualTo(32);
-        await Assert
-            .That(System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(bytes))
-            .IsEqualTo(KdbgFormat.Magic);
-        await Assert
-            .That(System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(4)))
-            .IsEqualTo(KdbgFormat.Version1);
+        await Assert.That(Convert.ToHexString(bytes.AsSpan(0, 4))).IsEqualTo("7F454C46");
+        await Assert.That(bytes[4]).IsEqualTo((byte)1);
+        await Assert.That(bytes[5]).IsEqualTo((byte)1);
+        await Assert.That(new NativeLinker().ReadDebugInfo(bytes).AddressMap.Count).IsEqualTo(1);
     }
 
     [Test]
     public async Task Symbol_Round_Trip()
     {
-        var parsed = KdbgReader.Parse(Link("SECTION \"Main\", ROM0[$0150]\nmain::\nld hl, $1234"));
+        var parsed = new NativeLinker().ReadDebugInfo(
+            Link("SECTION \"Main\", ROM0[$0150]\nmain::\nld hl, $1234")
+        );
         var symbol = parsed.Symbols.Single(s => s.Name == "main");
         await Assert.That(symbol.Bank).IsEqualTo((byte)0);
         await Assert.That(symbol.Address).IsEqualTo((ushort)0x150);
-        await Assert.That(symbol.Size).IsEqualTo((ushort)0);
         await Assert.That(symbol.DefinitionFile).IsEqualTo("main.asm");
         await Assert.That(symbol.DefinitionLine).IsEqualTo(2u);
     }
@@ -48,7 +47,9 @@ public class KdbgFileWriterTests
     [Test]
     public async Task AddressMap_Round_Trip_Without_Expansion()
     {
-        var parsed = KdbgReader.Parse(Link("SECTION \"Main\", ROM0[$0100]\nnop\nnop"));
+        var parsed = new NativeLinker().ReadDebugInfo(
+            Link("SECTION \"Main\", ROM0[$0100]\nnop\nnop")
+        );
         var first = parsed.AddressMap.Single(e => e.Line == 2);
         var second = parsed.AddressMap.Single(e => e.Line == 3);
         await Assert.That(first.Address).IsEqualTo((ushort)0x100);
@@ -59,7 +60,7 @@ public class KdbgFileWriterTests
     [Test]
     public async Task AddressMap_Round_Trip_With_Expansion_Stack()
     {
-        var parsed = KdbgReader.Parse(
+        var parsed = new NativeLinker().ReadDebugInfo(
             Link(
                 "MACRO inner\n nop\nENDM\nMACRO outer\n inner\nENDM\nSECTION \"Main\", ROM0[$100]\n outer"
             )

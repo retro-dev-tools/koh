@@ -260,7 +260,7 @@ fn dwarf_reader_cli_reads_bytes_and_reports_invalid_input() {
     use std::io::Write;
     use std::process::{Command, Stdio};
     let bytes = fixture().dwarf().unwrap();
-    for input in [bytes.as_slice(), b"KDBG".as_slice()] {
+    for input in [bytes.as_slice(), b"\x7fELF".as_slice()] {
         let mut child = Command::new(env!("CARGO_BIN_EXE_koh-link"))
             .arg("--read-debug-info")
             .stdin(Stdio::piped())
@@ -270,7 +270,7 @@ fn dwarf_reader_cli_reads_bytes_and_reports_invalid_input() {
             .unwrap();
         child.stdin.take().unwrap().write_all(input).unwrap();
         let result = child.wait_with_output().unwrap();
-        if input == b"KDBG" {
+        if input == b"\x7fELF" {
             assert!(!result.status.success());
             assert!(result.stdout.is_empty());
         } else {

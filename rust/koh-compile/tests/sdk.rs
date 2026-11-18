@@ -194,7 +194,7 @@ public static int Main() {
     );
     let linked = koh_link::link(&[elf], &Default::default()).unwrap();
     assert_eq!(std::fs::read(&rom).unwrap(), linked.rom);
-    assert!(rom.with_extension("kdbg").is_file());
+    assert!(rom.with_extension("elf").is_file());
     let host = support::build_host();
     let exit = linked
         .symbols
@@ -262,7 +262,7 @@ public static int Main() {
     assert!(result.status.success(), "{}", report(&result));
     assert_eq!(std::fs::read(&rom).unwrap(), previous);
     assert!(
-        !rom.with_extension("kdbg").exists(),
+        !rom.with_extension("elf").exists(),
         "disabled debug must not leave stale symbols"
     );
     let no_debug = koh_objects::read_elf(&std::fs::read(&object).unwrap()).unwrap();
@@ -273,7 +273,7 @@ public static int Main() {
     properties.pop();
     let result = build(&project, configuration, &properties);
     assert!(result.status.success(), "{}", report(&result));
-    assert!(rom.with_extension("kdbg").is_file());
+    assert!(rom.with_extension("elf").is_file());
     let modified = std::fs::metadata(&rom).unwrap().modified().unwrap();
     std::fs::OpenOptions::new()
         .write(true)
@@ -360,7 +360,7 @@ public static int Main() {
     let result = build(&project, configuration, &properties);
     assert!(result.status.success(), "{}", report(&result));
     assert!(no_debug.is_file());
-    assert!(!no_debug.with_extension("kdbg").exists());
+    assert!(!no_debug.with_extension("elf").exists());
     std::fs::write(
         library.join("Answer.cs"),
         "public static class Answer { public static int Get() => 43; }",

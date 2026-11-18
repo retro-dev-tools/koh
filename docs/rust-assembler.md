@@ -2,16 +2,16 @@
 
 The Rust workspace contains `koh-asm`, `koh-objects` and `koh-link`.
 The assembler emits ELF32 SM83 objects by default. The native linker accepts
-multiple ELF objects and produces a ROM, optional RGBDS/BGB symbols and KDBG v1
-source maps. The compiler and language server remain managed; `Koh.Native`
-bridges the compiler's object graph and native executables.
+multiple ELF objects and produces a ROM, optional RGBDS/BGB symbols and a
+DWARF 5 debug ELF. The compiler is native Rust; the managed language server,
+SDK and debugger use `Koh.Native` to invoke native executables.
 
 ## Build and use
 
 ```sh
 cargo build --release --locked -p koh-asm -p koh-link
 target/release/koh-asm input.asm -o input.o
-target/release/koh-link input.o -o output.gb -n output.sym -d output.kdbg
+target/release/koh-link input.o -o output.gb -n output.sym -d output.elf
 dotnet msbuild build.proj -t:BuildSample2048
 ```
 
@@ -20,7 +20,7 @@ or RGBDS. The assembler supports `--format elf` (default) and `--format rgbds`
 for RGBDS 1.0.1 interoperability. Native `koh-link` consumes ELF, while
 `rgblink` consumes the RGBDS variant. KOBJ is removed.
 
-The linker preserves `-o/--output`, `-n/--sym`, `-d/--kdbg`,
+The linker provides `-o/--output`, `-n/--sym`, `-d/--debug`,
 `--raw`, hexadecimal `--size=HEX`, `--help` and `--version`.
 The default output is the first input with `.gb`, or `.bin` in raw mode.
 The default size is $8000. Cartridge output rounds up to a power of two,
@@ -28,10 +28,10 @@ supplies the canonical boot logo, updates the ROM size byte and both checksums, 
 `--cgb-compatible` or `--cgb-only`. Raw output has the exact requested size;
 it never changes cartridge-header bytes and rejects overflow.
 
-KDBG v1 is unchanged: its bank and symbol-address fields have limited width.
-Requesting debug output with banks above 255 or symbol values outside
-0..65535 fails explicitly. The JSON integration report preserves full values;
-the symbol file preserves full bank numbers.
+Debug ELF uses DWARF 5 with 32-bit banked addresses and signed 32-bit constants.
+The emulator debugger still has an 8-bit bank limit and rejects wider banks
+explicitly; the writer and native reader preserve them. See the
+[DWARF migration](dwarf-migration.md) for the profile and acceptance status.
 
 ## Object and library interfaces
 

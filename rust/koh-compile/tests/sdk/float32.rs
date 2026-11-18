@@ -56,7 +56,7 @@ fn sdk_compiles_actual_float_addition_without_managed_runtime_execution(
     assert!(output.status.success(), "{}", report(&output));
     let bytes = std::fs::read(&rom).unwrap();
     assert_eq!(bytes[0x143] & 0x80 != 0, color);
-    assert!(rom.with_extension("kdbg").is_file());
+    assert!(rom.with_extension("elf").is_file());
     let object = koh_objects::read_elf(&std::fs::read(object).unwrap()).unwrap();
     let linked = koh_link::link(
         &[object],

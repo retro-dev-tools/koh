@@ -449,7 +449,7 @@ fn load_jr_wrap_matches_rgbds_101() {
     std::fs::remove_dir_all(directory).unwrap();
 }
 #[test]
-fn kdbg_chunks_lines_and_preserves_expansion_offsets() {
+fn dwarf_preserves_long_ranges_and_expansion_locations() {
     let mut r = link(&[], &raw(1)).unwrap();
     r.lines.push(LinkedLine {
         bank: 1,
@@ -463,29 +463,27 @@ fn kdbg_chunks_lines_and_preserves_expansion_offsets() {
             column: 1,
         }],
     });
-    let b = r.kdbg().unwrap();
-    assert_eq!(&b[..4], b"KDBG");
-    assert_eq!(&b[4..8], &[1, 0, 1, 0]);
-    let map = u32::from_le_bytes(b[24..28].try_into().unwrap()) as usize;
-    assert_eq!(u32::from_le_bytes(b[map..map + 4].try_into().unwrap()), 3);
-    let expansion = u32::from_le_bytes(b[map + 16..map + 20].try_into().unwrap()) as usize;
-    assert_eq!(&b[expansion..expansion + 2], &[1, 0]);
-    assert!(b.windows(9).any(|w| w == b"macro.asm"));
+    let b = r.dwarf().unwrap();
+    assert_eq!(&b[..4], b"\x7fELF");
+    let parsed = crate::read_dwarf(&b).unwrap();
+    assert_eq!(parsed.lines.len(), 1);
+    assert_eq!(parsed.lines[0].count, 600);
+    assert_eq!(parsed.lines[0].expansion, r.lines[0].expansion);
 }
 #[test]
-fn kdbg_rejects_unrepresentable_symbols() {
+fn dwarf_rejects_unrepresentable_symbols() {
     let mut r = link(&[], &raw(1)).unwrap();
     r.symbols.push(LinkedSymbol {
         name: "wide".into(),
         value: 0x4000,
-        bank: Some(256),
+        bank: Some(65536),
         kind: 0,
         source: None,
     });
-    assert!(r.kdbg().unwrap_err().contains("255"));
+    assert!(r.dwarf().unwrap_err().contains("bank:16"));
     r.symbols[0].bank = None;
     r.symbols[0].value = -1;
-    assert!(r.kdbg().unwrap_err().contains("65535"));
+    assert!(r.dwarf().unwrap_err().contains("Negative"));
 }
 
 #[test]

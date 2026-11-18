@@ -12,9 +12,13 @@ implementation and native acceptance are still pending.
 The user selected KDBG-to-DWARF migration first, then UI implementation.
 The initial DWARF writer and bounded native reader/CLI are implemented and
 preserve assembly expansion ancestry and pass 35 focused linker tests.
-The whole-goal checkpoint ledger is in the GPUI migration document (3/10).
-Production still emits KDBG until
-the debugger, SDK, CLI, editor and fixture consumers migrate together.
+The managed debugger, SDK, CLI, editor and fixtures now use DWARF `.elf`
+sidecars; production KDBG code is removed. The whole-goal checkpoint ledger
+is in the GPUI migration document (5/10). Local validation: zero-warning/error
+solution build, all seven C# ROMs/debug sidecars, 572 fast tests passed with two
+existing graphics opt-ins skipped, and 44 extension tests passed under Xvfb.
+Real C# debugging, NativeAOT/hosted acceptance and the full GPUI replacement
+remain open.
 
 Serve Game Boy hobbyists who want to write assembly or constrained C#, build a ROM, and diagnose problems without stitching together unrelated editor and debugger integrations. The differentiator is the connected development workflow: semantic assembly tooling plus C# compilation, sample games, and an emulator/debugger in one repository.
 

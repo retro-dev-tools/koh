@@ -7,5 +7,5 @@ cargo run --manifest-path "$ROOT/Cargo.toml" --release --package koh-asm --locke
 cargo run --manifest-path "$ROOT/Cargo.toml" --release --package koh-link --locked -- build/2048.o \
   -o build/2048.gbc \
   -n build/2048.sym \
-  -d build/2048.kdbg
+  -d build/2048.elf
 echo "Built build/2048.gbc"

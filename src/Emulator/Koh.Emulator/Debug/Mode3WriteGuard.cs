@@ -35,6 +35,6 @@ public sealed class Mode3WriteGuard(GameBoySystem system) : MemoryHook
 /// One CPU write that landed in VRAM during PPU mode 3 (Drawing) with the LCD on. <see cref="Pc"/> is
 /// the raw program counter at the time of the write — resolving it to a symbol/file:line is the
 /// caller's job (e.g. via <c>Koh.Debugger.Session.SourceMap</c>/<c>SymbolMap</c> against a loaded
-/// <c>.kdbg</c>), since this project stays free of any <c>Koh.Debugger</c>/linker dependency.
+/// <c>.elf</c>), since this project stays free of any <c>Koh.Debugger</c>/linker dependency.
 /// </summary>
 public readonly record struct Mode3Violation(ushort Address, byte Value, byte Ly, ushort Pc);

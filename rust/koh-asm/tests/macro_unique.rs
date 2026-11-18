@@ -215,7 +215,7 @@ fn load_debug_lines_use_execution_addresses_and_keep_macro_expansions() {
         );
     }
     assert_eq!(linked.lines[2].count, 2);
-    let debug = linked.kdbg().unwrap();
+    let debug = linked.dwarf().unwrap();
     let u32_at =
         |offset| u32::from_le_bytes(debug[offset..offset + 4].try_into().unwrap()) as usize;
     let map = u32_at(24);

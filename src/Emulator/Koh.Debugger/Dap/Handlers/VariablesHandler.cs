@@ -83,7 +83,10 @@ public sealed class VariablesHandler
             .Select(s => new Variable
             {
                 Name = s.Name,
-                Value = $"${s.Bank:X2}:${s.Address:X4}",
+                Value =
+                    s.Kind == Koh.Objects.DebugSymbolKind.Constant
+                        ? s.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : $"${s.Bank:X2}:${s.Address:X4}",
                 Type = s.Kind.ToString(),
             })
             .ToArray();
@@ -103,7 +106,10 @@ public sealed class VariablesHandler
         // Nearest symbol at or before PC (best-effort).
         var nearest = session
             .DebugInfo.SymbolMap.All.Where(s =>
-                s.Bank == bank && s.Address <= pc && !NativeStackUnwinder.IsMarker(s.Name)
+                s.Kind != Koh.Objects.DebugSymbolKind.Constant
+                && s.Bank == bank
+                && s.Address <= pc
+                && !NativeStackUnwinder.IsMarker(s.Name)
             )
             .OrderByDescending(s => s.Address)
             .FirstOrDefault();

@@ -99,25 +99,21 @@ public class DapDispatcherTests
     }
 
     [Test]
-    public async Task SetBreakpoints_Returns_Verified_When_Kdbg_Maps_Line()
+    public async Task SetBreakpoints_Returns_Verified_When_Dwarf_Maps_Line()
     {
         var dispatcher = new DapDispatcher();
         var session = new DebugSession();
         var responses = new List<byte[]>();
         dispatcher.ResponseReady += data => responses.Add(data.ToArray());
 
-        // Build a tiny .kdbg with one address mapping on line 10 of src/main.asm.
-        var builder = new DebugInfoBuilder();
-        builder.AddAddressMapping(
+        // Build a tiny .elf with one address mapping on line 10 of src/main.asm.
+        byte[] debugBytes = DebugFixture.Mapping(
             bank: 0,
             address: 0x0150,
             byteCount: 1,
             sourceFile: "src/main.asm",
             line: 10
         );
-        using var kdbgStream = new MemoryStream();
-        KdbgFileWriter.Write(kdbgStream, builder);
-        byte[] kdbgBytes = kdbgStream.ToArray();
 
         // Build a tiny ROM (RomOnly) that loads cleanly.
         var rom = TestRom.Create();
@@ -126,12 +122,12 @@ public class DapDispatcherTests
         HandlerRegistration.RegisterAll(
             dispatcher,
             session,
-            loadFile: path => path.EndsWith(".kdbg") ? kdbgBytes : rom
+            loadFile: path => path.EndsWith(".elf") ? debugBytes : rom
         );
 
         // Launch to populate the SourceMap.
         dispatcher.HandleRequest(
-            EncodeRequest(1, "launch", new { program = "game.gb", debugInfo = "game.kdbg" })
+            EncodeRequest(1, "launch", new { program = "game.gb", debugInfo = "game.elf" })
         );
 
         dispatcher.HandleRequest(
@@ -161,17 +157,13 @@ public class DapDispatcherTests
         var responses = new List<byte[]>();
         dispatcher.ResponseReady += data => responses.Add(data.ToArray());
 
-        var builder = new DebugInfoBuilder();
-        builder.AddAddressMapping(
+        byte[] debugBytes = DebugFixture.Mapping(
             bank: 0,
             address: 0x0150,
             byteCount: 1,
             sourceFile: "src/main.asm",
             line: 10
         );
-        using var kdbgStream = new MemoryStream();
-        KdbgFileWriter.Write(kdbgStream, builder);
-        byte[] kdbgBytes = kdbgStream.ToArray();
 
         var rom = TestRom.Create();
         rom[0x147] = 0x00;
@@ -179,11 +171,11 @@ public class DapDispatcherTests
         HandlerRegistration.RegisterAll(
             dispatcher,
             session,
-            loadFile: path => path.EndsWith(".kdbg") ? kdbgBytes : rom
+            loadFile: path => path.EndsWith(".elf") ? debugBytes : rom
         );
 
         dispatcher.HandleRequest(
-            EncodeRequest(1, "launch", new { program = "game.gb", debugInfo = "game.kdbg" })
+            EncodeRequest(1, "launch", new { program = "game.gb", debugInfo = "game.elf" })
         );
 
         dispatcher.HandleRequest(

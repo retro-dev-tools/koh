@@ -43,6 +43,66 @@ public sealed class LinkResult
 
 public sealed class NativeLinker(string? executable = null)
 {
+    public DebugData ReadDebugInfo(ReadOnlyMemory<byte> bytes)
+    {
+        if (bytes.Length > 64 * 1024 * 1024)
+            throw new InvalidDataException("DWARF input exceeds 64 MiB");
+        using var document = JsonDocument.Parse(
+            RunAsync(["--read-debug-info"], null, bytes).GetAwaiter().GetResult()
+        );
+        var symbols = document
+            .RootElement.GetProperty("symbols")
+            .EnumerateArray()
+            .Select(symbol =>
+            {
+                var source = symbol.GetProperty("source");
+                bool hasSource = source.ValueKind != JsonValueKind.Null;
+                var kind = symbol.GetProperty("kind").GetByte() switch
+                {
+                    0 => DebugSymbolKind.Label,
+                    1 => DebugSymbolKind.Constant,
+                    2 => DebugSymbolKind.RamLabel,
+                    _ => throw new InvalidDataException("Unsupported debug symbol kind"),
+                };
+                var bank = symbol.GetProperty("bank");
+                return new DebugSymbol(
+                    kind,
+                    bank.ValueKind == JsonValueKind.Null ? 0 : bank.GetUInt32(),
+                    symbol.GetProperty("value").GetInt32(),
+                    symbol.GetProperty("name").GetString()!,
+                    hasSource ? source.GetProperty("file").GetString() : null,
+                    hasSource ? source.GetProperty("line").GetUInt32() : 0,
+                    hasSource ? source.GetProperty("column").GetUInt32() : 0,
+                    hasSource ? ReadExpansion(source) : []
+                );
+            })
+            .ToArray();
+        var lines = document
+            .RootElement.GetProperty("lines")
+            .EnumerateArray()
+            .Select(line => new DebugAddressMapEntry(
+                line.GetProperty("bank").GetUInt32(),
+                line.GetProperty("count").GetUInt32(),
+                line.GetProperty("address").GetUInt16(),
+                line.GetProperty("file").GetString()!,
+                line.GetProperty("line").GetUInt32(),
+                ReadExpansion(line)
+            ))
+            .ToArray();
+        return new DebugData(symbols, lines);
+    }
+
+    private static DebugExpansionFrame[] ReadExpansion(JsonElement source) =>
+        source
+            .GetProperty("expansion")
+            .EnumerateArray()
+            .Select(frame => new DebugExpansionFrame(
+                frame.GetProperty("file").GetString()!,
+                frame.GetProperty("line").GetUInt32(),
+                frame.GetProperty("column").GetUInt32()
+            ))
+            .ToArray();
+
     public LinkResult Link(IReadOnlyList<LinkerInput> inputs, LinkOptions? options = null)
     {
         var scratch = Path.Combine(Path.GetTempPath(), "koh-link-" + Guid.NewGuid().ToString("N"));
@@ -67,7 +127,7 @@ public sealed class NativeLinker(string? executable = null)
             }
             var output = Path.Combine(scratch, "output.gb");
             var sym = Path.Combine(scratch, "output.sym");
-            var kdbg = Path.Combine(scratch, "output.kdbg");
+            var debug = Path.Combine(scratch, "output.elf");
             var report = Path.Combine(scratch, "report.json");
             arguments.AddRange([
                 "-o",
@@ -79,7 +139,7 @@ public sealed class NativeLinker(string? executable = null)
                 $"--size={options.MinSize:x}",
             ]);
             if (options.EmitDebugInfo)
-                arguments.AddRange(["-d", kdbg]);
+                arguments.AddRange(["-d", debug]);
             if (!options.PadToPowerOfTwo)
                 arguments.Add("--raw");
             if (options.CgbOnly)
@@ -87,7 +147,7 @@ public sealed class NativeLinker(string? executable = null)
             else if (options.CgbCompatible)
                 arguments.Add("--cgb-compatible");
             Run(arguments);
-            var debugData = options.EmitDebugInfo ? File.ReadAllBytes(kdbg) : [];
+            var debugData = options.EmitDebugInfo ? File.ReadAllBytes(debug) : [];
             var symbolText = File.ReadAllText(sym);
             using var metadata = JsonDocument.Parse(File.ReadAllText(report));
             var symbols = metadata
@@ -155,7 +215,11 @@ public sealed class NativeLinker(string? executable = null)
     private void Run(IEnumerable<string> arguments, string? input = null) =>
         RunAsync(arguments, input).GetAwaiter().GetResult();
 
-    private async Task RunAsync(IEnumerable<string> arguments, string? input)
+    private async Task<string> RunAsync(
+        IEnumerable<string> arguments,
+        string? input,
+        ReadOnlyMemory<byte>? binaryInput = null
+    )
     {
         var start = new ProcessStartInfo(executable ?? FindExecutable())
         {
@@ -169,11 +233,15 @@ public sealed class NativeLinker(string? executable = null)
             start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new IOException("Cannot start koh-link");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-        var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
-        var errors = process.StandardError.ReadToEndAsync(timeout.Token);
+        var output = ReadBoundedAsync(process.StandardOutput, 64 * 1024 * 1024, timeout);
+        var errors = ReadBoundedAsync(process.StandardError, 1024 * 1024, timeout);
         try
         {
-            if (input is not null)
+            if (binaryInput is { } binary)
+                await process
+                    .StandardInput.BaseStream.WriteAsync(binary, timeout.Token)
+                    .ConfigureAwait(false);
+            else if (input is not null)
                 await process
                     .StandardInput.WriteAsync(input.AsMemory(), timeout.Token)
                     .ConfigureAwait(false);
@@ -185,9 +253,14 @@ public sealed class NativeLinker(string? executable = null)
                 throw new IOException(
                     $"koh-link exited {process.ExitCode}: {await errors.ConfigureAwait(false)}{await output.ConfigureAwait(false)}"
                 );
+            return await output.ConfigureAwait(false);
         }
         catch (OperationCanceledException error) when (timeout.IsCancellationRequested)
         {
+            if (output.IsFaulted)
+                await output.ConfigureAwait(false);
+            if (errors.IsFaulted)
+                await errors.ConfigureAwait(false);
             throw new IOException("koh-link exceeded 120 seconds", error);
         }
         finally
@@ -197,6 +270,38 @@ public sealed class NativeLinker(string? executable = null)
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit();
             }
+        }
+    }
+
+    private static async Task<string> ReadBoundedAsync(
+        StreamReader reader,
+        int limit,
+        CancellationTokenSource cancellation
+    )
+    {
+        var text = new System.Text.StringBuilder();
+        var buffer = new char[8192];
+        try
+        {
+            int count;
+            while (
+                (
+                    count = await reader
+                        .ReadAsync(buffer.AsMemory(), cancellation.Token)
+                        .ConfigureAwait(false)
+                ) != 0
+            )
+            {
+                if (count > limit - text.Length)
+                    throw new InvalidDataException("Native linker response exceeds its size limit");
+                text.Append(buffer, 0, count);
+            }
+            return text.ToString();
+        }
+        catch
+        {
+            cancellation.Cancel();
+            throw;
         }
     }
 

@@ -25,7 +25,7 @@ export class KohYamlReader {
             name: p.name,
             entrypoint: path.join(folder.uri.fsPath, p.entrypoint),
             romPath: path.join(folder.uri.fsPath, 'build', `${p.name}.gb`),
-            kdbgPath: path.join(folder.uri.fsPath, 'build', `${p.name}.kdbg`),
+            debugInfoPath: path.join(folder.uri.fsPath, 'build', `${p.name}.elf`),
             workspaceFolder: folder.uri.fsPath,
         }));
     }

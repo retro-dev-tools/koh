@@ -178,7 +178,7 @@ fn checked_integer_arithmetic_preserves_results_or_fault_before_writes(
             },
         )
         .unwrap();
-        assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+        assert!(linked.dwarf().unwrap().starts_with(b"\x7fELF"));
         let report = execute_mode(
             host,
             directory.path(),

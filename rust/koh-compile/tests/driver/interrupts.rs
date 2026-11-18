@@ -301,10 +301,15 @@ fn virtual_dispatch_coexists_with_interrupt_roots(
                 "{name}: source mapping within function"
             );
         }
+        let debug = koh_link::read_dwarf(&linked.dwarf().unwrap()).unwrap();
+        assert_eq!(debug.symbols.len(), linked.symbols.len());
         if entry == "Main" {
-            assert!(linked.kdbg().unwrap_err().contains("above 255"));
-        } else {
-            assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+            assert!(
+                debug
+                    .symbols
+                    .iter()
+                    .any(|symbol| symbol.bank.is_some_and(|bank| bank > 255))
+            );
         }
         assert!(
             !linked

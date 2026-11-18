@@ -24,8 +24,8 @@ public sealed class LaunchHandler
         }
 
         var rom = _loadFile(args.Program);
-        var kdbgPath = args.DebugInfo ?? System.IO.Path.ChangeExtension(args.Program, ".kdbg");
-        var kdbg = _loadFile(kdbgPath);
+        var debugInfoPath = args.DebugInfo ?? System.IO.Path.ChangeExtension(args.Program, ".elf");
+        var debug = _loadFile(debugInfoPath);
 
         HardwareMode? mode = args.HardwareMode switch
         {
@@ -34,7 +34,7 @@ public sealed class LaunchHandler
             _ => null,
         };
 
-        _session.Launch(rom, kdbg, mode);
+        _session.Launch(rom, debug, mode);
 
         return new Response { Success = true };
     }

@@ -31,7 +31,7 @@ public class ElfIntegrationTests
     }
 
     [Test]
-    public async Task DebugOptOutAllowsConstantsOutsideKdbgRange()
+    public async Task DebugOptOutAndSignedDwarfConstantsPreserveRomData()
     {
         var model = Assemble("DEF Value EQU -1\nSECTION \"Code\", ROM0\ndb LOW(Value)\n");
         var result = new NativeLinker().Link(
@@ -42,10 +42,10 @@ public class ElfIntegrationTests
         await Assert.That(result.RomData![0]).IsEqualTo((byte)255);
         await Assert.That(result.DebugData.Length).IsEqualTo(0);
         var debug = new NativeLinker().Link([new LinkerInput("constant.o", model)]);
-        await Assert.That(debug.Success).IsFalse();
-        await Assert
-            .That(debug.Diagnostics.Any(diagnostic => diagnostic.Message.Contains("KDBG")))
-            .IsTrue();
+        await Assert.That(debug.Success).IsTrue();
+        await Assert.That(debug.RomData).IsEquivalentTo(result.RomData!);
+        var symbols = new NativeLinker().ReadDebugInfo(debug.DebugData).Symbols;
+        await Assert.That(symbols.Single(symbol => symbol.Name == "Value").Value).IsEqualTo(-1);
     }
 
     private static EmitModel Assemble(
@@ -293,7 +293,7 @@ public class ElfIntegrationTests
             Assemble("SECTION \"Code\",ROMX[$4000],BANK[3]\nld hl,$1234\nnop", "real.asm")
         );
         await Assert.That(result.Success).IsTrue();
-        var parsed = KdbgReader.Parse(result.DebugData);
+        var parsed = new NativeLinker().ReadDebugInfo(result.DebugData);
         var instruction = parsed.AddressMap.Single(e => e.SourceFile == "real.asm" && e.Line == 2);
         await Assert.That(instruction.Bank).IsEqualTo((byte)3);
         await Assert.That(instruction.Address).IsEqualTo((ushort)0x4000);

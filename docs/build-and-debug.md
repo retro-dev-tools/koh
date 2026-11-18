@@ -14,7 +14,7 @@ dotnet build samples/csharp/gb-2048-v2/Gb2048V2.csproj
 ```
 
 The assembly build emits `samples/asm/gb-2048/build/2048.gbc`, `2048.sym`, and
-`2048.kdbg`. The C# build emits `samples/csharp/gb-2048-v2/2048v2.gb`.
+`2048.elf`. The C# build emits `samples/csharp/gb-2048-v2/2048v2.gb`.
 Keep debug information beside the matching ROM and rebuild after editing source.
 Assembly debug information records source paths from the build checkout; rebuild
 after moving the checkout.
@@ -72,7 +72,7 @@ Create `.vscode/launch.json` in the repository root:
       "type": "koh",
       "request": "launch",
       "program": "${workspaceFolder}/samples/asm/gb-2048/build/2048.gbc",
-      "debugInfo": "${workspaceFolder}/samples/asm/gb-2048/build/2048.kdbg",
+      "debugInfo": "${workspaceFolder}/samples/asm/gb-2048/build/2048.elf",
       "stopOnEntry": true
     }
   ]

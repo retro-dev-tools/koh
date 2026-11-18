@@ -69,14 +69,14 @@
   <Target Name="BuildSample2048Rust" DependsOnTargets="BuildRustAssembler;BuildRustLinker">
     <MakeDir Directories="samples/asm/gb-2048/build" />
     <Exec Command="&quot;$(RustAssembler)&quot; samples/asm/gb-2048/src/main.asm -o samples/asm/gb-2048/build/2048-rust.o" />
-    <Exec Command="&quot;$(RustLinker)&quot; samples/asm/gb-2048/build/2048-rust.o -o samples/asm/gb-2048/build/2048-rust.gbc -n samples/asm/gb-2048/build/2048-rust.sym -d samples/asm/gb-2048/build/2048-rust.kdbg" />
+    <Exec Command="&quot;$(RustLinker)&quot; samples/asm/gb-2048/build/2048-rust.o -o samples/asm/gb-2048/build/2048-rust.gbc -n samples/asm/gb-2048/build/2048-rust.sym -d samples/asm/gb-2048/build/2048-rust.elf" />
     <Error Condition="!Exists('samples/asm/gb-2048/build/2048-rust.gbc')" Text="2048-rust.gbc was not produced" />
   </Target>
 
   <Target Name="BuildSample2048" DependsOnTargets="BuildRustAssembler;BuildRustLinker">
     <MakeDir Directories="samples/asm/gb-2048/build" />
     <Exec Command="&quot;$(RustAssembler)&quot; samples/asm/gb-2048/src/main.asm -o samples/asm/gb-2048/build/2048.o" />
-    <Exec Command="&quot;$(RustLinker)&quot; samples/asm/gb-2048/build/2048.o -o samples/asm/gb-2048/build/2048.gbc -n samples/asm/gb-2048/build/2048.sym -d samples/asm/gb-2048/build/2048.kdbg" />
+    <Exec Command="&quot;$(RustLinker)&quot; samples/asm/gb-2048/build/2048.o -o samples/asm/gb-2048/build/2048.gbc -n samples/asm/gb-2048/build/2048.sym -d samples/asm/gb-2048/build/2048.elf" />
     <Error Condition="!Exists('samples/asm/gb-2048/build/2048.gbc')" Text="2048.gbc was not produced" />
     <Message Importance="high" Text="Built samples/asm/gb-2048/build/2048.gbc" />
   </Target>

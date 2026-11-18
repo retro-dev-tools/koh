@@ -168,7 +168,7 @@ fn symbols_identify_emitted_instructions_entry_and_mutable_storage(
             for (name, (_, offset), _) in &field_labels {
                 assert_eq!(symbol(name).value, ram + *offset as i32, "{name}");
             }
-            assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+            assert!(linked.dwarf().unwrap().starts_with(b"\x7fELF"));
             let report = execute_mode(
                 host,
                 directory.path(),

@@ -90,14 +90,14 @@ public sealed class BreakpointHandlers
         foreach (var bp in args.Breakpoints ?? Array.Empty<FunctionBreakpoint>())
         {
             var sym = _session.DebugInfo.SymbolMap.Lookup(bp.Name);
-            if (sym is null)
+            if (sym is null || sym.Kind != Koh.Objects.DebugSymbolKind.Label)
             {
                 results.Add(
                     new Breakpoint { Verified = false, Message = $"unknown symbol '{bp.Name}'" }
                 );
                 continue;
             }
-            _session.Breakpoints.Add(new BankedAddress(sym.Bank, sym.Address));
+            _session.Breakpoints.Add(new BankedAddress(checked((byte)sym.Bank), sym.Address));
             results.Add(
                 new Breakpoint
                 {

@@ -12,7 +12,7 @@ A 2048 game for Game Boy Color, built with the Koh toolchain.
 dotnet msbuild build.proj -t:BuildSample2048
 ```
 
-Output: `build/2048.gbc`, `build/2048.sym`, and `build/2048.kdbg`. Open the ROM in your emulator, or follow the [Koh build and debug walkthrough](../../../docs/build-and-debug.md) for source debugging.
+Output: `build/2048.gbc`, `build/2048.sym`, and `build/2048.elf`. Open the ROM in your emulator, or follow the [Koh build and debug walkthrough](../../../docs/build-and-debug.md) for source debugging.
 
 ## Verify
 

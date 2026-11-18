@@ -7,7 +7,7 @@ Read [AGENTS.md](AGENTS.md) for repository conventions and working-tree safety.
 Koh combines native Rust assembler/linker/compiler tools with C# game authoring,
 the .NET SDK, the existing C# emulator/debugger and KohUI. Roslyn compiles ordinary
 C# to DLL/PDB; `koh-compile` lowers the supported CIL subset to canonical
-ELF32/SM83; `koh-link` owns placement, relocation, headers and ROM/KDBG output.
+ELF32/SM83; `koh-link` owns placement, relocation, headers and ROM/DWARF output.
 There is one production compiler. No C# compiler implementation or fallback
 remains. Existing public APIs and historical behavior are evidence, not specs.
 

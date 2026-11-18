@@ -55,7 +55,7 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 - ROM bank assignment
 - section placement and alignment
 - symbol resolution and patching
-- `.sym` and `.kdbg` output
+- `.sym` and `.elf` output
 - canonical [ELF32/SM83 ABI](docs/rust-linker/elf32-sm83.md) with checked complex relocations
 
 ### C# compiler
@@ -63,7 +63,7 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 The .NET SDK/Roslyn builds game DLLs and optional Portable PDBs. The Rust compiler
 resolves reachable game/runtime references, verifies typed IR and emits ELF32/SM83
 for the native linker. Ordinary game `dotnet build` runs this pipeline through
-Koh.Sdk; the existing C# emulator/debugger runs the ROM and consumes KDBG.
+Koh.Sdk; the existing C# emulator/debugger runs the ROM and consumes DWARF.
 See the [supported language contract](docs/rust-compiler/supported-subset.md),
 [runtime boundaries](docs/rust-compiler/runtime-boundaries.md),
 [ABI](docs/rust-compiler/sm83-abi.md) and [validation record](docs/rust-compiler/progress.md).
@@ -105,7 +105,7 @@ For assembly:
 dotnet msbuild build.proj -t:BuildSample2048
 ```
 
-The ROM is written to `samples/asm/gb-2048/build/2048.gbc`, with source debug information in `2048.kdbg`. See the [build and debug walkthrough](docs/build-and-debug.md) for emulator commands and a VS Code launch configuration.
+The ROM is written to `samples/asm/gb-2048/build/2048.gbc`, with source debug information in `2048.elf`. See the [build and debug walkthrough](docs/build-and-debug.md) for emulator commands and a VS Code launch configuration.
 
 For C#:
 
@@ -199,7 +199,7 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 rust/         koh-asm, koh-link, koh-compile (CIL compiler), koh-objects (ELF ABI)
 src/
   Common/     Koh.Common (diagnostics, source text), Koh.Opcodes (SM83 opcode table),
-              Koh.Objects (compiler output concepts and .kdbg reader)
+              Koh.Objects (compiler output concepts and debug records)
   Asm/        Koh.Native (native bridge), Koh.Lsp (language server)
   Compiler/   Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
   Emulator/   Koh.Emulator, Koh.Debugger, Koh.Boot (boot ROMs), Koh.Verify, Koh.Emulator.App

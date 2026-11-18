@@ -8,8 +8,8 @@
     <KohCgbCompatible Condition="'$(KohCgbCompatible)' == ''">false</KohCgbCompatible>
     <KohCgbOnly Condition="'$(KohCgbOnly)' == ''">false</KohCgbOnly>
     <KohEmitDebugInfo Condition="'$(KohEmitDebugInfo)' == ''">true</KohEmitDebugInfo>
-    <KohKdbgPath>$([System.IO.Path]::ChangeExtension('$(KohRomPath)', '.kdbg'))</KohKdbgPath>
-    <KohKdbgOutput Condition="'$(KohEmitDebugInfo)' == 'true'">$(KohKdbgPath)</KohKdbgOutput>
+    <KohDebugPath>$([System.IO.Path]::ChangeExtension('$(KohRomPath)', '.elf'))</KohDebugPath>
+    <KohDebugOutput Condition="'$(KohEmitDebugInfo)' == 'true'">$(KohDebugPath)</KohDebugOutput>
     <KohBuildTasksProject>$(KohRoot)src/Compiler/Koh.Build.Tasks/Koh.Build.Tasks.csproj</KohBuildTasksProject>
     <KohBuildTasksAssembly>$(KohRoot)src/Compiler/Koh.Build.Tasks/bin/$(Configuration)/net10.0/Koh.Build.Tasks.dll</KohBuildTasksAssembly>
     <KohNativeSuffix Condition="'$(OS)' == 'Windows_NT'">.exe</KohNativeSuffix>
@@ -68,14 +68,14 @@
 
   <Target Name="CompileKohRom" AfterTargets="Build" DependsOnTargets="_KohWriteRomPropsStamp"
           Inputs="$(TargetPath);@(ReferencePath);@(_KohPdbInput);$(KohBuildTasksAssembly);$(KohCompilerExecutable);$(KohLinkExecutable);$(KohRomPropsStampFile)"
-          Outputs="$(KohRomPath);$(KohObjectPath);$(KohKdbgOutput)">
+          Outputs="$(KohRomPath);$(KohObjectPath);$(KohDebugOutput)">
     <CompileKohRom OutputPath="$(KohRomPath)" ObjectPath="$(KohObjectPath)" ProjectDirectory="$(MSBuildProjectDirectory)"
                    AssemblyPath="$(TargetPath)" PdbPath="@(_DebugSymbolsOutputPath)" ReferencePaths="@(ReferencePath)"
                    CgbCompatible="$(KohCgbCompatible)" CgbOnly="$(KohCgbOnly)" EmitDebugInfo="$(KohEmitDebugInfo)"
                    CompilerPath="$(KohCompilerExecutable)" LinkerPath="$(KohLinkExecutable)" />
     <ItemGroup>
       <FileWrites Include="$(KohRomPath);$(KohObjectPath)" />
-      <FileWrites Condition="'$(KohEmitDebugInfo)' == 'true'" Include="$(KohKdbgPath)" />
+      <FileWrites Condition="'$(KohEmitDebugInfo)' == 'true'" Include="$(KohDebugPath)" />
     </ItemGroup>
   </Target>
 </Project>

@@ -26,8 +26,8 @@ fn sm83_disassembly_preserves_independent_instruction_boundaries(
     let directory = tempfile::tempdir().unwrap();
     let mut data = bytes.to_vec();
     data.push(0);
-    let (rom, kdbg) = instruction_rom(directory.path(), &data);
-    let instructions = disassemble_vectors(debugger, &rom, &kdbg, &[(0x3000, 2)]);
+    let (rom, debug) = instruction_rom(directory.path(), &data);
+    let instructions = disassemble_vectors(debugger, &rom, &debug, &[(0x3000, 2)]);
     assert_instruction(&instructions[0][0], bytes, 0x3000);
     assert_eq!(bytes.len(), length);
     assert_eq!(
@@ -66,21 +66,21 @@ fn instruction_rom(directory: &Path, data: &[u8]) -> (std::path::PathBuf, std::p
     let linked = koh_link::link(&[object], &Default::default()).unwrap();
     assert_eq!(&linked.rom[0x3000..0x3000 + data.len()], data);
     let rom = directory.join("instructions.gb");
-    let kdbg = rom.with_extension("kdbg");
+    let debug = rom.with_extension("elf");
     std::fs::write(&rom, &linked.rom).unwrap();
-    std::fs::write(&kdbg, linked.kdbg().unwrap()).unwrap();
-    (rom, kdbg)
+    std::fs::write(&debug, linked.dwarf().unwrap()).unwrap();
+    (rom, debug)
 }
 
 fn disassemble_vectors(
     debugger: &Host,
     rom: &Path,
-    kdbg: &Path,
+    debug: &Path,
     vectors: &[(usize, usize)],
 ) -> Vec<Vec<serde_json::Value>> {
     use serde_json::json;
     let mut requests = vec![
-        json!({"seq":1,"type":"request","command":"launch","arguments":{"program":rom,"debugInfo":kdbg}}).to_string(),
+        json!({"seq":1,"type":"request","command":"launch","arguments":{"program":rom,"debugInfo":debug}}).to_string(),
     ];
     for (index, &(address, count)) in vectors.iter().enumerate() {
         requests.push(json!({"seq":index + 2,"type":"request","command":"disassemble","arguments":{"memoryReference":format!("0x{address:04X}"),"instructionCount":count}}).to_string());
@@ -139,8 +139,8 @@ fn sm83_disassembly_covers_every_encoding(debugger: &Host, #[case] prefixed: boo
             data.extend_from_slice(&[op, 0, 0, 0]);
         }
     }
-    let (rom, kdbg) = instruction_rom(directory.path(), &data);
-    let decoded = disassemble_vectors(debugger, &rom, &kdbg, &vectors);
+    let (rom, debug) = instruction_rom(directory.path(), &data);
+    let decoded = disassemble_vectors(debugger, &rom, &debug, &vectors);
     for (index, instructions) in decoded.iter().enumerate() {
         let address = vectors[index].0;
         let length = lengths[index];
@@ -174,8 +174,8 @@ fn sm83_disassembly_preserves_mixed_stream_bytes_and_offsets(debugger: &Host) {
         0xcd, 0x50, 0x01, 0xd3, 0xc9,
     ];
     let offsets = [0, 1, 3, 4, 5, 6, 8, 10, 13, 15, 18, 19, 20];
-    let (rom, kdbg) = instruction_rom(directory.path(), &bytes);
-    let decoded = disassemble_vectors(debugger, &rom, &kdbg, &[(0x3000, 12)]);
+    let (rom, debug) = instruction_rom(directory.path(), &bytes);
+    let decoded = disassemble_vectors(debugger, &rom, &debug, &[(0x3000, 12)]);
     for (instruction, bounds) in decoded[0].iter().zip(offsets.windows(2)) {
         assert_instruction(
             instruction,
@@ -243,8 +243,8 @@ fn sm83_disassembly_names_independent_encoding_vectors(debugger: &Host, #[case] 
         data.extend_from_slice(bytes);
         data.push(0);
     }
-    let (rom, kdbg) = instruction_rom(directory.path(), &data);
-    let replies = disassemble_vectors(debugger, &rom, &kdbg, &addresses);
+    let (rom, debug) = instruction_rom(directory.path(), &data);
+    let replies = disassemble_vectors(debugger, &rom, &debug, &addresses);
     for ((instructions, &(bytes, text)), &(address, _)) in
         replies.iter().zip(vectors).zip(&addresses)
     {
@@ -360,14 +360,14 @@ fn debugger_breaks_in_finally_and_unwinds_its_caller(
         .find(|p| p.file.ends_with("Program.cs") && p.line as usize == line)
         .unwrap();
     let rom = directory.path().join("finally debug.gb");
-    let kdbg = rom.with_extension("kdbg");
+    let debug = rom.with_extension("elf");
     std::fs::write(&rom, &linked.rom).unwrap();
-    std::fs::write(&kdbg, linked.kdbg().unwrap()).unwrap();
+    std::fs::write(&debug, linked.dwarf().unwrap()).unwrap();
     let mut requests = Vec::new();
     for (command, arguments) in [
         (
             "launch",
-            json!({"program":rom,"debugInfo":kdbg,"hardwareMode":if color {"cgb"} else {"dmg"}}),
+            json!({"program":rom,"debugInfo":debug,"hardwareMode":if color {"cgb"} else {"dmg"}}),
         ),
         (
             "setBreakpoints",
@@ -500,14 +500,14 @@ fn debugger_stops_on_native_csharp_source_and_inspects_machine_state(
             )
         });
     let rom = directory.path().join("debug game.gb");
-    let kdbg = directory.path().join("debug game.kdbg");
+    let debug = directory.path().join("debug game.elf");
     std::fs::write(&rom, &linked.rom).unwrap();
-    std::fs::write(&kdbg, linked.kdbg().unwrap()).unwrap();
+    std::fs::write(&debug, linked.dwarf().unwrap()).unwrap();
     let mut requests = Vec::new();
     for (command, arguments) in [
         (
             "launch",
-            json!({"program": rom, "debugInfo": kdbg, "hardwareMode": if color { "cgb" } else { "dmg" }}),
+            json!({"program": rom, "debugInfo": debug, "hardwareMode": if color { "cgb" } else { "dmg" }}),
         ),
         (
             "setBreakpoints",
@@ -797,9 +797,9 @@ fn native_stack_recipes_reject_unknown_or_corrupt_states(host: &Host, debugger: 
         .unwrap()
         .value as u16;
     let rom = directory.path().join("unwind.gb");
-    let kdbg = directory.path().join("unwind.kdbg");
+    let debug = directory.path().join("unwind.elf");
     std::fs::write(&rom, &linked.rom).unwrap();
-    std::fs::write(&kdbg, linked.kdbg().unwrap()).unwrap();
+    std::fs::write(&debug, linked.dwarf().unwrap()).unwrap();
     let cases = [
         ("banked", "b_0020", 0xC800u16, stub, 0x7FF0u16, 1u16, 2),
         ("unsupported_near", "n_0020", 0xC800, 0x7FF0, 0x7FF0, 1, 1),
@@ -821,7 +821,7 @@ fn native_stack_recipes_reject_unknown_or_corrupt_states(host: &Host, debugger: 
         ("frame_limit", "limit", 0xC800, stub, 0x7FF0, 0, 32),
     ];
     assert_eq!(linked.rom.len(), 0x8000);
-    let mut requests = vec![json!({"seq":1,"type":"request","command":"launch","arguments":{"program":rom,"debugInfo":kdbg}}).to_string()];
+    let mut requests = vec![json!({"seq":1,"type":"request","command":"launch","arguments":{"program":rom,"debugInfo":debug}}).to_string()];
     for (index, (label, recipe, sp, return_stub, return_pc, bank, _)) in cases.iter().enumerate() {
         let pc = 0x3000 + index as u16;
         let marker = |state: &str, suffix: &str| format!("__koh_unwind_v1_{state}_{label}{suffix}");
@@ -901,7 +901,7 @@ fn sdk_2048_source_debugger_recovers_framework_callers(
     .unwrap();
     let rom = directory.path().join("game.gb");
     let object = directory.path().join("game.o");
-    let kdbg = rom.with_extension("kdbg");
+    let debug = rom.with_extension("elf");
     let built = super::dotnet()
         .arg("build")
         .arg(&project)
@@ -937,7 +937,7 @@ fn sdk_2048_source_debugger_recovers_framework_callers(
     )
     .unwrap();
     assert_eq!(std::fs::read(&rom).unwrap(), linked.rom);
-    assert_eq!(std::fs::read(&kdbg).unwrap(), linked.kdbg().unwrap());
+    assert_eq!(std::fs::read(&debug).unwrap(), linked.dwarf().unwrap());
     let source = root.join("samples/csharp/gb-2048-v2/Scenes.cs");
     let line = std::fs::read_to_string(&source)
         .unwrap()
@@ -974,7 +974,7 @@ fn sdk_2048_source_debugger_recovers_framework_callers(
     for (command, arguments) in [
         (
             "launch",
-            json!({"program":rom,"debugInfo":kdbg,"hardwareMode":if color {"cgb"} else {"dmg"}}),
+            json!({"program":rom,"debugInfo":debug,"hardwareMode":if color {"cgb"} else {"dmg"}}),
         ),
         (
             "setBreakpoints",

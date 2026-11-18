@@ -100,7 +100,7 @@
               },
               "debugInfo": {
                 "type": "string",
-                "description": "Path to .kdbg (phase 3+)"
+                "description": "Path to .elf (phase 3+)"
               },
               "emulatorPath": {
                 "type": "string",

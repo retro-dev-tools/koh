@@ -203,12 +203,12 @@ internal sealed class DapServerHost : IDisposable
                             {
                                 var bytes = File.ReadAllBytes(diPath);
                                 _session.DebugInfo.Load(bytes);
-                                Console.Error.WriteLine($"[koh-dap] loaded .kdbg from {diPath}");
+                                Console.Error.WriteLine($"[koh-dap] loaded .elf from {diPath}");
                             }
                             catch (Exception ex)
                             {
                                 Console.Error.WriteLine(
-                                    $"[koh-dap] failed to load .kdbg ({diPath}): {ex.Message}"
+                                    $"[koh-dap] failed to load .elf ({diPath}): {ex.Message}"
                                 );
                             }
                         }

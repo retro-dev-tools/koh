@@ -76,7 +76,7 @@ fn run() -> Result<(), String> {
     let mut args = arguments.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "-o" | "--output" | "-n" | "--sym" | "-d" | "--kdbg" | "--report-json" => {
+            "-o" | "--output" | "-n" | "--sym" | "-d" | "--debug" | "--report-json" => {
                 let p = PathBuf::from(
                     args.next()
                         .ok_or_else(|| format!("Missing path after {arg}"))?,
@@ -84,7 +84,7 @@ fn run() -> Result<(), String> {
                 match arg.as_str() {
                     "-o" | "--output" => output = Some(p),
                     "-n" | "--sym" => sym = Some(p),
-                    "-d" | "--kdbg" => debug = Some(p),
+                    "-d" | "--debug" => debug = Some(p),
                     _ => report = Some(p),
                 }
             }
@@ -108,7 +108,7 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "koh-link -o ROM [-n SYM] [-d KDBG] [--raw] [--size=HEX] [--cgb-compatible|--cgb-only] OBJECT...\nkoh-link --emit-elf -o OBJECT < object.json\nkoh-link --read-debug-info < debug.elf"
+                    "koh-link -o ROM [-n SYM] [-d ELF] [--raw] [--size=HEX] [--cgb-compatible|--cgb-only] OBJECT...\nkoh-link --emit-elf -o OBJECT < object.json\nkoh-link --read-debug-info < debug.elf"
                 );
                 return Ok(());
             }
@@ -195,8 +195,8 @@ fn run() -> Result<(), String> {
         objects.push(koh_objects::read_elf(&bytes).map_err(|e| format!("{}: {e}", p.display()))?);
     }
     let result = link(&objects, &options)?;
-    let kdbg = if debug.is_some() {
-        Some(result.kdbg()?)
+    let debug_data = if debug.is_some() {
+        Some(result.dwarf()?)
     } else {
         None
     };
@@ -217,7 +217,7 @@ fn run() -> Result<(), String> {
         write(&path, result.sym().as_bytes())?;
     }
     if let Some(path) = debug {
-        write(&path, &kdbg.unwrap())?;
+        write(&path, &debug_data.unwrap())?;
     }
     write(&output, &result.rom)?;
     Ok(())

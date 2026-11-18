@@ -454,14 +454,10 @@ impl LinkResult {
         }
         out
     }
-    pub fn kdbg(&self) -> Result<Vec<u8>, String> {
-        crate::debug::write(self)
-    }
     pub fn dwarf(&self) -> Result<Vec<u8>, String> {
         crate::dwarf::write(self)
     }
 }
-mod debug;
 mod dwarf;
 mod dwarf_read;
 pub use dwarf_read::{DwarfDebugInfo, read_dwarf};

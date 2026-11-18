@@ -690,7 +690,7 @@ fn closed_types_preserve_layouts_and_static_initialization(
                         && line.line > 0)
             );
         }
-        assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+        assert!(linked.dwarf().unwrap().starts_with(b"\x7fELF"));
         let report = execute_mode(
             host,
             directory.path(),

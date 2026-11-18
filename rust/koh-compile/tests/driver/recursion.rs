@@ -83,7 +83,7 @@ fn recursive_cil_preserves_live_values_mutual_calls_and_depth_500(
             assert!(linked.lines.iter().any(|line| line.bank == bank
                 && line.file.ends_with("Program.cs")
                 && line.line > 0));
-            assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+            assert!(linked.dwarf().unwrap().starts_with(b"\x7fELF"));
         }
         let report = execute_mode(
             host,

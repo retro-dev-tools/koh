@@ -10,7 +10,7 @@ namespace Koh.Debugger.Tests;
 
 public class DapGeneratedRomIntegrationTests
 {
-    private static (byte[] Rom, byte[] Kdbg) AssembleLinkAndDebugInfo(string path, string source)
+    private static (byte[] Rom, byte[] Dwarf) AssembleLinkAndDebugInfo(string path, string source)
     {
         var tree = SyntaxTree.Parse(SourceText.From(source, path));
         var model = Compilation.Create(tree).Emit();
@@ -40,10 +40,10 @@ public class DapGeneratedRomIntegrationTests
         );
 
     [Test]
-    public async Task GeneratedRomKdbg_DapLaunchBreakpointStackTraceScopesAndVariables()
+    public async Task GeneratedRomDwarf_DapLaunchBreakpointStackTraceScopesAndVariables()
     {
         const string sourcePath = "src/main.asm";
-        var (rom, kdbg) = AssembleLinkAndDebugInfo(
+        var (rom, debug) = AssembleLinkAndDebugInfo(
             sourcePath,
             """
             SECTION "Entry", ROM0[$0100]
@@ -60,11 +60,11 @@ public class DapGeneratedRomIntegrationTests
         HandlerRegistration.RegisterAll(
             dispatcher,
             session,
-            path => path.EndsWith(".kdbg", StringComparison.OrdinalIgnoreCase) ? kdbg : rom
+            path => path.EndsWith(".elf", StringComparison.OrdinalIgnoreCase) ? debug : rom
         );
 
         dispatcher.HandleRequest(
-            Encode(1, "launch", new { program = "game.gb", debugInfo = "game.kdbg" })
+            Encode(1, "launch", new { program = "game.gb", debugInfo = "game.elf" })
         );
         await Assert.That(session.IsLaunched).IsTrue();
 
@@ -140,7 +140,7 @@ public class DapGeneratedRomIntegrationTests
     [Test]
     public async Task StackTrace_UsesSourceForPcInsideMultiByteMappedRange()
     {
-        var (rom, kdbg) = AssembleLinkAndDebugInfo(
+        var (rom, debug) = AssembleLinkAndDebugInfo(
             "range.asm",
             """
             SECTION "Entry", ROM0[$0100]
@@ -150,7 +150,7 @@ public class DapGeneratedRomIntegrationTests
 
         var dispatcher = new DapDispatcher();
         var session = new DebugSession();
-        session.Launch(rom, kdbg, Koh.Emulator.HardwareMode.Dmg);
+        session.Launch(rom, debug, Koh.Emulator.HardwareMode.Dmg);
         session.System!.Registers.Pc = 0x0101;
         HandlerRegistration.RegisterAll(dispatcher, session, _ => Array.Empty<byte>());
 

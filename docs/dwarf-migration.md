@@ -1,8 +1,9 @@
 # KDBG to DWARF migration
 
 Requested on 2026-11-18 as the prerequisite to the GPUI migration.
-Status: writer, bounded native reader and assembly expansion provenance checked;
-production remains on KDBG.
+Status: production writer, managed debugger and SDK/editor consumers now use
+DWARF. KDBG implementation removed. Real C# debugging, NativeAOT and hosted
+platform acceptance remain open.
 
 ## Contract
 
@@ -127,6 +128,9 @@ warnings denied. Broader all-target Clippy is not clean: existing
 clone-to-slice findings remain outside this increment. No suppressions added.
 Real debugger, SDK, NativeAOT and three-platform cutover remain unverified.
 
+The writer/reader checkpoints above are historical. The current producer and
+managed-consumer state is recorded below.
+
 ## Assembly expansion checkpoint (2026-11-18)
 
 Expansion ancestry now round-trips on source ranges and symbol definitions,
@@ -169,3 +173,63 @@ The probe's ROM exactly matches the normal CLI-linked ROM, SHA256
 An independent readelf probe decoded the vendor entries and normal source line
 at banked `0x24000` without an error. These are producer/reader checks, not
 emulator execution, managed debugger or GUI acceptance.
+
+## Managed debugger and producer cutover (2026-11-18)
+
+`koh-link -d/--debug` writes a DWARF ELF file. SDK and assembly sample outputs,
+editor build tasks, DAP defaults and compiler test consumers use `.elf` sidecars.
+The KDBG writer, reader, format/kind definitions and synthetic builder are
+removed. No compatibility reader or alternate KDBG output is retained.
+Existing `.kdbg` files must be rebuilt; they are not accepted by the new reader.
+Historical validation notes retain references to the old baseline.
+
+`Koh.Objects` now holds format-neutral debug records; `NativeLinker.ReadDebugInfo`
+invokes the existing bounded native parser, exchanging binary stdin and JSON
+records with bounded stdout/stderr and a process timeout. The debugger builds
+new maps before replacing live ones, clears maps for symbol-free loads, and
+keeps signed constants out of address-based lookups/code breakpoints. Source
+ranges use full-width counts with a checked CPU-address boundary. The reader
+preserves wide banks, while the current emulator explicitly rejects banks
+above 255 without truncating them.
+
+Completed local validation, with final logs re-read:
+
+- `dotnet build Koh.Ci.slnf -c Release -m:1 --no-restore -nr:false`: exit 0,
+  zero warnings/errors, all seven C# sample ROMs built. Log:
+  `/tmp/koh-dwarf-cutover-solution-build.log`.
+- Serial fast suite: exit 0, 574 total, 572 succeeded, 0 failed, 2 existing
+  opt-in SDL window skips. Includes 42 debugger tests and source/ROM/DAP
+  regressions. Log: `/tmp/koh-dwarf-cutover-fast-tests-final.log`.
+- `cargo test -p koh-link --locked`: exit 0, 35 passing tests. Workspace
+  all-target/all-feature check exits 0 with the existing unused cube-helper
+  warning. Logs: `/tmp/koh-dwarf-cutover-rust.log` and
+  `/tmp/koh-dwarf-cutover-workspace-check.log`.
+- Extension compile and tests under an owned Xvfb server: exit 0, 44 passing.
+  Log: `/tmp/koh-dwarf-editor-tests-xvfb.log`. This is extension harness proof,
+  not a watched full VS Code debugging session. The temporary X server stopped.
+- All seven SDK `.elf` outputs independently parsed with nonempty symbol and
+  source maps. Log: `/tmp/koh-dwarf-sdk-sidecars.log`. LLVM independently
+  verifies the real JRPG debug ELF, exit 0, ending `No errors.` in
+  `/tmp/koh-dwarf-sdk-jrpg-verify.log`.
+- Workspace Rustfmt, focused Clippy with warnings denied, CSharpier and diff
+  checks pass. No new warning suppression or NuGet audit opt-out.
+- Added selected MIT notices for gimli, fnv and stable_deref_trait. Their Cargo
+  archives match lockfile digests; all three copied texts exactly match the
+  package sources and the emulator build output. This does not close unrelated
+  first-party or managed-payload release notice work.
+
+The first broad run caught an incorrect assertion that assembly `ds 600` must
+produce one range. Assembly retains per-byte provenance; the corrected test
+checks exact coverage of every byte, independent of fragmentation. A separate
+single-range fixture proves that the managed reader/map retain a 600-byte
+range and its exclusive endpoint. The final suite above includes both.
+
+Local restore initially blocked on a stopped orphan Aspire template-search
+process holding a shared NuGet lock. A command-scoped `NUGET_SCRATCH` directory
+allowed restore to complete; no host process/configuration or audit settings
+were changed. All successful .NET commands used SDK 10.0.115 and bounded
+processor/test concurrency.
+
+Next: run the real C# source-breakpoint, banked/recursive stack and SDK debugger
+acceptance cases through DWARF; validate NativeAOT packaging and hosted platforms.
+The new GPUI application and KohUI removal remain unfinished.
