@@ -1,25 +1,5 @@
 namespace Koh.GameBoy;
 
-/// <summary>
-/// The IEEE-754 softfloat runtime, ported from <c>Koh.Compiler.Frontends.CSharp.SoftFloatRuntime</c>
-/// (a const string of Koh-subset C# that <c>CSharpFrontend</c> appends to a program using
-/// <c>float</c>/<c>double</c>) into a real, compiled <c>Koh.GameBoy</c> class. Each routine operates on
-/// the raw IEEE bits carried in <c>uint</c>/<c>ulong</c> — no <c>float</c>/<c>double</c> operand types
-/// are used here, so this is ordinary Koh-subset code the CIL frontend can lower from IL like any other
-/// referenced-assembly method. The entry points a source-level float operation resolves to are marked
-/// <c>[KohRuntime("f32.add")]</c> etc.; the CIL frontend's float-op routing to these keys is a later
-/// task — this class exists to be lowerable and bit-correct, nothing calls it yet.
-///
-/// The algorithms are a straight port (not a rewrite) of <c>SoftFloatRuntime.Source</c>: same bit
-/// twiddling, same rounding, same edge cases, so the bit-identity guarantee already pinned there
-/// (finite normal numbers and zero, round-to-nearest-even; infinities/NaNs as operands and subnormal
-/// inputs are out of scope, same as there) carries over unchanged. The original stays untouched in
-/// place — <c>CSharpFrontend</c> still needs it.
-///
-/// <c>MathF</c> (Abs/Truncate/Floor/Ceiling/Round/Min/Max/Sign) from the original source is NOT ported
-/// here: it operates on actual <c>float</c> values (via <c>BitConverter.SingleToUInt32Bits</c>), which
-/// isn't a real Koh IR type yet — wiring float itself into the CIL frontend is later work.
-/// </summary>
 public static class SoftFloat
 {
     // ---- Koh softfloat (IEEE-754 single precision) ----------------------------
@@ -39,7 +19,6 @@ public static class SoftFloat
         return r;
     }
 
-    [KohRuntime("f32.neg")]
     public static uint NegF32(uint a)
     {
         return a ^ 0x80000000;
@@ -54,16 +33,35 @@ public static class SoftFloat
         int eb = (int)((b >> 23) & 0xFF);
         uint ma = a & 0x7FFFFF;
         uint mb = b & 0x7FFFFF;
-        if (ea == 0)
-        { // zero or subnormal (flushed to zero)
-            if (eb == 0)
-                return (sa & sb) << 31;
+        if (ea == 255)
+        {
+            if (ma != 0)
+                return a | 0x00400000;
+            if (eb == 255)
+            {
+                if (mb != 0)
+                    return b | 0x00400000;
+                if (sa != sb)
+                    return 0x7FC00000;
+            }
+            return a;
+        }
+        if (eb == 255)
+        {
+            if (mb != 0)
+                return b | 0x00400000;
             return b;
         }
+        if (ea == 0)
+            ea = 1;
+        else
+            ma = ma | 0x800000;
         if (eb == 0)
-            return a;
-        uint siga = (ma | 0x800000) << 3;
-        uint sigb = (mb | 0x800000) << 3;
+            eb = 1;
+        else
+            mb = mb | 0x800000;
+        uint siga = ma << 3;
+        uint sigb = mb << 3;
         int exp;
         if (ea > eb)
         {
@@ -98,15 +96,15 @@ public static class SoftFloat
                 sig = sigb - siga;
                 sign = sb;
             }
-            if (sig == 0)
-                return 0;
         }
+        if (sig == 0)
+            return (sa & sb) << 31;
         while (sig >= ((uint)1 << 27))
         {
             sig = ShrStickyF32(sig, 1);
             exp = exp + 1;
         }
-        while (sig != 0 && sig < ((uint)1 << 26))
+        while (sig < ((uint)1 << 26) && exp > 1)
         {
             sig = sig << 1;
             exp = exp - 1;
@@ -124,8 +122,8 @@ public static class SoftFloat
         }
         if (exp >= 255)
             return (sign << 31) | ((uint)0xFF << 23);
-        if (exp <= 0)
-            return sign << 31;
+        if (exp == 1 && sig < 0x800000)
+            exp = 0;
         return (sign << 31) | ((uint)exp << 23) | (sig & 0x7FFFFF);
     }
 
@@ -143,23 +141,64 @@ public static class SoftFloat
         int eb = (int)((b >> 23) & 0xFF);
         uint ma = a & 0x7FFFFF;
         uint mb = b & 0x7FFFFF;
-        if (ea == 0 || eb == 0)
-            return sign; // 0 * x = 0 (subnormals flushed to zero)
-        uint siga = ma | 0x800000;
-        uint sigb = mb | 0x800000;
-        ulong prod = (ulong)siga * (ulong)sigb; // up to 48 bits
-        int exp = ea + eb - 127;
-        if (prod >= ((ulong)1 << 47))
+        if (ea == 255 && ma != 0)
+            return a | 0x00400000;
+        if (eb == 255 && mb != 0)
+            return b | 0x00400000;
+        if (ea == 255 || eb == 255)
         {
-            exp = exp + 1;
+            if ((ea == 0 && ma == 0) || (eb == 0 && mb == 0))
+                return 0x7fc00000;
+            return sign | 0x7f800000;
+        }
+        if ((ea == 0 && ma == 0) || (eb == 0 && mb == 0))
+            return sign;
+        if (ea == 0)
+        {
+            ea = 1;
+            while (ma < 0x800000)
+            {
+                ma <<= 1;
+                ea--;
+            }
         }
         else
         {
-            prod = prod << 1;
-        } // leading 1 now at bit 47
-        uint sig = (uint)(prod >> 24); // 24-bit significand (bit 23 = leading 1)
-        uint rem = (uint)(prod & 0xFFFFFF); // low 24 bits -> rounding
-        uint half = 0x800000;
+            ma |= 0x800000;
+        }
+        if (eb == 0)
+        {
+            eb = 1;
+            while (mb < 0x800000)
+            {
+                mb <<= 1;
+                eb--;
+            }
+        }
+        else
+        {
+            mb |= 0x800000;
+        }
+        ulong prod = (ulong)ma * mb;
+        int exp = ea + eb - 127;
+        int shift = 23;
+        if (prod >= ((ulong)1 << 47))
+        {
+            shift = 24;
+            exp++;
+        }
+        if (exp >= 255)
+            return sign | 0x7f800000;
+        if (exp <= 0)
+        {
+            shift += 1 - exp;
+            exp = 0;
+        }
+        if (shift >= 64)
+            return sign;
+        uint sig = (uint)(prod >> shift);
+        ulong rem = prod & (((ulong)1 << shift) - 1);
+        ulong half = (ulong)1 << (shift - 1);
         if (rem > half || (rem == half && (sig & 1) != 0))
         {
             sig = sig + 1;
@@ -171,8 +210,8 @@ public static class SoftFloat
         }
         if (exp >= 255)
             return sign | ((uint)0xFF << 23);
-        if (exp <= 0)
-            return sign;
+        if (exp == 0 && sig >= 0x800000)
+            exp = 1;
         return sign | ((uint)exp << 23) | (sig & 0x7FFFFF);
     }
 
@@ -184,33 +223,69 @@ public static class SoftFloat
         int eb = (int)((b >> 23) & 0xFF);
         uint ma = a & 0x7FFFFF;
         uint mb = b & 0x7FFFFF;
+        if (ea == 255 && ma != 0)
+            return a | 0x00400000;
+        if (eb == 255 && mb != 0)
+            return b | 0x00400000;
+        if (ea == 255)
+            return eb == 255 ? 0x7fc00000 : sign | 0x7f800000;
+        if (eb == 255)
+            return sign;
+        if (eb == 0 && mb == 0)
+            return ea == 0 && ma == 0 ? 0x7fc00000 : sign | 0x7f800000;
+        if (ea == 0 && ma == 0)
+            return sign;
         if (ea == 0)
-            return sign; // 0 / x = 0 (subnormals flushed)
-        if (eb == 0)
-            return sign | ((uint)0xFF << 23); // x / 0 = inf
-        uint siga = ma | 0x800000;
-        uint sigb = mb | 0x800000;
-        int exp = ea - eb + 127;
-        ulong num = (ulong)siga << 25;
-        uint q = (uint)(num / (ulong)sigb);
-        uint r = (uint)(num % (ulong)sigb);
-        if (q >= ((uint)1 << 25)) { } // leading already at bit 25 (no-op)
+        {
+            ea = 1;
+            while (ma < 0x800000)
+            {
+                ma <<= 1;
+                ea--;
+            }
+        }
         else
         {
-            q = q << 1;
-            exp = exp - 1;
-        } // normalize leading to bit 25
-        uint sig = q >> 2; // 24-bit significand
-        uint low = q & 3; // guard + round
-        uint sticky = (r != 0) ? (uint)1 : (uint)0;
-        bool up;
-        if ((low & 2) == 0)
-            up = false;
-        else if (low == 2 && sticky == 0)
-            up = (sig & 1) != 0;
+            ma |= 0x800000;
+        }
+        if (eb == 0)
+        {
+            eb = 1;
+            while (mb < 0x800000)
+            {
+                mb <<= 1;
+                eb--;
+            }
+        }
         else
-            up = true;
-        if (up)
+        {
+            mb |= 0x800000;
+        }
+        int exp = ea - eb + 127;
+        if (ma < mb)
+        {
+            ma <<= 1;
+            exp--;
+        }
+        if (exp >= 255)
+            return sign | 0x7f800000;
+        int shift = 23;
+        if (exp <= 0)
+        {
+            shift += exp - 1;
+            exp = 0;
+        }
+        if (shift < -1)
+            return sign;
+        ulong num = ma;
+        ulong den = mb;
+        if (shift < 0)
+            den <<= 1;
+        else
+            num <<= shift;
+        uint sig = (uint)(num / den);
+        ulong rem = (num % den) << 1;
+        if (rem > den || (rem == den && (sig & 1) != 0))
         {
             sig = sig + 1;
             if (sig >= ((uint)1 << 24))
@@ -221,14 +296,13 @@ public static class SoftFloat
         }
         if (exp >= 255)
             return sign | ((uint)0xFF << 23);
-        if (exp <= 0)
-            return sign;
+        if (exp == 0 && sig >= 0x800000)
+            exp = 1;
         return sign | ((uint)exp << 23) | (sig & 0x7FFFFF);
     }
 
     // ---- Comparisons (return bool) --------------------------------------------
 
-    [KohRuntime("f32.isNan")]
     public static byte IsNanF32(uint a)
     {
         if (((a >> 23) & 0xFF) == 0xFF && (a & 0x7FFFFF) != 0)
@@ -267,39 +341,33 @@ public static class SoftFloat
         return 2;
     }
 
-    [KohRuntime("f32.lt")]
     public static bool LtF32(uint a, uint b)
     {
         return CmpF32(a, b) == 1;
     }
 
-    [KohRuntime("f32.le")]
     public static bool LeF32(uint a, uint b)
     {
         byte c = CmpF32(a, b);
         return c == 1 || c == 0;
     }
 
-    [KohRuntime("f32.gt")]
     public static bool GtF32(uint a, uint b)
     {
         return CmpF32(a, b) == 2;
     }
 
-    [KohRuntime("f32.ge")]
     public static bool GeF32(uint a, uint b)
     {
         byte c = CmpF32(a, b);
         return c == 2 || c == 0;
     }
 
-    [KohRuntime("f32.eq")]
     public static bool EqF32(uint a, uint b)
     {
         return CmpF32(a, b) == 0;
     }
 
-    [KohRuntime("f32.ne")]
     public static bool NeF32(uint a, uint b)
     {
         return CmpF32(a, b) != 0;
@@ -347,6 +415,8 @@ public static class SoftFloat
     [KohRuntime("f32.toU32")]
     public static uint ToU32(uint a)
     {
+        if ((a & 0x7fffffff) > 0x7f800000)
+            return 0;
         if ((a >> 31) != 0)
             return 0; // negative -> 0
         int e = (int)((a >> 23) & 0xFF);
@@ -377,9 +447,6 @@ public static class SoftFloat
         uint signBit = 0x80000000;
         if ((a >> 31) != 0)
         {
-            // Same saturation shape as ToI64 (see its comment): a magnitude beyond int.MinValue must
-            // saturate explicitly, or -(int)u wraps back to a wrong positive result instead of saturating
-            // like a host `(int)` cast does.
             if (u > signBit)
                 return (int)signBit; // saturate to int.MinValue
             return -(int)u;
@@ -387,6 +454,72 @@ public static class SoftFloat
         if (u >= signBit)
             return (int)(signBit - 1); // saturate to int.MaxValue
         return (int)u;
+    }
+
+    [KohRuntime("u64.toF32")]
+    public static uint FromU64F32(ulong mag)
+    {
+        if (mag == 0)
+            return 0;
+        int exponent = 63;
+        while ((mag & 0x8000000000000000) == 0)
+        {
+            mag <<= 1;
+            exponent--;
+        }
+        uint sig = (uint)(mag >> 40);
+        ulong rem = mag & 0xffffffffff;
+        ulong half = (ulong)1 << 39;
+        if (rem > half || (rem == half && (sig & 1) != 0))
+        {
+            sig++;
+            if (sig >= 0x1000000)
+            {
+                sig >>= 1;
+                exponent++;
+            }
+        }
+        return ((uint)(exponent + 127) << 23) | (sig & 0x7fffff);
+    }
+
+    [KohRuntime("i64.toF32")]
+    public static uint FromI64F32(long value)
+    {
+        if (value < 0)
+            return 0x80000000 | FromU64F32(unchecked((ulong)-value));
+        return FromU64F32((ulong)value);
+    }
+
+    [KohRuntime("f32.toU64")]
+    public static ulong ToU64F32(uint bits)
+    {
+        if ((bits & 0x7fffffff) > 0x7f800000 || (bits >> 31) != 0)
+            return 0;
+        int exponent = (int)((bits >> 23) & 255) - 127;
+        if (exponent < 0)
+            return 0;
+        if (exponent >= 64)
+            return ulong.MaxValue;
+        ulong sig = (bits & 0x7fffff) | 0x800000;
+        if (exponent >= 23)
+            return sig << (exponent - 23);
+        return sig >> (23 - exponent);
+    }
+
+    [KohRuntime("f32.toI64")]
+    public static long ToI64F32(uint bits)
+    {
+        ulong mag = ToU64F32(bits & 0x7fffffff);
+        ulong sign = (ulong)1 << 63;
+        if ((bits >> 31) != 0)
+        {
+            if (mag > sign)
+                return long.MinValue;
+            return unchecked(-(long)mag);
+        }
+        if (mag >= sign)
+            return long.MaxValue;
+        return (long)mag;
     }
 
     // ---- Koh softfloat (IEEE-754 double precision) ----------------------------
@@ -408,7 +541,6 @@ public static class SoftFloat
         return r;
     }
 
-    [KohRuntime("f64.neg")]
     public static ulong NegF64(ulong a)
     {
         return a ^ 0x8000000000000000;
@@ -423,16 +555,37 @@ public static class SoftFloat
         int eb = (int)((b >> 52) & 0x7FF);
         ulong ma = a & 0xFFFFFFFFFFFFF;
         ulong mb = b & 0xFFFFFFFFFFFFF;
-        if (ea == 0)
+        if (ea == 2047)
         {
-            if (eb == 0)
-                return (sa & sb) << 63;
+            if (ma != 0)
+                return a | 0x0008000000000000;
+            if (eb == 2047)
+            {
+                if (mb != 0)
+                    return b | 0x0008000000000000;
+                if (sa != sb)
+                    return 0x7ff8000000000000;
+            }
+            return a;
+        }
+        if (eb == 2047)
+        {
+            if (mb != 0)
+                return b | 0x0008000000000000;
             return b;
         }
+        if (ea == 0)
+            ea = 1;
+        else
+            ma |= 0x10000000000000;
         if (eb == 0)
-            return a;
-        ulong siga = (ma | 0x10000000000000) << 3;
-        ulong sigb = (mb | 0x10000000000000) << 3;
+            eb = 1;
+        else
+            mb |= 0x10000000000000;
+        if (ma == 0 && mb == 0)
+            return (sa & sb) << 63;
+        ulong siga = ma << 3;
+        ulong sigb = mb << 3;
         int exp;
         if (ea > eb)
         {
@@ -475,7 +628,7 @@ public static class SoftFloat
             sig = ShrStickyF64(sig, 1);
             exp = exp + 1;
         }
-        while (sig != 0 && sig < ((ulong)1 << 55))
+        while (exp > 1 && sig != 0 && sig < ((ulong)1 << 55))
         {
             sig = sig << 1;
             exp = exp - 1;
@@ -493,8 +646,8 @@ public static class SoftFloat
         }
         if (exp >= 2047)
             return (sign << 63) | ((ulong)0x7FF << 52);
-        if (exp <= 0)
-            return sign << 63;
+        if (exp == 1 && sig < 0x10000000000000)
+            exp = 0;
         return (sign << 63) | ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF);
     }
 
@@ -504,6 +657,8 @@ public static class SoftFloat
         return AddF64(a, b ^ 0x8000000000000000);
     }
 
+    private static ulong MulPartF64(uint a, uint b) => (ulong)a * b;
+
     [KohRuntime("f64.mul")]
     public static ulong MulF64(ulong a, ulong b)
     {
@@ -512,36 +667,92 @@ public static class SoftFloat
         int eb = (int)((b >> 52) & 0x7FF);
         ulong ma = a & 0xFFFFFFFFFFFFF;
         ulong mb = b & 0xFFFFFFFFFFFFF;
-        if (ea == 0 || eb == 0)
+        if (ea == 2047 && ma != 0)
+            return a | 0x0008000000000000;
+        if (eb == 2047 && mb != 0)
+            return b | 0x0008000000000000;
+        bool za = ea == 0 && ma == 0;
+        bool zb = eb == 0 && mb == 0;
+        if ((ea == 2047 && zb) || (eb == 2047 && za))
+            return 0x7ff8000000000000;
+        if (ea == 2047 || eb == 2047)
+            return sign | 0x7ff0000000000000;
+        if (za || zb)
             return sign;
-        ulong siga = ma | 0x10000000000000;
-        ulong sigb = mb | 0x10000000000000;
-        UInt128 prod = (UInt128)siga * (UInt128)sigb; // up to 106 bits
-        int exp = ea + eb - 1023;
-        if (prod >= ((UInt128)1 << 105))
+        if (ea == 0)
         {
-            exp = exp + 1;
-        }
-        else
-        {
-            prod = prod << 1;
-        } // leading 1 at bit 105
-        ulong sig = (ulong)(prod >> 53); // 53-bit significand
-        ulong rem = (ulong)(prod & (((UInt128)1 << 53) - 1));
-        ulong half = (ulong)1 << 52;
-        if (rem > half || (rem == half && (sig & 1) != 0))
-        {
-            sig = sig + 1;
-            if (sig >= ((ulong)1 << 53))
+            ea = 1;
+            while (ma < 0x10000000000000)
             {
-                sig = sig >> 1;
-                exp = exp + 1;
+                ma <<= 1;
+                ea--;
             }
         }
+        else
+            ma |= 0x10000000000000;
+        if (eb == 0)
+        {
+            eb = 1;
+            while (mb < 0x10000000000000)
+            {
+                mb <<= 1;
+                eb--;
+            }
+        }
+        else
+            mb |= 0x10000000000000;
+        ulong low = MulPartF64((uint)ma, (uint)mb);
+        ulong high = MulPartF64((uint)(ma >> 32), (uint)(mb >> 32));
+        ulong cross = MulPartF64((uint)(ma >> 32), (uint)mb);
+        ulong sum = unchecked(low + (cross << 32));
+        if (sum < low)
+            high++;
+        low = sum;
+        high += cross >> 32;
+        cross = MulPartF64((uint)ma, (uint)(mb >> 32));
+        sum = unchecked(low + (cross << 32));
+        if (sum < low)
+            high++;
+        low = sum;
+        high += cross >> 32;
+        return RoundProductF64(low, high, ea + eb - 1023, sign);
+    }
+
+    private static ulong RoundProductF64(ulong low, ulong high, int exp, ulong sign)
+    {
+        int shift = 52;
+        if (high >= 0x20000000000)
+        {
+            exp++;
+            shift++;
+        }
         if (exp >= 2047)
-            return sign | ((ulong)0x7FF << 52);
+            return sign | 0x7ff0000000000000;
         if (exp <= 0)
+            shift += 1 - exp;
+        if (shift > 106)
             return sign;
+        ulong sticky = 0;
+        for (int i = 0; i < shift - 3; i++)
+        {
+            sticky |= low & 1;
+            low = (low >> 1) | (high << 63);
+            high >>= 1;
+        }
+        low |= sticky;
+        ulong sig = low >> 3;
+        ulong tail = low & 7;
+        if (tail > 4 || (tail == 4 && (sig & 1) != 0))
+            sig++;
+        if (exp <= 0)
+            return sign | sig;
+        if (sig == 0x20000000000000)
+        {
+            sig >>= 1;
+            exp++;
+        }
+        if (exp >= 2047)
+            return sign | 0x7ff0000000000000;
         return sign | ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF);
     }
 
@@ -553,49 +764,80 @@ public static class SoftFloat
         int eb = (int)((b >> 52) & 0x7FF);
         ulong ma = a & 0xFFFFFFFFFFFFF;
         ulong mb = b & 0xFFFFFFFFFFFFF;
-        if (ea == 0)
+        if (ea == 2047 && ma != 0)
+            return a | 0x0008000000000000;
+        if (eb == 2047 && mb != 0)
+            return b | 0x0008000000000000;
+        bool za = ea == 0 && ma == 0;
+        bool zb = eb == 0 && mb == 0;
+        if ((za && zb) || (ea == 2047 && eb == 2047))
+            return 0x7ff8000000000000;
+        if (ea == 2047 || zb)
+            return sign | 0x7ff0000000000000;
+        if (za || eb == 2047)
             return sign;
-        if (eb == 0)
-            return sign | ((ulong)0x7FF << 52);
-        ulong siga = ma | 0x10000000000000;
-        ulong sigb = mb | 0x10000000000000;
-        int exp = ea - eb + 1023;
-        UInt128 num = (UInt128)siga << 54;
-        ulong q = (ulong)(num / (UInt128)sigb);
-        ulong r = (ulong)(num % (UInt128)sigb);
-        if (q >= ((ulong)1 << 54)) { } // leading already at bit 54 (no-op)
-        else
+        if (ea == 0)
         {
-            q = q << 1;
-            exp = exp - 1;
-        }
-        ulong sig = q >> 2;
-        ulong low = q & 3;
-        ulong sticky = (r != 0) ? (ulong)1 : (ulong)0;
-        bool up;
-        if ((low & 2) == 0)
-            up = false;
-        else if (low == 2 && sticky == 0)
-            up = (sig & 1) != 0;
-        else
-            up = true;
-        if (up)
-        {
-            sig = sig + 1;
-            if (sig >= ((ulong)1 << 53))
+            ea = 1;
+            while (ma < 0x10000000000000)
             {
-                sig = sig >> 1;
-                exp = exp + 1;
+                ma <<= 1;
+                ea--;
             }
         }
+        else
+            ma |= 0x10000000000000;
+        if (eb == 0)
+        {
+            eb = 1;
+            while (mb < 0x10000000000000)
+            {
+                mb <<= 1;
+                eb--;
+            }
+        }
+        else
+            mb |= 0x10000000000000;
+        int exp = ea - eb + 1023;
+        if (ma < mb)
+        {
+            ma <<= 1;
+            exp--;
+        }
         if (exp >= 2047)
-            return sign | ((ulong)0x7FF << 52);
-        if (exp <= 0)
+            return sign | 0x7ff0000000000000;
+        if (exp < -52)
             return sign;
-        return sign | ((ulong)exp << 52) | (sig & 0xFFFFFFFFFFFFF);
+        if (exp == -52)
+            return sign | (ma > mb ? 1UL : 0UL);
+        int bits = exp > 0 ? 52 : exp + 51;
+        ulong q = 1;
+        ulong remainder = ma - mb;
+        for (int i = 0; i < bits; i++)
+        {
+            remainder <<= 1;
+            q <<= 1;
+            if (remainder >= mb)
+            {
+                remainder -= mb;
+                q |= 1;
+            }
+        }
+        ulong twice = remainder << 1;
+        if (twice > mb || (twice == mb && (q & 1) != 0))
+            q++;
+        if (exp <= 0)
+            return sign | q;
+        if (q == 0x20000000000000)
+        {
+            q >>= 1;
+            exp++;
+        }
+        if (exp >= 2047)
+            return sign | 0x7ff0000000000000;
+        return sign | ((ulong)exp << 52) | (q & 0xFFFFFFFFFFFFF);
     }
 
-    [KohRuntime("f64.isNan")]
     public static byte IsNanF64(ulong a)
     {
         if (((a >> 52) & 0x7FF) == 0x7FF && (a & 0xFFFFFFFFFFFFF) != 0)
@@ -633,39 +875,33 @@ public static class SoftFloat
         return 2;
     }
 
-    [KohRuntime("f64.lt")]
     public static bool LtF64(ulong a, ulong b)
     {
         return CmpF64(a, b) == 1;
     }
 
-    [KohRuntime("f64.le")]
     public static bool LeF64(ulong a, ulong b)
     {
         byte c = CmpF64(a, b);
         return c == 1 || c == 0;
     }
 
-    [KohRuntime("f64.gt")]
     public static bool GtF64(ulong a, ulong b)
     {
         return CmpF64(a, b) == 2;
     }
 
-    [KohRuntime("f64.ge")]
     public static bool GeF64(ulong a, ulong b)
     {
         byte c = CmpF64(a, b);
         return c == 2 || c == 0;
     }
 
-    [KohRuntime("f64.eq")]
     public static bool EqF64(ulong a, ulong b)
     {
         return CmpF64(a, b) == 0;
     }
 
-    [KohRuntime("f64.ne")]
     public static bool NeF64(ulong a, ulong b)
     {
         return CmpF64(a, b) != 0;
@@ -682,8 +918,8 @@ public static class SoftFloat
             mag = mag << 1;
             e = e - 1;
         }
-        ulong sig = mag >> 11; // 53-bit significand
-        ulong rem = mag & 0x7FF; // low 11 bits -> rounding
+        ulong sig = mag >> 11;
+        ulong rem = mag & 0x7FF;
         int exp = e + 1023;
         ulong half = 0x400;
         if (rem > half || (rem == half && (sig & 1) != 0))
@@ -704,13 +940,15 @@ public static class SoftFloat
         if (a == 0)
             return 0;
         if (a < 0)
-            return 0x8000000000000000 | FromU64((ulong)(-a));
+            return 0x8000000000000000 | FromU64(unchecked((ulong)(-a)));
         return FromU64((ulong)a);
     }
 
     [KohRuntime("f64.toU64")]
     public static ulong ToU64(ulong a)
     {
+        if ((a & 0x7fffffffffffffff) > 0x7ff0000000000000)
+            return 0;
         if ((a >> 63) != 0)
             return 0;
         int e = (int)((a >> 52) & 0x7FF);
@@ -724,7 +962,7 @@ public static class SoftFloat
         if (shift >= 0)
         {
             if (shift >= 12)
-                return 0xFFFFFFFFFFFFFFFF; // >= 2^64: saturate
+                return 0xFFFFFFFFFFFFFFFF;
             return sig << shift;
         }
         int rs = -shift;
@@ -736,70 +974,202 @@ public static class SoftFloat
     [KohRuntime("f64.toI64")]
     public static long ToI64(ulong a)
     {
-        ulong mag = a & 0x7FFFFFFFFFFFFFFF;
-        ulong u = ToU64(mag);
-        ulong signBit = 0x8000000000000000;
+        ulong mag = a & 0x7fffffffffffffff;
+        ulong value = ToU64(mag);
         if ((a >> 63) != 0)
         {
-            // Negative: magnitudes up to 2^63 (exactly long.MinValue) negate cleanly via wraparound; a
-            // magnitude beyond that must saturate explicitly, or -(long)u wraps back to a positive result
-            // (e.g. u = 0xFFFFFFFFFFFFFFFF -> -(long)u = 1, not long.MinValue) instead of saturating like a
-            // host `(long)` cast does.
-            if (u > signBit)
-                return (long)signBit; // saturate to long.MinValue
-            return -(long)u;
+            if (value >= 0x8000000000000000)
+                return long.MinValue;
+            return -(long)value;
         }
-        if (u >= signBit)
-            return (long)(signBit - 1); // saturate to long.MaxValue
-        return (long)u;
+        if (value > long.MaxValue)
+            return long.MaxValue;
+        return (long)value;
+    }
+
+    [KohRuntime("f64.toI32")]
+    public static int ToI32F64(ulong a)
+    {
+        long value = ToI64(a);
+        if (value > int.MaxValue)
+            return int.MaxValue;
+        if (value < int.MinValue)
+            return int.MinValue;
+        return (int)value;
+    }
+
+    [KohRuntime("f64.toU32")]
+    public static uint ToU32F64(ulong a)
+    {
+        ulong value = ToU64(a);
+        if (value > uint.MaxValue)
+            return uint.MaxValue;
+        return (uint)value;
     }
 
     [KohRuntime("f32.toF64")]
     public static ulong ToF64(uint a)
     {
-        ulong sign64 = (ulong)(a & 0x80000000) << 32;
-        int e = (int)((a >> 23) & 0xFF);
-        ulong mant = (ulong)(a & 0x7FFFFF) << 29; // 23-bit mantissa -> top of 52
-        if (e == 0)
-            return sign64; // zero (subnormal flushed)
-        if (e == 0xFF)
-            return sign64 | ((ulong)0x7FF << 52) | mant; // inf/nan
-        int exp = e - 127 + 1023;
-        return sign64 | ((ulong)exp << 52) | mant;
+        ulong sign = (ulong)(a & 0x80000000) << 32;
+        int exp = (int)((a >> 23) & 0xff);
+        uint mantissa = a & 0x7fffff;
+        if (exp == 255)
+        {
+            ulong payload = (ulong)mantissa << 29;
+            if (mantissa != 0)
+                payload |= 0x0008000000000000;
+            return sign | 0x7ff0000000000000 | payload;
+        }
+        if (exp == 0)
+        {
+            if (mantissa == 0)
+                return sign;
+            exp = 1;
+            while (mantissa < 0x800000)
+            {
+                mantissa <<= 1;
+                exp--;
+            }
+        }
+        return sign | ((ulong)(exp + 896) << 52) | ((ulong)(mantissa & 0x7fffff) << 29);
     }
 
     [KohRuntime("f64.toF32")]
     public static uint ToF32(ulong a)
     {
         uint sign = (uint)(a >> 32) & 0x80000000;
-        int e = (int)((a >> 52) & 0x7FF);
-        ulong m = a & 0xFFFFFFFFFFFFF;
-        if (e == 0)
-            return sign; // zero (subnormal flushed)
-        if (e == 0x7FF)
+        int exp = (int)((a >> 52) & 0x7ff);
+        ulong mantissa = a & 0xfffffffffffff;
+        if (exp == 2047)
         {
-            uint nan = (uint)(m >> 29);
-            if (m != 0 && nan == 0)
-                nan = 1;
-            return sign | ((uint)0xFF << 23) | nan;
+            if (mantissa == 0)
+                return sign | 0x7f800000;
+            return sign | 0x7fc00000 | (uint)(mantissa >> 29);
         }
-        int exp = e - 1023 + 127;
-        uint sig = (uint)(m >> 29); // 23-bit
-        ulong rem = m & 0x1FFFFFFF; // low 29 bits -> rounding
-        ulong half = 0x10000000;
-        if (rem > half || (rem == half && (sig & 1) != 0))
+        if (exp == 0)
+            return sign;
+        exp -= 896;
+        if (exp >= 255)
+            return sign | 0x7f800000;
+        mantissa |= 0x10000000000000;
+        int shift = 29;
+        if (exp <= 0)
+            shift += 1 - exp;
+        if (shift > 53)
+            return sign;
+        ulong sig = mantissa >> shift;
+        ulong remainder = mantissa & (((ulong)1 << shift) - 1);
+        ulong half = (ulong)1 << (shift - 1);
+        if (remainder > half || (remainder == half && (sig & 1) != 0))
+            sig++;
+        if (exp <= 0)
+            return sign | (uint)sig;
+        if (sig == 0x1000000)
         {
-            sig = sig + 1;
-            if (sig >= 0x800000)
-            {
-                sig = 0;
-                exp = exp + 1;
-            }
+            sig >>= 1;
+            exp++;
         }
         if (exp >= 255)
-            return sign | ((uint)0xFF << 23);
-        if (exp <= 0)
+            return sign | 0x7f800000;
+        return sign | ((uint)exp << 23) | ((uint)sig & 0x7fffff);
+    }
+
+    [KohRuntime("f32.rem")]
+    public static uint RemF32(uint a, uint b) => ToF32(RemF64(ToF64(a), ToF64(b)));
+
+    [KohRuntime("f64.rem")]
+    public static ulong RemF64(ulong a, ulong b)
+    {
+        ulong sign = a & 0x8000000000000000;
+        ulong ax = a & 0x7fffffffffffffff;
+        ulong bx = b & 0x7fffffffffffffff;
+        if (ax > 0x7ff0000000000000)
+            return a | 0x0008000000000000;
+        if (bx > 0x7ff0000000000000)
+            return b | 0x0008000000000000;
+        if (ax == 0x7ff0000000000000 || bx == 0)
+            return 0x7ff8000000000000;
+        if (ax < bx)
+            return a;
+        if (ax == bx)
             return sign;
-        return sign | ((uint)exp << 23) | (sig & 0x7FFFFF);
+        int ea = (int)(ax >> 52);
+        int eb = (int)(bx >> 52);
+        ulong ma = ax & 0xfffffffffffff;
+        ulong mb = bx & 0xfffffffffffff;
+        if (ea == 0)
+        {
+            ea = 1;
+            while (ma < 0x10000000000000)
+            {
+                ma <<= 1;
+                ea--;
+            }
+        }
+        else
+            ma |= 0x10000000000000;
+        if (eb == 0)
+        {
+            eb = 1;
+            while (mb < 0x10000000000000)
+            {
+                mb <<= 1;
+                eb--;
+            }
+        }
+        else
+            mb |= 0x10000000000000;
+        while (ea > eb)
+        {
+            if (ma >= mb)
+                ma -= mb;
+            if (ma == 0)
+                return sign;
+            ma <<= 1;
+            ea--;
+        }
+        if (ma >= mb)
+            ma -= mb;
+        if (ma == 0)
+            return sign;
+        while (ma < 0x10000000000000)
+        {
+            ma <<= 1;
+            ea--;
+        }
+        if (ea <= 0)
+            return sign | (ma >> (1 - ea));
+        return sign | ((ulong)ea << 52) | (ma & 0xfffffffffffff);
+    }
+
+    [KohRuntime("f32.checkInt")]
+    public static byte CheckIntF32(uint a, byte width, byte signed) =>
+        CheckIntF64(ToF64(a), width, signed);
+
+    [KohRuntime("f64.checkInt")]
+    public static byte CheckIntF64(ulong a, byte width, byte signed)
+    {
+        if ((width != 8 && width != 16 && width != 32 && width != 64) || signed > 1)
+            return 0;
+        int exponent = (int)((a >> 52) & 0x7ff);
+        if (exponent == 2047)
+            return 0;
+        if (exponent < 1023)
+            return 1;
+        if (exponent >= 1087)
+            return 0;
+        ulong magnitude = ToU64(a & 0x7fffffffffffffff);
+        if (signed == 0)
+        {
+            if ((a >> 63) != 0)
+                return 0;
+            if (width == 64)
+                return 1;
+            return magnitude < ((ulong)1 << width) ? (byte)1 : (byte)0;
+        }
+        ulong limit = (ulong)1 << (width - 1);
+        return (a >> 63) != 0
+            ? (magnitude <= limit ? (byte)1 : (byte)0)
+            : (magnitude < limit ? (byte)1 : (byte)0);
     }
 }

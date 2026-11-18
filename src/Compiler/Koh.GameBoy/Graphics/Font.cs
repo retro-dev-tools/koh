@@ -9,13 +9,6 @@ namespace Koh.GameBoy.Graphics;
 /// it renders as a solid block placeholder so every byte 0x20-0x7F a <see cref="Text"/> caller might
 /// pass has SOME glyph rather than reading past the table).
 ///
-/// <b>Storage:</b> <see cref="Glyphs"/> is 1bpp (8 bytes/tile — one bit per pixel, MSB = leftmost column,
-/// same convention <see cref="TileSet.Load1bpp"/> documents), 768 bytes total for the whole table versus
-/// 1536 for a pre-expanded 2bpp font — exactly the ROM-size win <see cref="TileSet"/>'s class remarks
-/// call out. <c>static readonly</c> with a literal initializer, so it lands in
-/// <c>AddressSpace.Rom</c> automatically (design doc §2, "ROM data by convention") — dropping
-/// <c>readonly</c> would silently move 768 bytes into scarce WRAM.
-///
 /// <b>Glyph design:</b> a plain 5x7 dot-matrix letterform in an 8x8 cell (columns 1-5, rows 0-6; column
 /// 0 and columns 6-7 are blank margin so adjacent characters read as separate glyphs when tiled
 /// edge-to-edge with no gap; row 7 is a blank baseline row). Digits are drawn as classic seven-segment
@@ -50,10 +43,8 @@ public static class Font
     /// same "caller's responsibility to author before drawing" stance as every other module here.</summary>
     internal static byte FirstTile;
 
-    /// <summary>Loads the built-in 96-glyph font into VRAM starting at tile <paramref name="firstTile"/>
-    /// (via <see cref="TileSet.Load1bpp"/> — LCD-off straight expansion, LCD-on immediate-checked
-    /// per-row, see that method's remarks) and remembers <paramref name="firstTile"/> so
-    /// <see cref="Text"/> can map a character to a VRAM tile index.</summary>
+    /// <summary>Load the built-in font and select its first tile for text.</summary>
+    /// <remarks>Leaves interrupts disabled.</remarks>
     public static void LoadDefault(byte firstTile)
     {
         FirstTile = firstTile;

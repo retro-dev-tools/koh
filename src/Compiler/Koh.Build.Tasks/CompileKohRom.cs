@@ -1,124 +1,196 @@
-using Koh.Common;
-using Koh.Compiler;
-using Koh.Compiler.Frontends;
-using Koh.Native;
-using Koh.Objects;
+using System.ComponentModel;
+using System.Diagnostics;
 using Microsoft.Build.Framework;
-using LinkerType = Koh.Native.NativeLinker;
 
 namespace Koh.Build.Tasks;
 
-public sealed class CompileKohRom : Microsoft.Build.Utilities.Task
+public sealed class CompileKohRom : Microsoft.Build.Utilities.Task, ICancelableTask
 {
-    /// <summary>Absolute path of the ROM to write.</summary>
     [Required]
     public string OutputPath { get; set; } = "";
 
-    /// <summary>Frontend name registered in <see cref="CompilerRegistry"/> (default <c>cil</c>).</summary>
-    public string Frontend { get; set; } = "cil";
+    [Required]
+    public string ObjectPath { get; set; } = "";
 
-    /// <summary>Backend name registered in <see cref="CompilerRegistry"/> (default <c>sm83</c>).</summary>
-    public string Backend { get; set; } = "sm83";
-
-    /// <summary>The game's already-built assembly.</summary>
     [Required]
     public string AssemblyPath { get; set; } = "";
 
-    /// <summary>Reference assembly paths (e.g. Koh.GameBoy.dll, for its Hal framework code).</summary>
+    public string PdbPath { get; set; } = "";
+
+    [Required]
+    public string ProjectDirectory { get; set; } = "";
+
+    [Required]
+    public string CompilerPath { get; set; } = "";
+
+    [Required]
+    public string LinkerPath { get; set; } = "";
+
     public ITaskItem[] ReferencePaths { get; set; } = [];
-
-    /// <summary>Linker program/module name.</summary>
-    public string ProgramName { get; set; } = "rom";
-
     public bool CgbCompatible { get; set; }
-
-    /// <summary>Marks the ROM header CGB-EXCLUSIVE (0xC0 at $0143) — a DMG refuses to run it.
-    /// Wins over <see cref="CgbCompatible"/>.</summary>
     public bool CgbOnly { get; set; }
-
     public bool EmitDebugInfo { get; set; } = true;
-    public string? LinkerPath { get; set; }
+
+    private volatile bool cancelled;
+    private volatile Process? active;
+
+    private static string Identity(string path, int links = 0)
+    {
+        if (links > 40)
+            throw new IOException("Koh: too many symbolic links in an artifact path.");
+        var current = Path.GetPathRoot(path)!;
+        foreach (
+            var part in path[current.Length..]
+                .Split(
+                    new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                    StringSplitOptions.RemoveEmptyEntries
+                )
+        )
+        {
+            current = Path.Combine(current, part);
+            FileSystemInfo entry = Directory.Exists(current)
+                ? new DirectoryInfo(current)
+                : new FileInfo(current);
+            if (entry.LinkTarget is not null)
+                current = Identity(
+                    entry.ResolveLinkTarget(true)?.FullName
+                        ?? throw new IOException($"Cannot resolve artifact path '{current}'."),
+                    links + 1
+                );
+        }
+        return current;
+    }
+
+    public void Cancel()
+    {
+        cancelled = true;
+        try
+        {
+            active?.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException) { }
+        catch (Win32Exception) { }
+    }
+
+    private bool Run(string executable, IEnumerable<string> arguments)
+    {
+        if (cancelled)
+            return false;
+        var start = new ProcessStartInfo(executable)
+        {
+            WorkingDirectory = ProjectDirectory,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in arguments)
+            start.ArgumentList.Add(argument);
+        using var process = new Process { StartInfo = start };
+        active = process;
+        try
+        {
+            process.Start();
+            if (cancelled)
+                process.Kill(entireProcessTree: true);
+            var output = process.StandardOutput.ReadToEndAsync();
+            var errors = process.StandardError.ReadToEndAsync();
+            process.WaitForExit();
+            var stdout = output.GetAwaiter().GetResult();
+            var stderr = errors.GetAwaiter().GetResult();
+            if (!string.IsNullOrWhiteSpace(stdout))
+                Log.LogMessage(MessageImportance.Normal, stdout);
+            if (process.ExitCode != 0)
+            {
+                Log.LogError($"Koh: '{executable}' exited {process.ExitCode}: {stderr}");
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(stderr))
+                Log.LogMessage(MessageImportance.Normal, stderr);
+            return !cancelled;
+        }
+        finally
+        {
+            active = null;
+        }
+    }
 
     public override bool Execute()
     {
-        if (string.IsNullOrEmpty(AssemblyPath))
+        try
         {
-            Log.LogError("Koh: no AssemblyPath to compile.");
-            return false;
-        }
-
-        var frontend = CompilerRegistry.FrontendByName(Frontend);
-        if (frontend is null)
-        {
-            Log.LogError($"Koh: no frontend named '{Frontend}'.");
-            return false;
-        }
-        var backend = CompilerRegistry.BackendByName(Backend);
-        if (backend is null)
-        {
-            Log.LogError($"Koh: no backend named '{Backend}'.");
-            return false;
-        }
-
-        var referencePaths = ReferencePaths.Select(r => r.GetMetadata("FullPath")).ToList();
-        CompilerInput input = CompilerInput.FromAssembly(AssemblyPath, referencePaths);
-
-        var diagnostics = new DiagnosticBag();
-        EmitModel model = CompilerDriver.Compile(frontend, backend, input, diagnostics);
-
-        // The CIL frontend lowers a compiled assembly, not in-memory source text, so a diagnostic's
-        // Span has no meaningful line/column here - report against the assembly path itself.
-        var hadError = false;
-        foreach (var d in diagnostics)
-        {
-            if (d.Severity == DiagnosticSeverity.Error)
+            ProjectDirectory = Path.GetFullPath(ProjectDirectory);
+            string Resolve(string path) => Path.GetFullPath(path, ProjectDirectory);
+            var assembly = Resolve(AssemblyPath);
+            var references = ReferencePaths.Select(item => Resolve(item.ItemSpec)).ToArray();
+            var output = Resolve(OutputPath);
+            var obj = Resolve(ObjectPath);
+            var debug = Path.ChangeExtension(output, ".kdbg");
+            var pdb = string.IsNullOrEmpty(PdbPath)
+                ? Path.ChangeExtension(assembly, ".pdb")
+                : Resolve(PdbPath);
+            var inputs = references
+                .Append(assembly)
+                .Concat(
+                    references
+                        .Select(path => Path.ChangeExtension(path, ".pdb"))
+                        .Append(pdb)
+                        .Where(File.Exists)
+                )
+                .Select(path => Identity(path))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var outputs = new[] { output, obj, debug };
+            var identities = outputs.Select(path => Identity(path)).ToArray();
+            if (
+                identities.Distinct(StringComparer.OrdinalIgnoreCase).Count() != outputs.Length
+                || identities.Any(inputs.Contains)
+            )
             {
-                hadError = true;
-                Log.LogError(null, null, null, AssemblyPath, 0, 0, 0, 0, d.Message);
+                Log.LogError(
+                    "Koh: output paths must be distinct from each other and input assemblies."
+                );
+                return false;
             }
-            else
-            {
-                Log.LogWarning(null, null, null, AssemblyPath, 0, 0, 0, 0, d.Message);
-            }
+            Directory.CreateDirectory(Path.GetDirectoryName(obj)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+            var arguments = new List<string> { assembly, "-o", obj };
+            if (!EmitDebugInfo)
+                arguments.Add("--no-pdb");
+            else if (File.Exists(pdb))
+                arguments.AddRange(["--pdb", pdb]);
+            foreach (var reference in references)
+                arguments.AddRange(["-r", reference]);
+            if (!Run(CompilerPath, arguments))
+                return false;
+            arguments = ["-o", output];
+            if (EmitDebugInfo)
+                arguments.AddRange(["--kdbg", debug]);
+            if (CgbOnly)
+                arguments.Add("--cgb-only");
+            else if (CgbCompatible)
+                arguments.Add("--cgb-compatible");
+            arguments.Add(obj);
+            if (!Run(LinkerPath, arguments))
+                return false;
+            if (!EmitDebugInfo)
+                File.Delete(debug);
+            Log.LogMessage(
+                MessageImportance.High,
+                $"Koh: built {output} ({new FileInfo(output).Length} bytes)."
+            );
+            return true;
         }
-        if (hadError)
+        catch (Exception error)
+            when (error
+                    is IOException
+                        or UnauthorizedAccessException
+                        or Win32Exception
+                        or ArgumentException
+                        or InvalidOperationException
+            )
+        {
+            Log.LogError($"Koh: {error.Message}");
             return false;
-
-        var link = new LinkerType(LinkerPath).Link(
-            [new LinkerInput(ProgramName, model)],
-            new LinkOptions(CgbCompatible, CgbOnly, EmitDebugInfo: EmitDebugInfo)
-        );
-
-        var rom = link.RomData;
-        foreach (var diagnostic in link.Diagnostics)
-            Log.LogError(diagnostic.Message);
-        if (!link.Success || rom is null)
-        {
-            Log.LogError("Koh: the linker produced no ROM.");
-            return false;
         }
-
-        // OutputPath is normally an absolute path, but a caller can override it to a directory-less
-        // filename (GetDirectoryName then returns "" or null). Only create the directory when there is
-        // one, otherwise write into the current directory.
-        var outputDir = Path.GetDirectoryName(OutputPath);
-        if (!string.IsNullOrEmpty(outputDir))
-        {
-            Directory.CreateDirectory(outputDir);
-        }
-
-        File.WriteAllBytes(OutputPath, rom);
-
-        Log.LogMessage(MessageImportance.High, $"Koh: built {OutputPath} ({rom.Length} bytes).");
-
-        if (EmitDebugInfo)
-        {
-            var kdbgPath = Path.ChangeExtension(OutputPath, ".kdbg");
-            File.WriteAllBytes(kdbgPath, link.DebugData);
-
-            Log.LogMessage(MessageImportance.Normal, $"Koh: wrote {kdbgPath}.");
-        }
-
-        return true;
     }
 }

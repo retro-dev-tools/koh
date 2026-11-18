@@ -12,6 +12,7 @@ static unsafe class Surface
     // no alignment requirement of its own, but keeping every Surface's pixel buffer aligned the same
     // way keeps this file consistent with the other two demos.
     static byte* pixels;
+    static byte* scroll;
 
     internal static byte Width()
     {
@@ -57,6 +58,9 @@ static unsafe class Surface
     {
         pixels = Mem.Alloc(1024 + 15);
         pixels = (byte*)(((ulong)pixels + 15) & ~15UL);
+        scroll = Mem.Alloc(64);
+        for (byte line = 0; line < 64; line++)
+            scroll[line] = (byte)(FixedMath.Sin((byte)(line * 4)) / 32 + 2);
         Lcd.Off();
         // Tile data 0..63 holds the 8x8 content grid and 64 is the blank filler; 65..255 are spare
         // and unowned. Zero the content grid too (not just the blank filler up through 255): the boot
@@ -85,21 +89,7 @@ static unsafe class Surface
         Mem.Copy(Gb.Vram, pixels, 1024);
         Lcd.On();
 
-        // The 8x8 tile block sits at tile rows 5..12 (Initialize), i.e. pixel rows 40..103 (64 px).
-        // WaitForHBlank() lands on the Nth hblank-entry after WaitVBlank() at LY = N-1 (the first call
-        // after vblank clears the rest of vblank plus line 0's OAM/transfer, landing at LY=0's
-        // hblank). Skipping 39 hblanks lands at LY=38; the wobble loop's first iteration is the 40th
-        // call (LY=39, affecting line 40's render) and its last (line=63) is the 103rd call (LY=102,
-        // affecting line 103) — exactly the content's 40..103 pixel-row span. (Was skip=55/32 lines
-        // for the old 32x32 viewport's rows 56..87; skip = contentStartRow - 1 in both cases.)
-        Ppu.WaitVBlank();
-        for (byte skip = 0; skip < 39; skip++)
-            Ppu.WaitForHBlank();
-        for (byte line = 0; line < 64; line++)
-        {
-            Ppu.WaitForHBlank();
-            Hardware.SCX = (byte)(FixedMath.Sin((byte)(line * 4)) / 32 + 2);
-        }
+        Ppu.StreamScrollX(scroll, 39, 64);
         Ppu.WaitVBlank();
         Hardware.SCX = 0;
     }

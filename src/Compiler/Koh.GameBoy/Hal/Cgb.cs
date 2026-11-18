@@ -4,9 +4,16 @@ public static unsafe class Cgb
 {
     public static bool IsColor()
     {
-        return Hardware.KEY1 != 0xFF;
+        if (Hardware.KEY1 != 0xFF)
+            return true;
+        Hardware.KEY1 = 0;
+        if (Hardware.KEY1 == 0xFF)
+            return false;
+        Hardware.KEY1 = 1;
+        return true;
     }
 
+    /// <summary>Startup speed switch; call with IME disabled. Preserves IE and leaves IME disabled.</summary>
     public static bool TryEnableDoubleSpeed()
     {
         if (!IsColor())
@@ -14,16 +21,13 @@ public static unsafe class Cgb
         if ((Hardware.KEY1 & 0x80) != 0)
             return true;
 
-        // Pan Docs' canonical speed-switch sequence: a pending/firing interrupt right at STOP can
-        // derail the switch on real hardware, so mask interrupts, deselect the joypad matrix
-        // (P1/JOYP = $30, per Pan Docs) and clear IF before arming KEY1 and executing STOP, then
-        // restore interrupts once the switch has resolved.
         Hardware.DisableInterrupts();
+        byte enabled = Hardware.IE;
+        Hardware.IE = 0;
         Hardware.JOYP = 0x30;
-        Hardware.IF = 0;
         Hardware.KEY1 = 1;
         Hardware.Stop();
-        Hardware.EnableInterrupts();
+        Hardware.IE = enabled;
         return (Hardware.KEY1 & 0x80) != 0;
     }
 
@@ -35,8 +39,7 @@ public static unsafe class Cgb
 
     /// <summary>Copy <paramref name="byteCount"/> bytes from ROM/WRAM to VRAM with the CGB's
     /// general-purpose DMA (HDMA1-5 with bit 7 of HDMA5 clear): 2 bytes per M-cycle with the CPU
-    /// halted, so 1920 bytes cost ~480 M-cycles — comfortably inside one vblank. Call only during
-    /// vblank (after <see cref="Ppu.WaitVBlank"/>): the engine writes blindly, and blocks that
+    /// halted. LCD-on copies use at most 1024 bytes per VBlank. Blocks that
     /// collide with PPU mode 3 are dropped on real hardware (Pan Docs). Hardware-imposed
     /// constraints: <paramref name="source"/> and <paramref name="vramDest"/> are 16-byte aligned
     /// (the registers ignore the low 4 bits), and <paramref name="byteCount"/> is a multiple of 16,
@@ -49,23 +52,60 @@ public static unsafe class Cgb
     {
         if (!IsColor() || byteCount == 0)
             return;
+        if ((Hardware.LCDC & 0x80) != 0 && byteCount > 1024)
+        {
+            CopyChunk(source, vramDest, 1024);
+            CopyChunk(source + 1024, (ushort)(vramDest + 1024), (ushort)(byteCount - 1024));
+        }
+        else
+            CopyChunk(source, vramDest, byteCount);
+    }
+
+    private static void CopyChunk(byte* source, ushort vramDest, ushort byteCount)
+    {
         ushort src = (ushort)source;
         Hardware.HDMA1 = (byte)(src >> 8);
         Hardware.HDMA2 = (byte)src;
         Hardware.HDMA3 = (byte)(vramDest >> 8);
         Hardware.HDMA4 = (byte)vramDest;
-        // (blocks - 1) with bit 7 clear = general-purpose mode; the CPU stalls until it completes.
-        Hardware.HDMA5 = (byte)((byteCount >> 4) - 1);
+        byte control = (byte)((byteCount >> 4) - 1);
+        if ((Hardware.LCDC & 0x80) != 0)
+            Ppu.WaitVBlank();
+        Hardware.HDMA5 = control;
     }
 
+    /// <remarks>IME disabled after CGB writes.</remarks>
     public static void SetBackgroundColor(byte palette, byte color, ushort rgb555)
     {
         if (!IsColor())
             return;
         byte index = (byte)(((palette & 7) * 8 + (color & 3) * 2) & 0x3F);
+        WriteBackgroundColor(index, rgb555);
+    }
+
+    internal static void SetObjectColor(byte palette, byte color, ushort rgb555)
+    {
+        if (!IsColor())
+            return;
+        byte index = (byte)(((palette & 7) * 8 + (color & 3) * 2) & 0x3F);
+        WriteObjectColor(index, rgb555);
+    }
+
+    [KohIntrinsic("palettewrite", 0xFF69)]
+    private static void WriteBackgroundColor(byte index, ushort rgb555)
+    {
         Hardware.BCPS = index;
         Hardware.BCPD = (byte)rgb555;
         Hardware.BCPS = (byte)(index + 1);
         Hardware.BCPD = (byte)(rgb555 >> 8);
+    }
+
+    [KohIntrinsic("palettewrite", 0xFF6B)]
+    private static void WriteObjectColor(byte index, ushort rgb555)
+    {
+        Hardware.OCPS = index;
+        Hardware.OCPD = (byte)rgb555;
+        Hardware.OCPS = (byte)(index + 1);
+        Hardware.OCPD = (byte)(rgb555 >> 8);
     }
 }

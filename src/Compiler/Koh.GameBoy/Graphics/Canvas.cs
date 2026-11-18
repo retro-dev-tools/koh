@@ -68,42 +68,6 @@ public static unsafe class Canvas
     /// doesn't cover, whichever page a double-buffered canvas is currently showing.</summary>
     private const byte BlankTile = 255;
 
-    /// <summary>Hardware ceiling for one <see cref="Cgb.CopyToVram"/> transfer (HDMA5's 7-bit length
-    /// field: 128 blocks x 16 bytes). Used for the LCD-off present path only, matching
-    /// <see cref="TileSet"/>'s own <c>GdmaHardwareCeiling</c> reasoning — no vblank budget to respect
-    /// when the PPU isn't racing the copy, so a large buffer just walks this ceiling as its chunk size.</summary>
-    private const ushort GdmaHardwareCeiling = 2048;
-
-    /// <summary>Safe per-vblank CGB GDMA chunk while the LCD stays ON: 120 blocks (1920 bytes) at 32
-    /// dots/block = 3840 dots against the ~4104-dot usable vblank budget — lifted verbatim from
-    /// <c>samples/csharp/gb-3d/double-buffered/Surface.cs</c>'s <c>Present()</c>/<see cref="TileSet"/>'s own
-    /// identical constant (same hardware, same derivation; see either's remarks for the full budget
-    /// arithmetic). Deliberately not the full 2048-byte hardware ceiling — that would leave only an
-    /// 8-dot margin, not the proven number.</summary>
-    private const ushort VblankGdmaChunkBytes = 1920;
-
-    /// <summary>Safe per-vblank CPU-copy chunk (DMG, or a CGB build reached before <see cref="Init"/> —
-    /// this module has no unaligned-source case since <see cref="_pixels"/> is always 16-byte aligned by
-    /// construction).
-    ///
-    /// EMPIRICALLY RE-DERIVED for this module's own call shape — do not assume it transfers to another
-    /// module. An earlier version of this constant reused <see cref="TileSet"/>'s <c>VblankCpuChunkBytes</c>
-    /// figure (4) on the theory that <see cref="Present"/> -&gt; <c>PresentCpu</c> -&gt; <c>Mem.Copy</c>
-    /// is the same call-depth shape as <c>TileSet.Load</c> -&gt; <c>LoadCore</c> -&gt; <c>DripCpu</c> -&gt;
-    /// <c>Mem.Copy</c>. That theory was never actually exercised at realistic scale by either module's own
-    /// unit tests (both only drove a handful of chunks) and turned out to be WRONG at scale: retrofitting
-    /// <c>samples/csharp/gb-3d/double-buffered</c> onto this module (graphics-library design doc §5, item 2) and
-    /// running the real 1920-byte, ~480-chunk-per-page DMG present against
-    /// <c>samples/csharp/gb-3d/verify</c>'s <c>Mode3WriteGuard</c> caught n=4 landing 295 real VRAM writes during
-    /// PPU mode 3 over a 2000-frame run — this module's own extra per-iteration static-field reads
-    /// (<see cref="_pixels"/>/<see cref="_bufferBytes"/>, absent from <c>Surface.cs</c>'s original
-    /// all-local-variable loop that n=7 was tuned against) push the per-chunk dot cost past budget even
-    /// at TileSet's more conservative n=4. Bisected directly against that same guard at full 1920-byte
-    /// scale: n=4 fails (295 violations), n=3 is clean (zero violations across the full
-    /// <c>samples/csharp/gb-3d/verify</c> double-buffered/dmg run, both the 1100- and 2000-frame snapshots) —
-    /// n=3 is this module's own proven-safe figure, not a re-guess.</summary>
-    private const byte VblankCpuChunkBytes = 3;
-
     private static byte* _pixels;
     private static byte _widthTiles;
     private static byte _heightTiles;
@@ -389,7 +353,7 @@ public static unsafe class Canvas
     /// doc §3):
     /// <list type="bullet">
     /// <item>CGB: <see cref="Cgb.CopyToVram"/> GDMA, auto-split at the 2048-byte hardware ceiling when
-    /// the LCD is off (no vblank budget to respect), or in <see cref="VblankGdmaChunkBytes"/> chunks
+    /// the LCD is off (no vblank budget to respect), or in bounded chunks
     /// across as many vblanks as needed when the LCD is on.</item>
     /// <item>DMG single-buffered: chunked vblank CPU copy directly into the visible $8000 tiles (the
     /// "racing beam" tradeoff — a large buffer's copy spans multiple frames, so the visible surface is a
@@ -404,55 +368,17 @@ public static unsafe class Canvas
     /// technique (<c>full-frame/Surface.cs</c>'s DMG path), not library behavior (design doc §3).</summary>
     public static void Present()
     {
-        bool lcdOn = (Hardware.LCDC & 0x80) != 0;
         ushort vramDest =
             _mode == CanvasMode.DoubleBuffered
                 ? (_page == 0 ? (ushort)0x8000 : (ushort)0x9000)
                 : (ushort)0x8000;
 
-        if (Video.IsCgb)
-            PresentGdma(vramDest, lcdOn);
-        else
-            PresentCpu(vramDest, lcdOn);
+        TileSet.CopyToVram(Gb.Vram + (vramDest - 0x8000), _pixels, _bufferBytes);
 
         if (_mode == CanvasMode.DoubleBuffered)
         {
             Lcd.SelectTileData(_page == 0);
             _page ^= 1;
-        }
-    }
-
-    private static void PresentGdma(ushort vramDest, bool lcdOn)
-    {
-        ushort ceiling = lcdOn ? VblankGdmaChunkBytes : GdmaHardwareCeiling;
-        ushort copied = 0;
-        while (copied < _bufferBytes)
-        {
-            if (lcdOn)
-                Ppu.WaitVBlank();
-            ushort remaining = (ushort)(_bufferBytes - copied);
-            ushort chunk = remaining < ceiling ? remaining : ceiling;
-            Cgb.CopyToVram(_pixels + copied, (ushort)(vramDest + copied), chunk);
-            copied += chunk;
-        }
-    }
-
-    private static void PresentCpu(ushort vramDest, bool lcdOn)
-    {
-        byte* dest = Gb.Vram + (vramDest - 0x8000);
-        if (!lcdOn)
-        {
-            Mem.Copy(dest, _pixels, _bufferBytes);
-            return;
-        }
-        ushort copied = 0;
-        while (copied < _bufferBytes)
-        {
-            Ppu.WaitVBlank();
-            ushort remaining = (ushort)(_bufferBytes - copied);
-            byte chunk = remaining < VblankCpuChunkBytes ? (byte)remaining : VblankCpuChunkBytes;
-            Mem.Copy(dest + copied, _pixels + copied, chunk);
-            copied += chunk;
         }
     }
 }

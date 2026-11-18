@@ -1,5 +1,9 @@
 # Test disposition before Rust linker migration
 
+Historical PR54 source provenance follows. Compiler project paths and commands
+are baseline evidence; current compiler coverage is recorded in the native
+[disposition ledger](../rust-compiler/test-disposition.md).
+
 Audit baseline: master 9a2cfa8; the inventory below was saved before any test mutation. The original disposition tables preserve that review, including proposed target groups. The final implementation mapping, explicit deletions, and measured focused results below supersede those proposed target names. The audit itself changed no tests or production files; the subsequent migration did.
 
 PORT = preserve invariant and move its owner. REPLACE = retain user behavior using the new interchange/pipeline, remove obsolete assertions. DELETE = obsolete wire-contract assertion only. DEFER = uncovered or unresolved requirement; blocks claiming equivalent coverage.

@@ -1,23 +1,46 @@
-# gb-2048-v2 — the north-star sample
+# 2048 scene sample
 
-2048 written as the **ideal** Koh C# game: this code was authored FIRST, with no regard for what the
-compiler or runtime supported at the time, and the framework API + compiler enablers were built to
-make exactly this code compile — the program of work in
-[`docs/superpowers/specs/2026-07-19-ideal-game-api-design.md`](../../../docs/superpowers/specs/2026-07-19-ideal-game-api-design.md).
-It now compiles **unmodified**: `dotnet build` emits `2048v2.gb`, `dotnet run` opens it in the Koh
-emulator, and `tests/Compiler/Koh.Compiler.Tests/Samples/Gb2048V2Tests.cs` boots it on the emulator and
-plays a scripted game (title → Start → d-pad slides → spawns) as the program's acceptance test.
+A C#2048 game with a title screen, directional slides, merges, tile spawning and
+a score display. It uses scene overrides, constructors, value-returning line
+operations, array-backed board storage, strings and a tile-asset value handle.
+These exercise ordinary language semantics; the current framework API is not a
+permanent design convention.
 
-## What this code demanded (each was a compiler/framework gap when it was written)
+From the repository root:
 
-| Construct used here | What it forced |
-|---|---|
-| `Game.Run(new TitleScene())`, `class TitleScene : Scene`, `override Update()` (`Scenes.cs`, `Program.cs`) | Framework `Scene`/`Game.Run` + compiler enabler E2: prefix inheritance field layout (derived fields used to silently OVERLAP the base's) and closed-world devirtualization (type tag at offset 0 + jump-table switch of direct calls) |
-| `Line ReadLine(...)` — struct returned by value (`Board.cs`) | Enabler E1: struct returns via per-function static return slots (a hidden result-pointer parameter was tried first and rejected — a recursive callee's frame restore clobbers it) |
-| `TileAsset.Define(TileArt)` with no count (`Assets.cs`) | Enabler E4: length-carrying arrays — u16 element count at payload−2, so `array.Length` works across call boundaries |
-| `static TileAsset Tiles` / `Timer` fields | Static fields of user struct type (WRAM blob + address semantics) — found and fixed in M1 |
-| `Rng.Next()` + `Rng.Next(byte)` overloads | IR symbol names collided for C# method overloads (duplicate linker symbol) — found and fixed in M1 |
-| `Input.Repeated`, `Rng`, ctor-carried scene state, indexers, switch expressions, `string` fields | Framework Stage 0 + standard C# the frontend already lowered |
+```sh
+dotnet build samples/csharp/gb-2048-v2/Gb2048V2.csproj -c Release
+dotnet run --project samples/csharp/gb-2048-v2/Gb2048V2.csproj -c Release
+```
 
-No `unsafe`, no registers, no addresses, no tile counts at call sites — the one deliberate raw-layer
-touch is `Rng.Mix(Hardware.DIV)` (human-timing entropy), demonstrating the escape hatch stays open.
+The SDK invokes Roslyn, native `koh-compile`, and native `koh-link`, producing
+`samples/csharp/gb-2048-v2/2048v2.gb`. Start opens the board; the directional pad
+slides tiles. The existing Koh emulator runs the ROM.
+
+Native acceptance:
+
+```sh
+cargo nextest run -p koh-compile --test sdk -E 'test(sdk_2048_scene_game)'
+```
+
+The Rust test builds these actual sources through the SDK in Debug/Release on
+DMG/CGB. It boots the existing C# emulator, checks title text, presses Start and
+plays eight directional moves. An independent rule implementation checks each
+merge, score and valid single-tile spawn against captured WRAM. Every board pixel,
+uploaded tile byte and score glyph is checked, with no mode3 write violations.
+Captures and generated projects use temporary directories, preserving sample art.
+
+This sample began as a north-star API experiment; its
+[historical design notes](../../../docs/superpowers/specs/2026-07-19-ideal-game-api-design.md)
+describe the old compiler and ABI. They are not specifications for native code
+generation. Native source-debugger acceptance now runs separately:
+
+```sh
+cargo nextest run -p koh-compile --test driver -E 'test(sdk_2048_source_debugger)'
+```
+
+These Rust-driven core-DAP cases stop at the original TitleScene source, inspect
+the ordered framework/entry callers, and continue to the named Update function.
+Debug/DMG and Release/CGB are represented. See the
+[unwind contract](../../../docs/rust-compiler/native-unwind.md) for supported
+inspection points; arbitrary-instruction and editor-GUI acceptance are not claimed.

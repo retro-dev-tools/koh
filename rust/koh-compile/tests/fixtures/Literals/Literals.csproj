@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NuGetAudit>true</NuGetAudit>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(KohRoot)/src/Compiler/Koh.GameBoy/Koh.GameBoy.csproj" />
+  </ItemGroup>
+  <Target Name="WriteFixtureReferences" AfterTargets="ResolveReferences">
+    <WriteLinesToFile File="$(IntermediateOutputPath)reference-paths.txt" Lines="@(ReferencePath)" Overwrite="true" />
+  </Target>
+</Project>

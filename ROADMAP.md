@@ -10,11 +10,133 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 
 ## Current condition
 
-- Rust assembler PR #01 is merged. Rust linker/ELF migration is in draft [PR #54](https://github.com/retro-dev-tools/koh/pull/54).
+- Legacy compiler removal is integrated on the PR branch: both
+  C# compiler/test trees and direct compiler packages are removed, while the SDK,
+  runtime, emulator and useful tools remain. The serial Linux solution build
+  produces all seven C# sample ROMs with zero warnings/errors; retained .NET tests
+  report567 succeeded, zero failed and two unchanged opt-in SDL window/input
+  skips. Unfiltered native2239/2239 passes, zero skipped, with separate doctests.
+  All565 source dispositions are complete and legacy definitions retired. Final
+  run44330863800 atf5a10e8 passes all14 jobs, including native Linux/macOS2239
+  and Windows2237 cases, zero skipped, separate doctests and artifact/notice
+  checks. Compiler migration acceptance is complete in draft PR55; existing
+  first-party/managed notice gaps still block release publication. See the
+  [acceptance audit](docs/rust-compiler/acceptance.md) and
+  [removal evidence](docs/rust-compiler/legacy-removal-validation.md).
+- Rust assembler [PR #53](https://github.com/retro-dev-tools/koh/pull/53) and Rust linker/ELF [PR #54](https://github.com/retro-dev-tools/koh/pull/54) are merged.
   `koh-objects` owns the canonical ELF32/SM83 model; the native assembler and linker share it.
-  The draft removes the C# linker and retired object formats, retains C# game development,
-  and is still completing integration and validation. See the [test audit](docs/rust-linker/test-disposition.md)
-  and [ABI](docs/rust-linker/elf32-sm83.md). Hosted/platform evidence remains pending.
+  The linker migration removes the C# linker and retired object formats and retains C# game development.
+  See its [test audit](docs/rust-linker/test-disposition.md), [ABI](docs/rust-linker/elf32-sm83.md)
+  and [validation record](docs/rust-linker/validation.md) for evidence and limitations.
+- Rust CIL compiler [PR #55](https://github.com/retro-dev-tools/koh/pull/55) includes the565-method source audit, verified SSA/ELF/SM83 pipeline, integer calls/recursion, arrays/statics/initializers, hardware intrinsics, unmanaged values, UTF-16 text, HRAM-safe OAM DMA and banked managed calls.
+  Closed static/instance [generic methods](docs/rust-compiler/generic-methods.md) now specialize
+  supported primitive/named arguments, including referenced transitive bodies,
+  byref storage and original PDB provenance. Assembly scopes distinguish same-row
+  types across DLLs. [Rectangular array arguments](docs/rust-compiler/generic-rectangles.md)
+  retain those scopes through generic calls, defaults and byref copies.
+  Closed special/base/interface/parameter constraints now
+  validate, including constructor eligibility and malformed-metadata probes.
+  Runtime class/interface dispatch, generic delegates, base calls and unboxed
+  [constrained calls](docs/rust-compiler/constrained-calls.md) now execute through
+  the same native ABI. [Closed declaring layouts and static storage](docs/rust-compiler/closed-types.md)
+  now specialize with separate method/type argument scopes and per-instance initialization.
+  [Generic reference methods](docs/rust-compiler/closed-types.md#generic-methods-on-closed-reference-receivers)
+  retain separate declaring/method scopes through overrides, default/explicit
+  interface bodies, captured callbacks and inherited MethodImpl bodies.
+  [Runtime boundaries](docs/rust-compiler/runtime-boundaries.md) explicitly retain
+  exact variance identities and unboxed values, with explicit diagnostic acceptance.
+  [Bounded interrupt handlers](docs/rust-compiler/irq-calls.md) now execute all five
+  vectors with saved registers, a reserved stack budget and bank-preserving ROM0
+  bodies and shared scalar helper calls; allocation/nested IRQ enabling remain
+  explicit diagnostics.
+  The current ledger has565/565 complete dispositions, none outstanding
+  (564 native replacements, one obsolete private-parser DELETE decision), and
+  all565 legacy method definitions retired;
+  23 [backend allocation contracts](docs/rust-compiler/allocation-contracts.md)
+  replace private residency choices with actual arithmetic, ABI, liveness and
+  source mapping. [128-bit arithmetic](docs/rust-compiler/int128.md) also has native acceptance;
+  all54 control-flow methods now have native acceptance:34
+  [scalar contracts](docs/rust-compiler/control-flow-scalars.md) retain37 assertions
+  with188 executions;20 [memory/call/boot/phi contracts](docs/rust-compiler/control-flow-memory.md)
+  account for30 assertion sites through real C#, direct ROM reads and parallel cycles;
+  three [symbol-address methods](docs/rust-compiler/symbol-addresses.md) now verify
+  banked code, relocated startup/header entry and actual WRAM bytes in16 ROMs.
+  five [IR construction/verifier methods](docs/rust-compiler/ir-construction.md)
+  now have native validation, object round-trip and executed-loop replacements;
+  the seven-method [IR round-trip group](docs/rust-compiler/ir-roundtrip.md)
+  preserves useful data/entry/bitcast behavior with native tests;
+  four [live-value preservation methods](docs/rust-compiler/liveness.md) now
+  execute entry/diamond/signed-loop scenarios at16/32/64 bits before/after optimization;
+  all seven [CGB HAL methods](docs/rust-compiler/cgb-hal.md) now have native
+  replacements, including actual VRAM/palette contents and DMG no-write checks;
+  binary32/binary64 [remainder](docs/rust-compiler/floating-remainder.md) now executes
+  through an exact shared core with signed-zero/subnormal/special-value coverage.
+  [Checked numeric casts](docs/rust-compiler/checked-casts.md) now validate all20
+  conversion opcodes; [checked addition/subtraction](docs/rust-compiler/checked-arithmetic.md)
+  now uses explicit overflow guards, including [multiplication](docs/rust-compiler/checked-multiplication.md).
+  Managed-reference arithmetic and catchable exceptions remain unsupported.
+  all five [struct-return methods](docs/rust-compiler/struct-returns.md) now have
+  native behavioral replacements. No legacy compiler definitions are removed yet.
+  All 12 [basic CIL cases](docs/rust-compiler/cil-basics.md) also have native
+  replacements with independent MMIO/packet checks and typed stack-join invariants.
+  The SDK invokes Rust tools, retains tile-sheet generation and runs the existing emulator.
+  Native copy/fill and corrected VBlank polling let all eight double-buffered/
+  full-frame Debug/Release × DMG/CGB cases pass structural captures. CGB uses
+  bounded1024-byte DMA bursts; raw CPU copy has explicit ordered semantics.
+  Callback checkpoint Linux workspace/all-features passes1193/1193, plus separate rustdoc;
+  actual SDK build/run checks pass. Final selected-bank probes pass4/4.
+  That earlier callback/raster checkpoint closed68 methods with497 partial/
+  outstanding, none deleted. Racing-beam now passes all four native configurations
+  with actual SCX/scanline traces; the shared all256-phase CLR sweep now has
+  Rust-owned assertions in Debug/Release and its redundant C# verifier is removed.
+  Earlier raster regression passed380/380 and the phase/cube target passes76/76. The
+  existing headless emulator captures the SDK-built racing ROM with zero mode3
+  writes. This CLR sweep complements native ROM tests; it is not all-phase
+  native or Canvas-renderer execution.
+  The phase commit's hosted Rust suites pass987 Linux/macOS and985 Windows
+  cases, plus rustdoc/artifact checks. New reference-class metadata layouts pass
+  the58-case layout/reference regression, including cache-order and signature
+  amplification guards. Typed native objects now cover fresh allocation,
+  constructors/direct calls, inherited/reference fields, reference arrays and
+  checked null/exhaustion faults:60 ROM probes in Debug/Release × DMG/CGB.
+  Object regression passes376/376, with277/277 final focused checks after
+  verifier review fixes and fixture formatting. Two class test methods now have
+  complete replacements. Class virtual dispatch now adds36 bank-constrained ROM
+  probes, exact per-type results and wide/byref signatures. Final selected283/283
+  checks pass. Workspace1047-case run had1045 passes and two stale forged-reference
+  diagnostic assertions; both strengthened replacements pass in that selection.
+  Do not call that original full run green. Reference-bearing structs and typed
+  reference-cell indirection now pass347 selected regressions, including16 ROM
+  probes; ordinary2048v2 SDK compilation succeeds. Native2048v2 gameplay now
+  passes Debug/Release × DMG/CGB with eight-move rules, exact board pixels and
+  title/HUD checks. Bounded VBlank copy fixes DMG flushing at unchanged capture
+  budgets, with6160 phase/count/frame probes. The1086-case workspace run has
+  1084 passes and two LCD-off setup failures; both corrected tests pass2/2 with
+  unchanged compiler sources. Do not call that original command green.
+  Rank-two arrays and stored/virtual callbacks now compile the unchanged JRPG.
+  Guarded VRAM stores replace its racy attribute retry loop; normal SDK builds
+  and Debug/Release CGB dialogue/Slime-battle assertions pass. New primitive
+  checks include9856 sampled phase probes and396 broader regressions. The
+  [contract](docs/rust-compiler/vram-write.md) explicitly leaves interrupts
+  disabled for nonempty CGB attribute writes and nonempty1bpp/font loads.
+  JRPG art/palette/OAM/pixel checks and four isolated captures now pass, retaining
+  the300-frame power-on title deadline; font-loop throughput was corrected.
+  Final selected42/42 and edited JRPG9/9 pass. Nongeneric interface dispatch,
+  explicit/inherited MethodImpl bindings and class-body selection through default
+  declarations now have native execution coverage. Default bodies, re-abstraction
+  and most-specific selection are implemented. Generic/static-virtual dispatch
+  and the other whole-migration gates remain required.
+  Metadata commitb4caf55 hosted Rust suites pass1012 Linux/macOS
+  and1010 Windows cases; those results predate the object-core increment.
+  Native source-breakpoint and exact-PC caller inspection now pass for real2048
+  SDK Debug/Release ROMs through the existing debugger. See the
+  [unwind contract](docs/rust-compiler/native-unwind.md); arbitrary-PC caller
+  unwinding is not claimed. Full current-head workspace/hosted acceptance, broader
+  runtime/gameplay, test closure, release integration and legacy deletion remain
+  incomplete. Container cleanup is done. Existing API shapes are evidence,
+  not a design baseline.
+  Track the [commit sequence and acceptance ledger](docs/rust-compiler/progress.md);
+  the standalone native compiler is verified only for its documented subset, not final migration acceptance.
 
 - Shared diagnostics, opcodes, and object formats are separated from assembler, linker, compiler, emulator, and UI projects. Recent architecture commits deliberately removed compiler dependencies on assembler implementation details. Retain those boundaries; there is no demonstrated need for another restructure.
 - Tests cover individual components and compile and emulate sample games. CI builds on Linux and Windows, runs extension tests, publishes the emulator with NativeAOT on three host platforms, and builds the assembly 2048 ROM. These workflow definitions describe intended checks, not evidence that current CI passes.
@@ -23,6 +145,52 @@ The next milestone should be one documented, reproducible source-to-ROM-to-debug
 - The README and extension metadata declare MIT, but no tracked LICENSE or NOTICE file was found in the checkout or matching filename history. This needs an ownership and attribution review, not an invented copyright holder.
 - `GbJrpgTests` writes acceptance captures under the test binary's `TestResults/gb-jrpg/<run-id>/`. Its regression guard checks that curated sample screenshots are not rewritten. Updating documentation images is a deliberate manual step.
 - The local Koh.Sdk package imports repository-relative source projects. Its presence in a local feed is useful for this checkout but does not establish a standalone SDK distribution story.
+
+## PR #55 completion path
+
+Overall completion is unmeasured; 100% requires every acceptance gate, rather
+than a test count or a working standalone compiler. All work stays in PR #55.
+
+1. Finish the language/runtime needs of existing games: wider string operations,
+   software floating point, reference objects and required generic,
+   interface/delegate/dispatch shapes. Document deliberate subset decisions and
+   reject unsupported IL explicitly.
+2. Complete hardware ABI support: interrupts, banked code/data, arithmetic and
+   memory operations, reentrancy rules and checked ROM/RAM/stack capacities.
+3. Prove complete representative games in the existing C# emulator, including
+   graphics and nontrivial language behavior. Preserve assets and distinguish
+   documented aspirational examples from passing acceptance samples.
+4. Source-debug acceptance is implemented: matching PDBs, IR/ELF/KDBG provenance,
+   real source/function breakpoints, disassembly and exact-PC caller inspection.
+   Retain these checks during final hosted validation; unsupported PCs stop unwinding.
+5. Switch SDK/MSBuild, run/debug tooling, CI and release payloads to Rust. Verify
+   ordinary dotnet builds, references, DMG/CGB flags, incremental behavior and
+   paths with spaces; preserve useful tile-sheet/build functionality.
+6. Migrate tests alongside each feature, then close every disposition in the
+   565-method audit. Run all feasible compiler-owned scenarios from Rust with
+   nextest; keep only justified noncompiler .NET tests and fixture executables.
+7. Delete the C# compiler, obsolete dependencies/projects and all fallback routes
+   after replacement acceptance; verify there is one production compiler.
+8. Record comparable compile-time/size/peak-memory measurements and final
+   Linux/Windows/macOS results. Recheck samples, diagnostics, docs and packaging.
+   Container cleanup is complete. Keep the single PR draft until all gates pass;
+   do not merge it automatically.
+
+Latest increments: [expanded RAM capacity](docs/rust-compiler/ram-layout.md)
+closes the5000-byte array requirement; [video/input acceptance](docs/rust-compiler/video-joypad-contracts.md)
+retains real VBlank pacing and rising input edges while skipping clean-map
+commit overhead. Full acceptance and legacy compiler removal remain required.
+
+Earlier SDK increment: the unchanged graphics showcase executes through Roslyn,
+native compiler, canonical ELF, Rust linker and real DMG/CGB boot in the existing
+emulator. Stronger HUD checks exposed late flushes; full-map tests exposed unsafe
+LCD-on clear. Both are corrected with independent graphics/data/timing checks.
+The native SDK now builds/runs that same source with default native tool discovery;
+Debug/Release SDK fixtures also execute actual generated art and referenced code.
+Existing public APIs are not a design baseline. Next: finish SDK/CI/release
+integration, then the remaining game/runtime, source-debug and test-disposition
+gates. Detailed evidence and limits are in [SDK boundary](docs/rust-compiler/sdk.md)
+and [presentation decisions](docs/rust-compiler/presentation.md).
 
 ## Baseline verification
 

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NuGetAudit>true</NuGetAudit>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(KohRoot)/src/Compiler/Koh.GameBoy/Koh.GameBoy.csproj" />
+    <ProjectReference Include="$(KohRoot)/rust/koh-compile/tests/fixtures/InterfaceLibrary/InterfaceLibrary.csproj" />
+  </ItemGroup>
+</Project>

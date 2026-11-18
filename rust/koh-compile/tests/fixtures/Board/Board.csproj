@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><AllowUnsafeBlocks>true</AllowUnsafeBlocks><TreatWarningsAsErrors>true</TreatWarningsAsErrors><NuGetAudit>true</NuGetAudit></PropertyGroup>
+  <ItemGroup>
+    <Using Include="Koh.GameBoy" />
+    <Compile Include="$(KohRoot)/samples/csharp/gb-2048-cs/Board.cs" Link="Board.cs" />
+    <Compile Include="$(KohRoot)/samples/csharp/gb-2048-cs/Tiles.cs" Link="Tiles.cs" />
+    <ProjectReference Include="$(KohRoot)/src/Compiler/Koh.GameBoy/Koh.GameBoy.csproj" />
+  </ItemGroup>
+</Project>

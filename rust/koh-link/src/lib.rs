@@ -4,6 +4,11 @@ use koh_objects::*;
 use std::collections::{BTreeMap, HashMap};
 
 pub const MAX_ROM_SIZE: usize = 8 * 1024 * 1024;
+const BOOT_LOGO: [u8; 48] = [
+    0xce, 0xed, 0x66, 0x66, 0xcc, 0x0d, 0, 0x0b, 3, 0x73, 0, 0x83, 0, 0x0c, 0, 0x0d, 0, 8, 0x11,
+    0x1f, 0x88, 0x89, 0, 0x0e, 0xdc, 0xcc, 0x6e, 0xe6, 0xdd, 0xdd, 0xd9, 0x99, 0xbb, 0xbb, 0x67,
+    0x63, 0x6e, 0x0e, 0xec, 0xcc, 0xdd, 0xdc, 0x99, 0x9f, 0xbb, 0xb9, 0x33, 0x3e,
+];
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CgbMode {
     #[default]
@@ -308,6 +313,7 @@ pub fn link(objects: &[Object], options: &LinkOptions) -> Result<LinkResult, Str
         rom[offset..offset + data.len()].copy_from_slice(&data);
     }
     if !options.raw {
+        rom[0x104..0x134].copy_from_slice(&BOOT_LOGO);
         match options.cgb {
             CgbMode::Compatible => rom[0x143] = 0x80,
             CgbMode::Only => rom[0x143] = 0xc0,

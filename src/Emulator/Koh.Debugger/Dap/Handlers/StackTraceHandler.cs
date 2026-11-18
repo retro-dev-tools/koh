@@ -1,13 +1,9 @@
 using Koh.Debugger.Dap.Messages;
+using Koh.Debugger.Session;
 using Koh.Objects;
 
 namespace Koh.Debugger.Dap.Handlers;
 
-/// <summary>
-/// Heuristic call-stack walker. Starts at the current PC as frame 0, then
-/// walks the stack upward reading 16-bit return addresses until SP hits its
-/// initial value ($FFFE on DMG boot) or the stack becomes unreadable.
-/// </summary>
 public sealed class StackTraceHandler
 {
     private const int MaxFrames = 32;
@@ -30,20 +26,33 @@ public sealed class StackTraceHandler
             CreateFrame(_session, gb.Cartridge.CurrentRomBank, gb.Registers.Pc, 0),
         };
 
-        // Walk stack: each frame's return address is a 16-bit little-endian
-        // value on the stack. We can't distinguish "return address" from other
-        // pushed values without dataflow analysis, so this is best-effort.
         ushort sp = gb.Registers.Sp;
-        while (frames.Count < MaxFrames && sp < StackTop)
+        if (NativeStackUnwinder.HasMetadata(_session))
         {
-            byte lo = gb.Mmu.DebugRead(sp);
-            byte hi = gb.Mmu.DebugRead((ushort)(sp + 1));
-            ushort retPc = (ushort)((hi << 8) | lo);
-            if (retPc == 0)
-                break; // probably not a valid frame
-            frames.Add(CreateFrame(_session, gb.Cartridge.CurrentRomBank, retPc, frames.Count));
-            sp = (ushort)(sp + 2);
+            ushort pc = gb.Registers.Pc;
+            byte bank = pc >= 0x4000 ? gb.Cartridge.CurrentRomBank : (byte)0;
+            while (
+                frames.Count < MaxFrames
+                && NativeStackUnwinder.Caller(_session, bank, pc, sp) is { } caller
+            )
+            {
+                if (caller.Sp <= sp)
+                    break;
+                (bank, pc, sp) = caller;
+                frames.Add(CreateFrame(_session, bank, pc, frames.Count));
+            }
         }
+        else
+            while (frames.Count < MaxFrames && sp < StackTop)
+            {
+                byte lo = gb.Mmu.DebugRead(sp);
+                byte hi = gb.Mmu.DebugRead((ushort)(sp + 1));
+                ushort retPc = (ushort)((hi << 8) | lo);
+                if (retPc == 0)
+                    break; // probably not a valid frame
+                frames.Add(CreateFrame(_session, gb.Cartridge.CurrentRomBank, retPc, frames.Count));
+                sp = (ushort)(sp + 2);
+            }
 
         return new Response
         {

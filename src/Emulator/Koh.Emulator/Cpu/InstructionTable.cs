@@ -30,7 +30,7 @@ public static class InstructionTable
         /// latencies.
         /// </summary>
         void InternalCycle();
-        void SetIme(bool enable);
+        void SetIme(bool enable, bool delayed = true);
         void Halt();
         void Stop();
     }
@@ -822,7 +822,7 @@ public static class InstructionTable
         {
             r.Pc = Pop16(ref r, bus);
             bus.InternalCycle();
-            bus.SetIme(true);
+            bus.SetIme(true, delayed: false);
             return 16;
         };
 

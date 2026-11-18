@@ -262,15 +262,15 @@ public sealed class Sm83 : InstructionTable.IInstructionBus
 
     public void InternalCycle() => TickMCycle();
 
-    public void SetIme(bool enable)
+    public void SetIme(bool enable, bool delayed = true)
     {
-        if (enable)
+        if (enable && delayed)
         {
             _eiPending = true;
         }
         else
         {
-            Ime = false;
+            Ime = enable;
             _eiPending = false;
             _eiArmed = false;
         }

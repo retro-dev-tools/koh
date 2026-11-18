@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Koh.Debugger.Dap.Messages;
+using Koh.Debugger.Session;
 using Koh.Emulator.Cpu;
 
 namespace Koh.Debugger.Dap.Handlers;
@@ -77,7 +78,8 @@ public sealed class VariablesHandler
         // reasonable; a future revision can add lazy-loading via nested refs.
         const int Limit = 200;
         return session
-            .DebugInfo.SymbolMap.All.Take(Limit)
+            .DebugInfo.SymbolMap.All.Where(s => !NativeStackUnwinder.IsMarker(s.Name))
+            .Take(Limit)
             .Select(s => new Variable
             {
                 Name = s.Name,
@@ -100,7 +102,9 @@ public sealed class VariablesHandler
 
         // Nearest symbol at or before PC (best-effort).
         var nearest = session
-            .DebugInfo.SymbolMap.All.Where(s => s.Bank == bank && s.Address <= pc)
+            .DebugInfo.SymbolMap.All.Where(s =>
+                s.Bank == bank && s.Address <= pc && !NativeStackUnwinder.IsMarker(s.Name)
+            )
             .OrderByDescending(s => s.Address)
             .FirstOrDefault();
         if (nearest is not null)
@@ -117,8 +121,11 @@ public sealed class VariablesHandler
         }
 
         // Matching symbols at this exact address.
-        var atAddr = session.DebugInfo.SymbolMap.LookupByAddress(addr);
-        for (int i = 0; i < atAddr.Count; i++)
+        var atAddr = session
+            .DebugInfo.SymbolMap.LookupByAddress(addr)
+            .Where(s => !NativeStackUnwinder.IsMarker(s.Name))
+            .ToArray();
+        for (int i = 0; i < atAddr.Length; i++)
         {
             list.Add(
                 new Variable

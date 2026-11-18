@@ -18,20 +18,25 @@ NuGet audit warnings are errors. If restore reports a vulnerable package, includ
 
 ## Choosing checks
 
-Run the matching test project first. For example, for assembler changes:
+Run focused native checks first. For example, for assembler changes:
 
 ```sh
-dotnet test --project tests/Asm/Koh.Assembler.Tests/Koh.Assembler.Tests.csproj
+cargo nextest run -p koh-asm --locked
 dotnet msbuild build.proj -t:Test
 ```
 
-The default fast suite excludes `Koh.Compiler.Tests`. Compiler changes also require:
+Compiler tests are Rust targets, including Roslyn-built DLL/PDB fixtures and
+external execution in the existing C# emulator. Install cargo-nextest and run:
 
 ```sh
-dotnet msbuild build.proj -t:TestAll
+cargo nextest run --workspace --all-features --locked
+cargo test --workspace --all-features --doc --locked
 ```
 
-Compiler tests compile fixtures and emulate the resulting ROMs. They consume substantial memory even with the project's parallelism limit; avoid running other builds or test suites alongside them. CI runs the full suite on Linux and Windows.
+The committed nextest configuration limits Roslyn/emulator concurrency and uses
+zero retries. Full validation runs native tests on Linux, Windows and macOS.
+Remaining .NET tests belong to live emulator, debugger, LSP, UI, object/SDK bridge
+and standalone tool components. `build.proj -t:TestAll` runs both test ecosystems.
 
 For VS Code changes, install Node.js and npm, then:
 

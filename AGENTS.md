@@ -2,16 +2,16 @@
 
 ## Project Structure & Module Organization
 
-Koh is a Rust and .NET 10 Game Boy development toolchain. C# projects live in `src/`, grouped by area: `Common/` (`Koh.Common` for diagnostics and source text, `Koh.Opcodes` for the SM83 opcode table, `Koh.Objects` for compiler output concepts and `.kdbg` reading), `Asm/` (`Koh.Native` native-service bridge, `Koh.Lsp`), `Compiler/` (`Koh.Compiler`, `Koh.GameBoy`, `Koh.Build.Tasks`, `Koh.Sdk`), `Emulator/` (`Koh.Emulator`, `Koh.Debugger`, `Koh.Boot`, `Koh.Verify`, `Koh.Emulator.App`) and `UI/` (`KohUI*`). Tests under `tests/` mirror the same areas and project names, for example `tests/Asm/Koh.Lsp.Tests`. VS Code extension sources and grammar assets are in `editors/vscode/src` and `editors/vscode/syntaxes`. The root Cargo workspace contains `rust/koh-asm`, `rust/koh-link`, and the authoritative ELF32/SM83 model in `rust/koh-objects`. Tools and benchmarks are in `tools/`, samples in `samples/{asm,csharp,ui}`.
+Koh is a Rust and .NET 10 Game Boy development toolchain. The Cargo workspace contains `rust/koh-asm`, `rust/koh-link`, `rust/koh-compile` and the canonical ELF32/SM83 model in `rust/koh-objects`. C# projects under `src/` provide common diagnostics/opcodes/debug readers, the native-service bridge and LSP, Koh.GameBoy, minimal SDK/build tasks, the emulator/debugger/boot/verification tools and KohUI. Native compiler tests live in `rust/koh-compile/tests`; remaining .NET tests mirror their live component areas. VS Code sources are under `editors/vscode`, tools under `tools/`, and samples under `samples/{asm,csharp,ui}`.
 
 ## Build, Test, and Development Commands
 
 - `cargo build --release -p koh-asm -p koh-link --locked` builds the native assembler and linker.
-- `cargo test --workspace --locked` runs Rust tests; `KOH_RGBDS_TEST=1` enables checks against RGBDS 1.0.1.
+- `cargo nextest run --workspace --all-features --locked` runs native tests; `cargo test --workspace --all-features --doc --locked` runs doctests separately. `KOH_RGBDS_TEST=1` enables RGBDS 1.0.1 reference checks.
 - `dotnet build` builds the default solution, including the native assembler bridge.
 - `dotnet restore Koh.Ci.slnf` and `dotnet build Koh.Ci.slnf --configuration Release` mirror CI's main build.
-- `dotnet msbuild build.proj -t:Test` runs the fast suite (`Koh.Fast.slnf`) — everything except `Koh.Compiler.Tests`. This is the default development loop.
-- `dotnet msbuild build.proj -t:TestAll` adds `Koh.Compiler.Tests`, whose cases Roslyn-compile fixtures to real assemblies and run an emulator over them. It is memory-hungry enough to take a desktop down; its parallelism is capped at 4 (`tests/Compiler/Koh.Compiler.Tests/ParallelLimit.cs`). CI runs this one.
+- `dotnet msbuild build.proj -t:Test` runs live .NET component tests (`Koh.Fast.slnf`).
+- `dotnet msbuild build.proj -t:TestAll` runs all native tests, separate Rust doctests and .NET component tests. Native compiler tests invoke Roslyn and the existing C# emulator; nextest limits their concurrency with zero retries.
 - `dotnet msbuild build.proj -t:PublishDev` publishes binaries for VS Code debugging.
 - `cd editors/vscode; npm ci; npm test` installs and runs the extension test harness.
 - `./scripts/run-emulator.ps1` or `./scripts/run-emulator.sh` publishes and launches the emulator locally.
@@ -22,7 +22,7 @@ C# uses `net10.0`, C# 14, nullable references, implicit usings, and `TreatWarnin
 
 ## Testing Guidelines
 
-Add unit or integration coverage in the matching `tests/Koh.*.Tests` project. Name test classes after the component under test and use method names that state the behavior. For parser, assembler, linker, LSP, debugger, and emulator changes, include fixture-based regressions when behavior changes. Run the focused project test first, then `dotnet msbuild build.proj -t:Test`.
+Add compiler/assembler/linker coverage to their Rust targets, using rstest for meaningful parameterized cases. Add live .NET component coverage to the matching test project. Check observable behavior and explicit diagnostics. Run focused checks first; compiler-owned Roslyn/emulator integration tests remain discoverable by cargo-nextest.
 
 ## Commit & Pull Request Guidelines
 
@@ -35,7 +35,7 @@ Do not commit downloaded ROMs, local toolchains, VSIX packages, benchmark output
 ## Maintainer Context
 
 - Keep the active priorities and completed milestones in root `ROADMAP.md`.
-- Preserve the dependency boundaries: compiler and linker share `Koh.Objects` and `Koh.Common`; neither depends on assembler implementation details.
+- Preserve native compiler/linker boundaries through `koh-objects`; neither depends on assembler implementation details. C# SDK tasks invoke native executables and contain no compiler algorithms.
 - Prioritize a reproducible assembly/C# source-to-ROM and debugging workflow over new subsystems.
 - Keep NuGet auditing and warnings-as-errors enabled. Update the owning dependency or supported SDK instead of suppressing an advisory.
 - `global.json` requires SDK 10.0.115 or a compatible newer .NET 10 SDK. Keep auditing enabled across SDK feature bands: a higher SDK feature band does not guarantee a newer NativeAOT runtime patch.

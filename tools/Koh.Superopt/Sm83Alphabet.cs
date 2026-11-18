@@ -1,18 +1,10 @@
-using Koh.Compiler.Backends.Sm83.Mir;
+using Koh.Opcodes;
 
 namespace Koh.Superopt;
 
-/// <summary>
-/// The small, straight-line, register-only instruction alphabet the enumerator searches over. Kept
-/// deliberately small so enumeration and CI stay fast; each entry is validated against the MIR decoder
-/// (<see cref="IsStraightLineRegisterOnly"/>) so membership is a checked property, not a hand assertion.
-///
-/// ponytail: curated alphabet; widen for deeper manual mining.
-/// </summary>
+/// <summary>Register-only search alphabet.</summary>
 public static class Sm83Alphabet
 {
-    // A curated straight-line, register-only span: reg/reg moves, accumulator ALU, INC/DEC A, and a
-    // couple of immediates. Enough to rediscover canonical peephole wins; widen for deeper manual mining.
     public static IReadOnlyList<byte[]> Ops { get; } =
     [
         [0x00], // NOP
@@ -29,29 +21,70 @@ public static class Sm83Alphabet
         [0x3E, 0x00], // LD A,0
     ];
 
-    /// <summary>True iff every instruction the region decodes to is memory-free, falls through, and
-    /// touches only the bytes <see cref="Sm83State"/> exposes to the oracle (A/B/C/D/E/H/L and flags) —
-    /// the soundness precondition for the register-state oracle. <c>SP</c> is part of <see
-    /// cref="Sm83Register"/> but not of <see cref="Sm83State"/>'s comparable surface (there is no
-    /// <see cref="Live"/> bit for it), so any instruction that reads or writes SP (e.g. <c>INC SP</c>,
-    /// <c>ADD SP,r8</c>, <c>LD HL,SP+r8</c>) is rejected as outside the domain the oracle can observe.
-    /// Uses the shared MIR decoder so the property is derived from the canonical opcode semantics, not
-    /// re-encoded here.</summary>
+    private static readonly Dictionary<int, int> RegisterInstructions = Sm83InstructionTable
+        .All.Where(d =>
+            d.Mnemonic
+                is "NOP"
+                    or "LD"
+                    or "INC"
+                    or "DEC"
+                    or "ADD"
+                    or "ADC"
+                    or "SUB"
+                    or "SBC"
+                    or "AND"
+                    or "XOR"
+                    or "OR"
+                    or "CP"
+                    or "DAA"
+                    or "CPL"
+                    or "CCF"
+                    or "SCF"
+                    or "RLCA"
+                    or "RLA"
+                    or "RRCA"
+                    or "RRA"
+                    or "RLC"
+                    or "RRC"
+                    or "RL"
+                    or "RR"
+                    or "SLA"
+                    or "SRA"
+                    or "SWAP"
+                    or "SRL"
+                    or "BIT"
+                    or "RES"
+                    or "SET"
+            && d.Operands.All(p =>
+                p
+                    is >= OperandPattern.RegA
+                        and <= OperandPattern.RegHL
+                        or OperandPattern.Imm8
+                        or OperandPattern.Imm16
+                        or OperandPattern.Imm3
+            )
+        )
+        .GroupBy(d => d.Encoding[0] == 0xCB ? 0xCB00 | d.Encoding[1] : d.Encoding[0])
+        .ToDictionary(g => g.Key, g => g.First().Size);
+
+    /// <summary>Accept complete instructions confined to the oracle's observed state.</summary>
     public static bool IsStraightLineRegisterOnly(ReadOnlySpan<byte> code)
     {
-        var program = MirDecoder.Decode(code.ToArray());
-        foreach (var instruction in program.Instructions)
+        for (var offset = 0; offset < code.Length; )
         {
-            var e = instruction.Effects;
+            var opcode = (int)code[offset];
+            if (opcode == 0xCB)
+            {
+                if (code.Length - offset < 2)
+                    return false;
+                opcode = 0xCB00 | code[offset + 1];
+            }
             if (
-                e.MemRead
-                || e.MemWrite
-                || e.Control != MirControl.Fallthrough
-                || e.SideEffect
-                || (e.RegRead & Sm83Register.Sp) != 0
-                || (e.RegWrite & Sm83Register.Sp) != 0
+                !RegisterInstructions.TryGetValue(opcode, out var size)
+                || size > code.Length - offset
             )
                 return false;
+            offset += size;
         }
         return true;
     }

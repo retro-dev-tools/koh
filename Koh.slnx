@@ -16,9 +16,7 @@
   </Folder>
   <Folder Name="/Compiler/">
     <Project Path="src/Compiler/Koh.Build.Tasks/Koh.Build.Tasks.csproj" />
-    <Project Path="src/Compiler/Koh.Compiler/Koh.Compiler.csproj" />
     <Project Path="src/Compiler/Koh.GameBoy/Koh.GameBoy.csproj" />
-    <Project Path="tests/Compiler/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj" />
   </Folder>
   <Folder Name="/Emulator/">
     <Project Path="src/Emulator/Koh.Boot/Koh.Boot.csproj" />
@@ -51,7 +49,6 @@
     <Project Path="samples/csharp/gb-3d/double-buffered/CubeDoubleBuffered.csproj" />
     <Project Path="samples/csharp/gb-3d/full-frame/CubeFullFrame.csproj" />
     <Project Path="samples/csharp/gb-3d/racing-beam/CubeRacingBeam.csproj" />
-    <Project Path="samples/csharp/gb-3d/verify/Cube3dVerify.csproj" />
     <Project Path="samples/csharp/gb-gfx-demo/GbGfxDemo.csproj" />
     <Project Path="samples/csharp/gb-jrpg/Gbjrpg.csproj" />
   </Folder>

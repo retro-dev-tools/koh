@@ -2,15 +2,11 @@ using System.Text;
 
 namespace Koh.GameBoy;
 
-/// <summary>
-/// The Game Boy memory-mapped register surface. On hardware these are bytes at 0xFF00.. that the CPU
-/// reads and writes; the Koh compiler lowers <c>Hardware.LCDC</c> etc. to those addresses. Under the
-/// plain .NET SDK the same names resolve here, and the runtime turns them into a real, playable game:
-/// reading <see cref="LY"/> paces the frame, <see cref="JOYP"/> reads the keyboard, and each frame the
-/// tile map is drawn to the console. So one source both compiles to a ROM and runs with <c>dotnet run</c>.
-/// </summary>
+/// <summary>Memory-mapped registers, identified by compiler metadata.</summary>
 public static class Hardware
 {
+    internal const int ScrollXAddress = 0xFF43;
+
     // Plain register storage. The game writes these to configure the display; the renderer reads LCDC
     // (bit 7 = LCD on) and BGP (the palette) to decide what and how to draw.
     [KohIntrinsic("register", 0xFF40)]
@@ -32,7 +28,7 @@ public static class Hardware
     [KohIntrinsic("register", 0xFF49)]
     public static byte OBP1 { get; set; }
 
-    [KohIntrinsic("register", 0xFF43)]
+    [KohIntrinsic("register", ScrollXAddress)]
     public static byte SCX { get; set; }
 
     [KohIntrinsic("register", 0xFF42)]
@@ -51,7 +47,11 @@ public static class Hardware
     public static byte IE { get; set; }
 
     [KohIntrinsic("register", 0xFF4D)]
-    public static byte KEY1 { get; set; } = 0xFF;
+    public static byte KEY1
+    {
+        get => 0xFF; // desktop models a DMG: KEY1 reads $FF and ignores writes
+        set { }
+    }
 
     [KohIntrinsic("register", 0xFF4F)]
     public static byte VBK { get; set; }
@@ -177,12 +177,7 @@ public static class Hardware
     [KohIntrinsic("stop")]
     public static void Stop() { }
 
-    /// <summary>Trigger a hardware OAM DMA from <c>sourcePage * 0x100</c> and wait for it to finish —
-    /// the ROM path this lowers to (a boot-installed HRAM trampoline, see the <c>[KohIntrinsic]</c>
-    /// "oamdma" kind) executes the trigger+160-M-cycle wait from HRAM, since OAM DMA locks the bus to
-    /// everything but HRAM for that whole window and a ROM-resident wait loop would corrupt its own
-    /// instruction fetch. The desktop reference build has no such bus lock to model, so it performs the
-    /// same synchronous copy as <see cref="DMA"/>'s setter (in fact, is exactly that).</summary>
+    /// <summary>Blocking OAM DMA; IME must be disabled.</summary>
     [KohIntrinsic("oamdma")]
     public static void RunOamDma(byte sourcePage) => Gb.DmaOam(sourcePage);
 

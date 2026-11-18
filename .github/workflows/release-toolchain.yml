@@ -45,11 +45,49 @@ jobs:
           dotnet publish src/Asm/Koh.Lsp          -c Release -r ${{ matrix.rid }} --self-contained -o "$bin"
           dotnet publish src/Emulator/Koh.Emulator.App -c Release -r ${{ matrix.rid }} -o "$bin"
 
+          case "${{ matrix.rid }}" in
+            linux-x64) compiler_target=x86_64-unknown-linux-gnu; compiler_suffix= ;;
+            win-x64) compiler_target=x86_64-pc-windows-msvc; compiler_suffix=.exe ;;
+            osx-arm64) compiler_target=aarch64-apple-darwin; compiler_suffix= ;;
+            *) exit 1 ;;
+          esac
+          rustup target add "$compiler_target"
+          cargo build --release --package koh-compile --locked --target "$compiler_target"
+          cp "target/$compiler_target/release/koh-compile$compiler_suffix" "$bin/"
+          python scripts/stage-rust-notices.py "$bin/licenses/rust-runtime"
+
+      - name: Smoke-test packaged C# tools
+        shell: bash
+        run: |
+          compiler_suffix=
+          if [[ "${{ matrix.rid }}" == win-* ]]; then compiler_suffix=.exe; fi
+          compiler_path="$PWD/staging/bin/koh-compile$compiler_suffix"
+          linker_path="$PWD/staging/bin/koh-link$compiler_suffix"
+          emulator_path="$PWD/staging/bin/Koh.Emulator.App$compiler_suffix"
+          smoke_rom="$RUNNER_TEMP/koh-compiler-package-smoke.gb"
+          if [[ "${{ matrix.rid }}" == win-* ]]; then
+            compiler_path="$(cygpath -m "$compiler_path")"
+            linker_path="$(cygpath -m "$linker_path")"
+            emulator_path="$(cygpath -m "$emulator_path")"
+            smoke_rom="$(cygpath -m "$smoke_rom")"
+          fi
+          "$compiler_path" --version
+          "$linker_path" --version
+          dotnet build samples/csharp/gb-gfx-demo/GbGfxDemo.csproj -c Release -m:1 \
+            "-p:KohCompilerExecutable=$compiler_path" "-p:KohLinkExecutable=$linker_path" \
+            "-p:KohRomPath=$smoke_rom"
+          "$emulator_path" "$smoke_rom" --headless --frames=1200 \
+            "--screenshot=$RUNNER_TEMP/koh-compiler-package-smoke.png" \
+            "--mode3-report=$RUNNER_TEMP/koh-compiler-package-mode3.txt"
+          test -s "$RUNNER_TEMP/koh-compiler-package-smoke.png"
+          grep -Fq 'Mode-3 write violations: 0 total' "$RUNNER_TEMP/koh-compiler-package-mode3.txt"
+
       - name: Pack raw archive
         shell: bash
         run: |
           test -f staging/bin/licenses/rust-assembler-dependencies.md
           test -d staging/bin/licenses/rust-assembler
+          test -f staging/bin/licenses/rust-runtime/COPYRIGHT-library.html
           ver="${{ steps.ver.outputs.version }}"
           case "${{ matrix.archive }}" in
             zip)

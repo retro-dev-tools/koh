@@ -1,11 +1,111 @@
-name: CI
+name: Full validation
 
 on:
-  push:
-    branches: [master]
   pull_request:
+    types: [opened, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-validation-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  RUSTUP_TOOLCHAIN: stable
 
 jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.140
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: cargo +stable fmt --all -- --check
+      - name: Check
+        run: cargo +stable check --workspace --all-targets --all-features --locked
+      - name: Test
+        run: cargo +stable nextest run --workspace --all-features --locked --no-fail-fast
+      - name: Test Rust documentation
+        run: cargo +stable test --doc --workspace --all-features --locked
+      - name: Build native executables
+        run: cargo +stable build --release --package koh-asm --package koh-link --package koh-compile --locked
+      - name: Stage Rust runtime notices
+        run: python scripts/stage-rust-notices.py artifacts/rust-runtime
+      - name: Smoke-test native compiler artifacts
+        env:
+          KOH_COMPILE: ${{ github.workspace }}/target/release/koh-compile${{ runner.os == 'Windows' && '.exe' || '' }}
+          KOH_LINK: ${{ github.workspace }}/target/release/koh-link${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: cargo +stable nextest run -p koh-compile --test sdk --locked -E 'test(sdk_dotnet_run)'
+      - name: Publish native-backed language server
+        run: dotnet publish src/Asm/Koh.Lsp -c Release --no-self-contained -o artifacts/language-server -m:1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: koh-lsp-native-${{ runner.os }}
+          path: artifacts/language-server/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: koh-native-${{ runner.os }}
+          path: |
+            target/release/koh-asm
+            target/release/koh-asm.exe
+            target/release/koh-link
+            target/release/koh-link.exe
+            target/release/koh-compile
+            target/release/koh-compile.exe
+            licenses/rust-assembler-dependencies.md
+            licenses/rust-assembler/
+            artifacts/rust-runtime/
+
+  references:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.140
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install RGBDS build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bison flex libpng-dev pkg-config
+      - name: Build pinned RGBDS
+        run: |
+          git clone --depth 1 --branch v1.0.1 https://github.com/gbdev/rgbds.git "$RUNNER_TEMP/rgbds"
+          make -C "$RUNNER_TEMP/rgbds" -j2
+          echo "$RUNNER_TEMP/rgbds" >> "$GITHUB_PATH"
+      - name: Test against RGBDS
+        env:
+          KOH_RGBDS_TEST: '1'
+        run: cargo +stable nextest run -p koh-asm -p koh-link --all-features --locked
+      - name: Compare ELF and independent RGBDS pipelines
+        run: python3 scripts/verify-rust-assembler.py --output "$RUNNER_TEMP/rust-assembler-verification"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-assembler-verification
+          path: ${{ runner.temp }}/rust-assembler-verification
+          if-no-files-found: ignore
+
   sdl3-renderer:
     runs-on: ubuntu-24.04
     steps:
@@ -79,9 +179,7 @@ jobs:
         run: dotnet build Koh.Ci.slnf --no-restore --configuration Release
 
       - name: Run tests
-        # The full suite, including Koh.Compiler.Tests. Local development uses
-        # `build.proj -t:Test` (Koh.Fast.slnf), which drops that project because its
-        # Roslyn-plus-emulator cases exhaust memory on a desktop.
+        # Native compiler tests run in the native job.
         run: dotnet test --solution Koh.Ci.slnf --no-build --configuration Release
 
   # NativeAOT publishes of the emulator on each host runner. The AOT

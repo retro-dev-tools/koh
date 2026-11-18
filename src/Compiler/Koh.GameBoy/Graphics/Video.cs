@@ -38,18 +38,7 @@ public static unsafe class Video
     /// yet — each one only flips its own bits in the mirror, then writes the whole mirror through.</summary>
     private static byte _lcdcMirror;
 
-    /// <summary>LCD off, both tile maps and OAM cleared, all sprites hidden (OAM zeroed -&gt; Y=0 -&gt;
-    /// off-screen), default palettes (DMG 0xE4 flat shades; CGB slot-0 grayscale), CGB detected and
-    /// cached. The screen stays off — call <see cref="Start"/> once authoring is done.
-    ///
-    /// The two tilemap clears go through <see cref="MapWriter"/> (via <see cref="Bg.Clear"/> and
-    /// <see cref="MapWriter.Clear"/>) rather than a loop written here — both are function calls, so this
-    /// method never grows a second inline stride-1 pointer-walk loop (which <c>Mem.Copy</c>/<c>Mem.Fill</c>'s
-    /// own doc remarks warn corrupts a sibling loop under the SM83 backend's register allocator). Clearing
-    /// through <see cref="MapWriter"/> (not a raw <c>Mem.Fill</c> into VRAM) also seeds the WRAM tilemap
-    /// SHADOW to the same blank state: because the LCD is off here, each clear writes VRAM directly AND
-    /// populates the shadow, so every later vblank flush draws from a fully-mirrored map. The OAM clear
-    /// stays a direct <see cref="Mem.Fill"/>; <see cref="Sprites.HideAll"/> seeds the sprite shadow.</summary>
+    /// <summary>LCD off; clear maps/OAM, reset palettes/frame count, detect CGB. Call Start after setup.</summary>
     public static void Init()
     {
         Lcd.Off();
@@ -125,42 +114,13 @@ public static unsafe class Video
     /// <summary>Scroll the background to (x, y) (wraps <see cref="Lcd.Scroll"/>).</summary>
     public static void Scroll(byte x, byte y) => Lcd.Scroll(x, y);
 
-    /// <summary>THE frame call: prepare, wait for vertical blank, then — inside that vblank — flush the
-    /// deferred shadow writes to hardware: OAM (<see cref="Sprites.Flush"/>) and the tile maps
-    /// (<see cref="MapWriter.Flush"/>, the counterpart for <see cref="Bg"/>/<see cref="Win"/>/
-    /// <see cref="Text"/> tile-index writes). <see cref="MapWriter.PrepareFlush"/> runs FIRST, BEFORE
-    /// <see cref="Ppu.WaitVBlank"/> — on CGB it does all the arithmetic a GDMA tilemap flush needs (the
-    /// aligned range, every HDMA1-5 register byte) with no vblank timing pressure, so the in-vblank commit
-    /// is nothing but register stores (see <c>MapWriter</c>'s class remarks, "split into PREPARE +
-    /// COMMIT": doing that arithmetic INSIDE vblank was a real bug — expensive enough to blow the whole
-    /// window and land the GDMA trigger in mode 3, silently dropping the transfer).
-    ///
-    /// The IN-VBLANK commit order is <see cref="Sprites.Flush"/> THEN <see cref="MapWriter.Flush"/> —
-    /// deliberately the opposite of "map first since it's ready to go": the constraint runs from both
-    /// sides. <see cref="Sprites.Flush"/> must go first because on DMG (and it's decided per-flush, not
-    /// compiled away) the tile map's <see cref="FlushRun"/> drip is SELF-budgeting only against its own
-    /// LY check — it can legitimately consume the entire rest of the vblank window copying dirty cells,
-    /// and if OAM DMA ran after that, it would start outside vblank, where the emulator's (and real
-    /// hardware's) OAM lock — modes 2 AND 3, not just 3 — silently drops it, leaving sprite positions
-    /// stale by a whole frame (confirmed by <c>GbGfxDemoTests</c>'s <c>Oam_After*</c> fixtures, which is
-    /// what this ordering exists to keep passing). <see cref="MapWriter.Flush"/> is safe to go SECOND
-    /// specifically because it's gated and retries: on CGB its commit is a cheap, already-prepared
-    /// register-store sequence that only fires with sufficient vblank margin left
-    /// (<c>FlushBg</c>/<c>FlushWin</c>'s own LY gate), and if OAM DMA's ~160 M-cycles pushed LY too close
-    /// to the edge, the map commit simply defers to next frame rather than corrupting anything — the
-    /// asymmetry (DMG drip has no such gate; OAM DMA has no such gate; only the CGB map commit does) is
-    /// exactly why sprites, not maps, must run first. Both still run AFTER <see cref="Ppu.WaitVBlank"/> so
-    /// their VRAM/OAM touches land while the PPU is idle — this is what makes the mode-3 hazard impossible
-    /// to express from game code (a game only ever mutates the WRAM shadows; the timing-sensitive copies
-    /// live here, not in every public write). Then advance <see cref="FrameCount"/>.</summary>
+    /// <summary>Vblank frame commit.</summary>
     public static void EndFrame()
     {
-        MapWriter.PrepareFlush(); // CGB-only, and no-op if nothing is dirty: all GDMA arithmetic, no wait
-        Ppu.WaitVBlank();
-        Sprites.Flush(); // no-op unless a Sprite was mutated since the last flush (see Sprites.Flush)
-        MapWriter.Flush(); // copy dirty tilemap cells from the WRAM shadow into VRAM, in this vblank
-        // Pending CGB palette writes land here once the Palettes module needs a deferred path (it
-        // currently writes immediate-checked, so there is nothing to flush yet).
+        bool mapsPending = MapWriter.PrepareFlush();
+        Sprites.Flush();
+        if (mapsPending)
+            MapWriter.Flush();
         FrameCount++;
     }
 
@@ -172,21 +132,10 @@ public static unsafe class Video
         Cgb.SetBackgroundColor(0, 1, GrayLight);
         Cgb.SetBackgroundColor(0, 2, GrayDark);
         Cgb.SetBackgroundColor(0, 3, GrayBlack);
-        SetObjectColor(0, 0, GrayWhite);
-        SetObjectColor(0, 1, GrayLight);
-        SetObjectColor(0, 2, GrayDark);
-        SetObjectColor(0, 3, GrayBlack);
-    }
-
-    /// <summary>Same OCPS/OCPD index-and-write-twice protocol as <see cref="Cgb.SetBackgroundColor"/>,
-    /// targeting object palette RAM instead of background palette RAM (Cgb.cs has no OBJ variant).</summary>
-    private static void SetObjectColor(byte palette, byte color, ushort rgb555)
-    {
-        byte index = (byte)(((palette & 7) * 8 + (color & 3) * 2) & 0x3F);
-        Hardware.OCPS = index;
-        Hardware.OCPD = (byte)rgb555;
-        Hardware.OCPS = (byte)(index + 1);
-        Hardware.OCPD = (byte)(rgb555 >> 8);
+        Cgb.SetObjectColor(0, 0, GrayWhite);
+        Cgb.SetObjectColor(0, 1, GrayLight);
+        Cgb.SetObjectColor(0, 2, GrayDark);
+        Cgb.SetObjectColor(0, 3, GrayBlack);
     }
 }
 

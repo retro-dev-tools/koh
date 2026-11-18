@@ -11,9 +11,6 @@
     <PackageReference Include="Microsoft.Build.Utilities.Core" ExcludeAssets="Runtime" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\Koh.Compiler\Koh.Compiler.csproj" />
-    <ProjectReference Include="..\..\Asm\Koh.Native\Koh.Native.csproj" />
-  </ItemGroup>
+  <Import Project="NativeBuild.targets" />
 
 </Project>

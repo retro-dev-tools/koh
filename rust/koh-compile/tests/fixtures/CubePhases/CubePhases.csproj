@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NuGetAudit>true</NuGetAudit>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(KohRoot)/samples/csharp/gb-3d/shared/FixedMath.cs" Link="FixedMath.cs" />
+    <Compile Include="$(KohRoot)/samples/csharp/gb-3d/shared/CubeRenderer.cs" Link="CubeRenderer.cs" />
+  </ItemGroup>
+</Project>

@@ -7,13 +7,15 @@ dithered, and encoded into Game Boy 2bpp tile memory at runtime.
 | ROM | Viewport | Presentation strategy |
 | --- | --- | --- |
 | `double-buffered/cube-double-buffered.gb` | 96x80 | Two 120-tile pages; render/upload the inactive page, then flip the tile map in VBlank. |
-| `full-frame/cube-full-frame.gb` | 128x120 | One 240-tile page; on CGB, two GDMA transfers across two VBlanks with the LCD kept on; on DMG, blank the LCD for one bulk `Mem.Copy` upload. |
+| `full-frame/cube-full-frame.gb` | 128x120 | One 240-tile page; CGB uses bounded GDMA bursts across VBlanks with the LCD on; DMG blanks the LCD for one bulk `Mem.Copy` upload. |
 | `racing-beam/cube-racing-beam.gb` | 64x64 | Compact generated page plus per-scanline SCX changes synchronized to HBlank. |
 
 The third experiment originally attempted to replace shared tile rows just behind the PPU fetch. Real
 DMG timing showed that even a very narrow generated-C# copy could not reliably meet HBlank. The shipped
 version therefore uses the viable raster-effect form of the technique: C# still draws the cube pixels,
-then races the beam with scanline scroll changes. It does not silently substitute either other backend.
+then races the beam with scanline scroll changes. `Ppu.StreamScrollX` streams a precomputed table in
+native code; ordinary C# polling/computation cannot guarantee HBlank timing. Nonempty streams leave
+interrupts disabled. See [the contract and executable evidence](../../../docs/rust-compiler/raster-stream.md).
 
 All ROMs are dual-compatible. On DMG they use the four-shade background palette. On CGB they detect
 `KEY1`, switch to double speed, and program a color background palette. The scene and renderer remain
@@ -33,29 +35,50 @@ the ROM in Koh.Emulator.
 ## Headless verification
 
 ```powershell
-dotnet run --project samples/csharp/gb-3d/verify/Cube3dVerify.csproj
+cargo nextest run -p koh-compile --test cubes --locked
 ```
 
-The verifier boots all three ROMs in both DMG and CGB modes, runs a per-ROM-per-mode frame budget tuned
-to each demo's measured render+present cadence (see `verify/Program.cs`), and checks structural
-properties a real rendered cube must have (deterministic, not a golden-image comparison): at least two
-distinct non-background shades on screen, all of them inside one bounding box comfortably clear of the
-screen edge and of a plausible size, a uniform background outside that box, and a later frame that
-differs from the first (the cube is animating, not frozen). It also sweeps the shared renderer across
-all 256 rotation phases per viewport geometry, checking the same edge-clearance/area-band properties
-independent of any ROM's timing. It writes screenshots under `verify/out/`. Pass one or more renderer
-names (`double-buffered`, `full-frame`, `racing-beam`) to limit a run.
+Rust tests compile the actual samples in Debug/Release, link canonical ELF and boot all three ROMs
+in the existing DMG/CGB emulator. Two captures must show a shaded, connected, centered cube that
+animates within bounded frame counts. VRAM-write guards, complete GDMA timing and actual racing-beam
+SCX/scanline traces also run. Select a variant with nextest filters, for example
+`-E 'test(racing_)'` or `-E 'test(double_)'`.
+
+The same target drives the shared renderer through all256 phases at64x64,96x80 and128x120 in both
+Roslyn configurations. Rust checks nonempty output, palette, two-pixel edge clearance and a10..75%
+bounding-area band. This preserves the old CLR geometry sweep; it is not all-phase native ROM
+execution, nor a sweep of the separate Canvas-based double-buffered renderer. Use
+`-E 'test(shared_renderer_sweeps)'` for only this check. See [test disposition](../../../docs/rust-compiler/cube-phase-sweep.md).
+
+For a persistent PNG capture of a built ROM, use the existing emulator CLI:
+
+```powershell
+New-Item -ItemType Directory -Force artifacts
+dotnet run --project src/Emulator/Koh.Emulator.App -c Release -- --headless samples/csharp/gb-3d/racing-beam/cube-racing-beam.gb --frames=500 --screenshot=artifacts/cube-racing-beam.png --mode3-report
+```
+
+The obsolete standalone C# verifier and its solution entries have been removed. Generated captures
+belong in artifacts, not tracked sample assets.
 
 The PPU still consumes tile-formatted VRAM because that is the Game Boy's display hardware. Here the
 tiles are a transport for a runtime-generated bitmap, not a tileset or authored art pipeline.
 
 ## Performance
 
-Every present path moves pixel data through `Mem.Copy`/`Mem.Fill` (`src/Compiler/Koh.Compiler/Frontends/CSharp/
-MemRuntime.cs`), the Koh C# runtime's bulk-memory primitives, rather than hand-rolled per-byte loops.
-Frame-by-frame framebuffer diffing against the built ROMs (the technique in `verify/Program.cs`'s
-comments) measured these steady-state render+present cadences (frames per cycle; a smaller number is a
-faster flip):
+The measurements below describe the retired C# compiler's output, not the Rust
+compiler. Native validation and remaining failures are tracked in
+[the compiler migration evidence](../../../docs/rust-compiler/progress.md).
+CGB copies now prepare registers before waiting and limit LCD-on bursts to1024
+bytes: full-frame presentation spans four VBlanks, with partial-page seams.
+This intentionally replaces the unsafe two-burst assumption; the larger viewport
+and continuously enabled CGB display remain. A CPU-only mode3 guard cannot prove
+DMA safety, so native tests also check complete-transfer timing and exact VRAM.
+
+The current [bulk-memory contract](../../../docs/rust-compiler/memory-copy.md)
+lowers `Mem.Copy`/`Mem.Fill` through native Rust IR and SM83 loops. Its3840-byte
+copy probe takes217748T at normal CPU speed; this is not a whole-frame cadence.
+The historical C# compiler measurements below used framebuffer differences
+to measure frames per render/present cycle:
 
 | ROM | CGB cadence | DMG cadence |
 | --- | --- | --- |

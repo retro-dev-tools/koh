@@ -3,10 +3,10 @@
 A complete, bootable Game Boy build of **2048**, written in C# as an ordinary .NET project. It is the
 counterpart to the hand-written-assembly [`gb-2048`](../../asm/gb-2048) sample: same game, but written as
 plain C# and split by responsibility across a handful of files. The project uses the **Koh SDK**, so
-building it produces a Game Boy ROM the same way any frontend/backend pair does:
+building it compiles ordinary C# with Roslyn, then uses the native toolchain:
 
 ```
-Koh C# frontend  →  typed SSA IR  →  hand-written SM83 backend  →  Koh linker  →  2048.gb
+C# → Roslyn DLL/PDB → Rust koh-compile → ELF32/SM83 → Rust koh-link → 2048.gb/KDBG
 ```
 
 The twist is that the *exact same* source also compiles under the plain .NET SDK and runs on your
@@ -41,7 +41,8 @@ dotnet exec samples/csharp/gb-2048-cs/bin/Debug/net10.0/Gb2048CSharp.dll
 
 The project references neither the Koh compiler nor the linker — only the `Koh.GameBoy` runtime. The
 `Koh.Sdk` (`src/Compiler/Koh.Sdk`) owns the build-time toolchain and, after the ordinary C# build, invokes an
-in-process MSBuild task ([`CompileKohRom`](../../../src/Compiler/Koh.Build.Tasks)) that emits the `.gb`.
+small MSBuild task ([`CompileKohRom`](../../../src/Compiler/Koh.Build.Tasks)) that launches
+`koh-compile` and `koh-link` to emit the ROM and optional debug information.
 
 ## Controls
 
@@ -85,12 +86,15 @@ uses, it exercises much of it:
   `Gb.*` memory regions (`Gb.Vram`, `Gb.TileMap`, …) as constant base pointers
 
 Graphics are intentionally minimal — each tile value is a solid framed block in one of the four
-DMG shades, generated at boot — because ROM **data** arrays are not yet part of the subset.
-A richer tileset (digits per value) is the natural next step once static ROM tables land.
+DMG shades, generated at boot. See the [native compiler contract](../../../docs/rust-compiler/progress.md)
+for current supported storage and language features.
 
 ## Tests
 
-The game (plus the framework HAL) is compiled through the real pipeline and run in the emulator by
-[`Game2048Tests`](../../../tests/Compiler/Koh.Compiler.Tests/Samples/Game2048Tests.cs): it asserts the sample
-builds to a bootable ROM with verifiable IR, and drives the public `Board` / `Tiles` API — slides
-in all four directions, spawning, `CanMove`, `HasWon`, and rendering — against known 2048 outcomes.
+Native [board execution tests](../../../rust/koh-compile/tests/driver.rs) compile the real
+`Board` and `Tiles` sources and run ROMs in the existing emulator, checking independent 2048
+outcomes in Debug/Release and DMG/CGB modes. [Native SDK whole-game tests](../../../rust/koh-compile/tests/sdk/original_2048.rs)
+also execute boot, input, HUD, cursor and exact graphics checks. The
+[legacy test disposition matrix](../../../docs/rust-compiler/original-2048.md)
+records all16 replaced source methods; legacy files await whole-project removal.
+The separate scene-based sample has [SDK game tests](../../../rust/koh-compile/tests/sdk/game.rs).
