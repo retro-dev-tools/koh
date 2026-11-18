@@ -1,3 +1,27 @@
+# Current work: DWARF then GPUI
+
+2026-11-18: fetched and fast-forwarded master to `9ebb6e5` (compiler PR55 merged).
+Active branch `feat/gpui-ui`. User requires complete KohUI removal and selected
+KDBG-to-DWARF migration before continuing Rust + GPUI Kit UI implementation.
+See `docs/dwarf-migration.md` for the first writer checkpoint and next step;
+`docs/gpui-migration.md` retains full UI parity/removal acceptance.
+
+Initial `LinkResult::dwarf()` writer is tested: 26 linker tests pass, exit 0;
+llvm-dwarfdump verifies the generated ELF with `No errors.` and readelf decodes
+the expected banked source address. Production still uses KDBG. No reader,
+CLI/SDK cutover or GPUI runtime is implemented. Macro expansions explicitly
+error pending faithful representation. Next: bounded gimli reader, C# consumer
+boundary and real debugger cutover, then complete UI replacement/removal.
+No agents spawned; no push/PR authorized.
+
+Unrelated modified `samples/csharp/gb-jrpg/screenshots/battle.png` remains intact,
+SHA256 `fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454`.
+Stage only task files. Builds run serially in `target/debug`.
+Edit/LSP tools unavailable; use apply_patch and targeted source reads.
+Vault AGENTS.md and vault-observer skill not found at inspected paths.
+
+The compiler handoff below is historical:
+
 # Native compiler migration handoff
 
 ## Current integrated removal

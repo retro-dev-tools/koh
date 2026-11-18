@@ -4,6 +4,15 @@ Assessment date: 2026-11-14. Source baseline: `c2fddcf`, with pre-existing uncom
 
 ## Product direction
 
+Active user-requested migration (2026-11-18): replace the entire desktop UI
+with Rust + GPUI Kit and remove KohUI completely, including its backends,
+demo and build references. Preserve emulator/debugger behavior. The current
+inventory and acceptance gates are in [GPUI migration](docs/gpui-migration.md);
+implementation and native acceptance are still pending.
+The user selected KDBG-to-DWARF migration first, then UI implementation.
+The initial DWARF writer is in progress; production still emits KDBG until
+the debugger, SDK, CLI, editor and fixture consumers migrate together.
+
 Serve Game Boy hobbyists who want to write assembly or constrained C#, build a ROM, and diagnose problems without stitching together unrelated editor and debugger integrations. The differentiator is the connected development workflow: semantic assembly tooling plus C# compilation, sample games, and an emulator/debugger in one repository.
 
 The next milestone should be one documented, reproducible source-to-ROM-to-debugger workflow. Prefer making that journey reliable over expanding the language, emulator UI framework, or number of command-line tools. Preserve existing file formats and game behavior unless a demonstrated correctness issue requires a change.
