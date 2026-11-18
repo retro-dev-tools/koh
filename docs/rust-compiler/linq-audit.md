@@ -86,6 +86,41 @@ Supplying the same runtime's `System.Collections.dll` advances this probe to
 recorded in `/tmp/koh-linq-audit-complete-references.log`. This layout-resolution
 failure also needs a minimal independent fixture before choosing a workaround.
 
+### Framework root layout correction
+
+The layout failure was reproduced directly on the real CoreLib `System.Object`
+definition, without LINQ or query rewriting. Class layout recognized an Object
+*base reference* but did not recognize Object's own base-less definition. It now
+recognizes that definition through the existing framework assembly identity/key
+checks and requires its base to be null. Ordinary direct-Object descendants keep
+their existing layout. An unrelated same-named `System.Object` with a null base
+still rejects; a full-name match alone cannot grant framework root semantics.
+
+Two Debug/Release rstest cases in
+`driver::reference_contracts::framework_object_definition_has_a_root_layout`
+check the real two-byte object header, absent base/fields, class identity and the
+untrusted name-collision mutation. The pre-fix run failed on the real root with
+`Reference class has no base type` (`/tmp/koh-framework-root-red.log`, exit100).
+The focused post-fix selection passed14/14 in18.398s, exit0, with559 explicitly
+unselected (`/tmp/koh-framework-root-green.log`), including existing framework
+interface, real Math.Max and iterator ROM cases. This fixes the shared layout
+bug; it does not establish LINQ execution or resolve recursive constraints.
+
+Expanded layout/reference/generic/interface coverage passed148/148 in136.815s,
+exit0,489 explicitly unselected (`/tmp/koh-framework-root-regression.log`). A fresh
+CLI build exited0 (`/tmp/koh-framework-root-cli-build.log`). The identical
+iterator pipeline probe now advances into Where's body and rejects at IL_0000
+with `Uninitialized locals require definite-assignment lowering`, exit1, no
+object (`/tmp/koh-framework-root-linq-probe.log`). That next supported-CIL gap
+needs definite-assignment analysis, not unconditional zero initialization or a
+blanket promise that ordinary framework LINQ now works.
+
+Fresh `cargo nextest list --workspace --all-features --locked --message-format
+json` discovery reports2019 workspace cases,1842 compiler cases and zero ignored
+(`/tmp/koh-framework-root-discovery.json`, exit0). Existing cubes dead-code warning
+remains. Discovery is not a full test run; no current-head three-platform claim
+is made. Source dispositions remain509/565,56 outstanding.
+
 Local evidence: `/tmp/koh-linq-audit-native-build.log` reports successful native
 build; `/tmp/koh-linq-audit-build.log` and
 `/tmp/koh-linq-audit-build-iterator.log` report zero build warnings/errors, exit 0.

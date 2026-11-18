@@ -243,7 +243,13 @@ impl Classes<'_, '_> {
                 depth: interface_depth,
             });
         }
-        let base = if framework == Some(("System", "Object")) {
+        let root = self.resolver.framework_definition(raw)? == Some(("System", "Object"));
+        let base = if root {
+            if ty.extends.row != 0 {
+                return Err("System.Object must not have a base type".into());
+            }
+            None
+        } else if framework == Some(("System", "Object")) {
             None
         } else {
             ty.extends.table.ok_or("Reference class has no base type")?;

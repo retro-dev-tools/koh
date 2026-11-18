@@ -5,6 +5,77 @@ use koh_compile::{
     sm83,
 };
 use rstest::rstest;
+#[path = "../support/metadata.rs"]
+mod metadata;
+
+#[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn framework_object_definition_has_a_root_layout(host: &Host, #[case] configuration: &str) {
+    let (_directory, images) = gameboy_images(host, configuration, "FrameworkContracts");
+    let (facade, core) = runtime_images();
+    let resolver = Resolver::new(&[&images[0], &images[1], &facade, &core]).unwrap();
+    let data = resolver.assembly(3).unwrap().metadata();
+    let root = data
+        .type_defs
+        .iter()
+        .position(|ty| {
+            data.strings.get(ty.type_namespace).unwrap() == "System"
+                && data.strings.get(ty.type_name).unwrap() == "Object"
+        })
+        .unwrap();
+    let layout = koh_compile::layout::class(
+        &resolver,
+        Definition {
+            assembly: 3,
+            token: 0x02000001 + root as u32,
+        },
+    )
+    .unwrap();
+    assert_eq!(layout.bytes, 2);
+    assert!(layout.base.is_none() && layout.fields.is_empty() && !layout.interface);
+
+    let data = resolver.assembly(0).unwrap().metadata();
+    let user = data
+        .type_defs
+        .iter()
+        .position(|ty| data.strings.get(ty.type_name).unwrap() == "ReferenceRules")
+        .unwrap();
+    let object = data
+        .type_refs
+        .iter()
+        .find(|ty| {
+            data.strings.get(ty.type_namespace).unwrap() == "System"
+                && data.strings.get(ty.type_name).unwrap() == "Object"
+        })
+        .unwrap();
+    let mut changed = images[0].clone();
+    let (offset, context) = metadata::table_row(&changed, clrmeta::TableId::TypeDef, user);
+    let width = context.string_index_size();
+    for (index, value) in [object.type_name, object.type_namespace]
+        .into_iter()
+        .enumerate()
+    {
+        let start = offset + 4 + index * width;
+        changed[start..start + width].copy_from_slice(&value.to_le_bytes()[..width]);
+    }
+    let start = offset + 4 + 2 * width;
+    let width = context.coded_index_size(clrmeta::CodedIndexKind::TypeDefOrRef);
+    changed[start..start + width].fill(0);
+    let resolver = Resolver::new(&[&changed, &images[1], &facade, &core]).unwrap();
+    let error = koh_compile::layout::class(
+        &resolver,
+        Definition {
+            assembly: 0,
+            token: 0x02000001 + user as u32,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("Reference class has no base type"),
+        "{error}"
+    );
+}
 
 #[rstest]
 #[case("Debug", false)]

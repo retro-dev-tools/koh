@@ -14,7 +14,12 @@ baseline; authoring needs and hardware constraints determine the new contract.
 
 [Fresh Roslyn/native probes and semantic audit](linq-audit.md) identify separate
 array-to-interface conversion, recursive constraint binding and framework layout
-resolution gaps. Pipeline Max rejection is retired as a proposed acceptance
+resolution gaps. The framework root layout bug is now fixed: the real trusted
+System.Object definition has a base-less two-byte root layout, while an unrelated
+same-named root still rejects. Two new rstest cases cover Debug/Release metadata;
+expanded layout/reference/generic/interface validation passed148/148 in136.815s,
+exit0. The original iterator pipeline now reaches the explicit uninitialized-local
+analysis gap inside Where rather than failing root layout. Pipeline Max rejection is retired as a proposed acceptance
 expectation; the replacement must execute and return 3. All five LINQ source
 methods remain outstanding. This audit adds no completed-test credit or support
 claim; the ledger remains509/565,56 outstanding.
