@@ -52,6 +52,20 @@ fn identity(path: &std::path::Path) -> Result<PathBuf, String> {
         .join(path.file_name().ok_or("Invalid output path")?))
 }
 fn run() -> Result<(), String> {
+    let arguments: Vec<_> = std::env::args().skip(1).collect();
+    if arguments.first().map(String::as_str) == Some("--read-debug-info") {
+        if arguments.len() != 1 {
+            return Err("--read-debug-info only accepts ELF bytes on stdin".into());
+        }
+        let mut bytes = Vec::new();
+        std::io::stdin()
+            .take(MAX_INPUT + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        let debug = koh_link::read_dwarf(&bytes)?;
+        serde_json::to_writer(std::io::stdout().lock(), &debug).map_err(|e| e.to_string())?;
+        return Ok(());
+    }
     let mut options = LinkOptions::default();
     let mut output = None;
     let mut sym = None;
@@ -59,7 +73,7 @@ fn run() -> Result<(), String> {
     let mut report = None;
     let mut inputs = Vec::new();
     let mut emit = false;
-    let mut args = std::env::args().skip(1);
+    let mut args = arguments.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-o" | "--output" | "-n" | "--sym" | "-d" | "--kdbg" | "--report-json" => {
@@ -94,7 +108,7 @@ fn run() -> Result<(), String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "koh-link -o ROM [-n SYM] [-d KDBG] [--raw] [--size=HEX] [--cgb-compatible|--cgb-only] OBJECT...\nkoh-link --emit-elf -o OBJECT < object.json"
+                    "koh-link -o ROM [-n SYM] [-d KDBG] [--raw] [--size=HEX] [--cgb-compatible|--cgb-only] OBJECT...\nkoh-link --emit-elf -o OBJECT < object.json\nkoh-link --read-debug-info < debug.elf"
                 );
                 return Ok(());
             }

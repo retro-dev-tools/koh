@@ -22,7 +22,7 @@ pub struct LinkOptions {
     pub size: Option<usize>,
     pub cgb: CgbMode,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct LinkedSymbol {
     pub name: String,
     pub value: i32,
@@ -30,7 +30,7 @@ pub struct LinkedSymbol {
     pub kind: u8,
     pub source: Option<Provenance>,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct LinkedLine {
     pub bank: u32,
     pub address: u32,
@@ -463,5 +463,7 @@ impl LinkResult {
 }
 mod debug;
 mod dwarf;
+mod dwarf_read;
+pub use dwarf_read::{DwarfDebugInfo, read_dwarf};
 #[cfg(test)]
 mod tests;

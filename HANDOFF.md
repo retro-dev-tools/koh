@@ -6,13 +6,18 @@ KDBG-to-DWARF migration before continuing Rust + GPUI Kit UI implementation.
 See `docs/dwarf-migration.md` for the first writer checkpoint and next step;
 `docs/gpui-migration.md` retains full UI parity/removal acceptance.
 
-Initial `LinkResult::dwarf()` writer is tested: 26 linker tests pass, exit 0;
-llvm-dwarfdump verifies the generated ELF with `No errors.` and readelf decodes
-the expected banked source address. Production still uses KDBG. No reader,
-CLI/SDK cutover or GPUI runtime is implemented. Macro expansions explicitly
-error pending faithful representation. Next: bounded gimli reader, C# consumer
-boundary and real debugger cutover, then complete UI replacement/removal.
-No agents spawned; no push/PR authorized.
+Initial `LinkResult::dwarf()` writer and bounded `read_dwarf` reader implemented.
+CLI `koh-link --read-debug-info` reads ELF bytes on stdin and returns JSON.
+32 linker tests pass (18 library +5 CLI +9 DWARF), exit 0, actual log re-read:
+`/tmp/koh-dwarf-reader-tests.log`. Native CLI probe and LLVM verification exit 0;
+verifier ends `No errors.`. Focused Clippy clean; two pre-existing all-target
+findings documented in `docs/dwarf-migration.md`, left unchanged.
+Production still uses KDBG. No C# reader binding, CLI/SDK producer cutover or
+GPUI runtime implemented. Macro expansions explicitly error pending faithful
+representation. Next: macro provenance, managed reader binding and real debugger
+cutover, then complete UI replacement/removal. No agents spawned.
+User authorized opening a draft PR and keeping it updated; push this branch and
+update its description as increments land. No merge or release authorized.
 
 Unrelated modified `samples/csharp/gb-jrpg/screenshots/battle.png` remains intact,
 SHA256 `fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454`.

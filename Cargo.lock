@@ -235,6 +235,7 @@ dependencies = [
  "gimli",
  "koh-objects",
  "object",
+ "serde",
  "serde_json",
 ]
 

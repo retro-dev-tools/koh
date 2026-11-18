@@ -1,7 +1,8 @@
 # KDBG to DWARF migration
 
 Requested on 2026-11-18 as the prerequisite to the GPUI migration.
-Status: initial writer implemented and checked; production remains on KDBG.
+Status: initial writer and bounded native reader implemented and checked;
+production remains on KDBG.
 
 ## Contract
 
@@ -87,8 +88,41 @@ log `/tmp/koh-dwarf-verify.log` ends `No errors.`. `readelf -n --debug-dump=info
 `source.cs` line 7 at `0x24000`, exclusive end `0x24003`, and label `entry`
 at `0x24000`. These checks prove the initial writer, not debugger cutover.
 
-Next: bounded gimli reader and C# consumption boundary.
+Next: macro provenance and C# consumption boundary.
 `Koh.Native/NativeBuild.targets` already builds/copies `koh-link`; evaluate
 that native parsing path against NativeAOT/packaging before choosing.
 LibObjectFile's README advertises DWARF 4; do not assume DWARF 5 compatibility.
 Resolve macro provenance before switching producers.
+
+## Reader checkpoint (2026-11-18)
+
+`read_dwarf` uses gimli and returns the existing linked symbol/source records.
+`koh-link --read-debug-info` reads ELF bytes from stdin and emits JSON records;
+invalid input exits unsuccessfully without a partial JSON response. This is
+the intended native parsing boundary for the managed debugger, not a second
+persisted debug format. The managed caller has not been connected yet.
+
+The reader validates the SM83 ELF header/note, duplicate/required sections,
+DWARF version/address encoding, symbol tags/scopes, RAM address expressions,
+file indices and monotonically ordered, bank-bounded source ranges. Input and
+decoded records/strings are limited to 64 MiB. It accepts absent line tables
+for genuinely symbol-only/empty units, preserves unknown-line gaps and signed
+32-bit constants, and rejects unsupported constructs rather than dropping them.
+This is a reader of Koh's emitted DWARF profile, not arbitrary external DWARF.
+
+`cargo test -p koh-link --locked` completed with exit 0:
+`/tmp/koh-dwarf-reader-tests.log` records 18 library + 5 CLI + 9 DWARF tests,
+all passing, 0 failed/ignored. Tests include every truncated prefix of a valid
+file, wrong header/note/version, stdin CLI success/failure, full-width signed
+constants, absent line data, CPU-address boundaries and Unix/Windows paths.
+
+The compiled CLI parsed the independently verified probe ELF: exit 0,
+`/tmp/koh-dwarf-reader-probe.json` contains bank 2, address 16384, count 3,
+`source.cs:7` and symbol `entry`. A fresh LLVM verifier run exited 0 and ends
+`No errors.` in `/tmp/koh-dwarf-reader-independent.log`.
+
+Focused Clippy on the library, binary and DWARF integration test passed with
+warnings denied. Broader all-target Clippy is not clean: existing
+`koh-objects/src/model.rs:226` collapsible-if and `koh-link/src/tests.rs:312`
+clone-to-slice findings remain outside this increment. No suppressions added.
+Real debugger, SDK, NativeAOT and three-platform cutover remain unverified.

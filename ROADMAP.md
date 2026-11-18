@@ -10,7 +10,8 @@ demo and build references. Preserve emulator/debugger behavior. The current
 inventory and acceptance gates are in [GPUI migration](docs/gpui-migration.md);
 implementation and native acceptance are still pending.
 The user selected KDBG-to-DWARF migration first, then UI implementation.
-The initial DWARF writer is in progress; production still emits KDBG until
+The initial DWARF writer and bounded native reader/CLI are implemented and
+pass 32 focused linker tests. Production still emits KDBG until
 the debugger, SDK, CLI, editor and fixture consumers migrate together.
 
 Serve Game Boy hobbyists who want to write assembly or constrained C#, build a ROM, and diagnose problems without stitching together unrelated editor and debugger integrations. The differentiator is the connected development workflow: semantic assembly tooling plus C# compilation, sample games, and an emulator/debugger in one repository.
