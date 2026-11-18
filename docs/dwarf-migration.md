@@ -243,6 +243,13 @@ framework caller recovery. The Debug SDK case completed in 172.910 seconds
 while rebuilding its cold native tool cache. The test host's injected symbol
 fixture now uses the neutral debug record constructor.
 
+Hosted run `44390929517` at `22f9ef4` passed 1479/1480 Rust fast cases.
+The remaining assembler macro test still interpreted debug output with legacy
+KDBG offsets. It now compares decoded DWARF ranges and complete macro ancestry
+against the linked records. The full assembler suite then passed 149 tests,
+exit 0; completed log: `/tmp/koh-dwarf-macro-acceptance.log`. Rustfmt check
+also exited 0. Hosted acceptance on the corrected head remains pending.
+
 Next: implement the windowless engine session; validate NativeAOT packaging
 and hosted platforms before final acceptance.
 The new GPUI application and KohUI removal remain unfinished.

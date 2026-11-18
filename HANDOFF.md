@@ -28,6 +28,10 @@ Real C# source-breakpoint/stack/SDK debugger acceptance passed: 37/37 selected
 cases, exit0, 244.779seconds; 619 cases outside the filter. Final log:
 /tmp/koh-dwarf-source-debugger-tests-final.log. Both SDK2048 variants pass.
 DebuggerHost's injected-symbol fixture uses the neutral record constructor.
+Hosted22f9ef4 failed1/1480Rust fast cases: assembler macro test retained KDBG
+offset assertions. Replaced with full decoded DWARF range/ancestry comparison;
+all149assembler tests pass, exit0, /tmp/koh-dwarf-macro-acceptance.log.
+Hosted acceptance on corrected head remains pending.
 Next: engine session, NativeAOT/hosted proof and complete GPUI/KohUI replacement.
 No GPUI runtime exists yet. No agents spawned.
 User authorized opening a draft PR and keeping it updated; push this branch and
