@@ -25,8 +25,10 @@ platform/product/release acceptance.
 - [x] Validate Linux staged compiler/linker, canonical ELF/ROM/KDBG and NativeAOT
   emulator execution from paths with spaces, including archive extraction and
   exact Cargo dependency notices. [Evidence](packaged-tools.md).
-- [ ] Finish current-head three-OS CI and final SDK/editor/debug/release review.
-  Local Linux evidence and text searches alone do not prove those wider gates.
+- [x] Finish full three-OS implementation validation at3d15f2d: all14 CI jobs
+  passed, including native SDK/debug tests, editor tests and artifact smoke checks.
+- [ ] Finish release review; see the [acceptance audit](acceptance.md) for exact
+  verification scope, historical-runtime measurement limits and notice gaps.
 
 The additional Superopt consumers are outside the565-method legacy compiler
 source ledger. Their test ownership and disposition must be recorded separately;

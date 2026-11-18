@@ -1,5 +1,8 @@
 # Native CIL compiler migration (PR #55)
 
+The [requirement-by-requirement acceptance audit](acceptance.md) is the current
+completion record. Sections below retain historical implementation checkpoints.
+
 ### Final platform validation at3d15f2d
 
 All14 jobs in [the full CI run](https://github.com/retro-dev-tools/koh/actions/runs/44316310945)
@@ -16,16 +19,18 @@ records90 fresh measurements, larger native ROM payloads and the historical-runt
 game capture differences without claiming game parity. Final release review remains
 open; this platform result does not resolve the notice gaps in [package evidence](packaged-tools.md).
 
-Status: migration incomplete. Native CIL reading, typed IR, optimization and
+Status: implementation and full platform regression complete; final release
+review remains open. Native CIL reading, typed IR, optimization and
 SM83/ELF emission are implemented, including banked managed calls and
 [bounded hardware interrupt roots](irq-calls.md). The
 [runtime boundaries](runtime-boundaries.md) document the rationale and alternatives
 for unboxed values, exact variance identities, bounded IRQ execution and ROM0
-constant pools; final boundary/diagnostic acceptance remains open. The SDK now
+constant pools; the [language contract](supported-subset.md) consolidates supported
+execution and explicit diagnostics. The SDK now
 invokes native compiler/linker processes. The legacy C# compiler and compiler
 test project are removed, with all565 source dispositions complete. Final
-current-head platform/product acceptance, broader performance evidence and
-release-review items remain required. The current public API is evidence, not a design
+release-review items remain required. Platform/product results and representative
+performance measurements are recorded above. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
 ### Source-test closure and legacy compiler removal

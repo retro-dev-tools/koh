@@ -75,11 +75,11 @@ omit data. `sm83::oversized_machine_code_is_diagnostic`, literal-pool tests and
 banked call/array tests cover separate parts of this contract. Final linker
 capacity and sample acceptance must still be checked at the release commit.
 
-## What these decisions do not close
+## Acceptance scope
 
 This document adds no source-test disposition credit and removes no useful test
-or production capability. Final acceptance must reconcile diagnostics, API and
-SDK documentation with these boundaries, distinguish malformed input from valid
-unsupported semantics, and run the relevant positive and negative tests. Legacy
-compiler deletion, all affected consumer migration, source-debug acceptance,
-cross-platform validation and performance evidence remain separate requirements.
+or production capability. The [language contract](supported-subset.md) consolidates
+these boundaries and distinguishes malformed input from valid unsupported
+semantics. The [acceptance audit](acceptance.md) records positive/negative tests,
+legacy deletion, consumer migration, source debugging, platform results and
+performance evidence, together with unresolved release-review items.
