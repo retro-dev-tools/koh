@@ -54,6 +54,7 @@ jobs:
           rustup target add "$compiler_target"
           cargo build --release --package koh-compile --locked --target "$compiler_target"
           cp "target/$compiler_target/release/koh-compile$compiler_suffix" "$bin/"
+          python scripts/stage-rust-notices.py "$bin/licenses/rust-runtime"
 
       - name: Smoke-test packaged C# tools
         shell: bash
@@ -86,6 +87,7 @@ jobs:
         run: |
           test -f staging/bin/licenses/rust-assembler-dependencies.md
           test -d staging/bin/licenses/rust-assembler
+          test -f staging/bin/licenses/rust-runtime/COPYRIGHT-library.html
           ver="${{ steps.ver.outputs.version }}"
           case "${{ matrix.archive }}" in
             zip)

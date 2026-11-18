@@ -5,6 +5,13 @@ Redistributions containing `koh-asm`, `koh-link` or `koh-compile` must retain th
 the repository's `Cargo.lock`, including host-side procedural macro dependencies.
 It does not assert that every listed package is linked into every target binary.
 
+Release archives also carry `rust-runtime/COPYRIGHT-library.html`, its accompanying
+`licenses/` texts and `compiler-version.txt`. `scripts/stage-rust-notices.py`
+copies these from the active compiler's sysroot; they are not inferred from
+Cargo.lock or copied from a different Rust version. This separate upstream
+inventory covers standard-library notices, not Koh's first-party license or
+the existing managed toolchain payload.
+
 MIT is selected wherever the package offers an MIT alternative; `foldhash` and `zlib-rs` use Zlib. For
 `unicode-ident`, the additional Unicode-3.0 terms also apply. The selected MIT
 terms require retaining the copyright and permission notices; the Unicode terms

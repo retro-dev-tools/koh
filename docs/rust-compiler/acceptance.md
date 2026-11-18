@@ -45,8 +45,10 @@ intentionally selects one SDK case and does not replace it.
 - The native dependency bundle has60 verified registry archives and61 selected
   license-text references. First-party MIT metadata has no accompanying root
   LICENSE; attribution awaits maintainer input. The inventory does not establish
-  toolchain-wide license compliance, including the Rust standard library or
-  existing managed payload. Release readiness remains unproven.
+  toolchain-wide license compliance or the existing managed payload. The release
+  now stages the active Rust sysroot's upstream library notices separately;
+  local1.88/1.99 byte-identity checks pass. Hosted staging remains to be validated.
+  Release readiness remains unproven.
 - No physical Game Boy validation or exhaustive game-route test is claimed.
   Documented exclusions include boxing, variance adaptation, exceptional unwind,
   general reflection/BCL, richer IRQ execution and bank-bearing immutable data.

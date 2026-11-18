@@ -67,3 +67,21 @@ component's licensing. The repository README/Cargo metadata declares MIT but no
 first-party LICENSE file is tracked. First-party/toolchain-wide release notices
 remain a release-review item; this checkpoint does not invent a copyright owner
 or claim that the Cargo inventory audits Rust's standard library.
+
+## Rust runtime notice staging
+
+The release workflow now calls `scripts/stage-rust-notices.py` after building
+the compiler. It stages the active sysroot's complete `COPYRIGHT-library.html`
+and accompanying license-text directory under `licenses/rust-runtime`, with
+`rustc --version --verbose` provenance. The three-host native CI artifact job
+uses the same helper. Missing upstream files fail the staging command rather
+than silently shipping an empty notice directory. No license terms are rewritten.
+
+Local checks stage actual Rust1.99.0 Gentoo and minimum Rust1.88.0 notices into
+paths containing spaces. Both commands exit0; each stages13 upstream files with
+byte-identical SHA256 values, plus compiler provenance. All relative HTML links
+resolve (these upstream files currently contain only anchors and external links).
+An initial check incorrectly expected local file links; correcting that check
+does not change the upstream HTML or staged payload. Both MIT and Apache texts
+are present. This validates the helper locally, not a new hosted three-platform
+release or the first-party/managed-payload licensing review.
