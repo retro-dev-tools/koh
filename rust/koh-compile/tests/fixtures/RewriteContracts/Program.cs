@@ -1,5 +1,32 @@
 public static unsafe class Program
 {
+    public static int CountedCost()
+    {
+        for (byte i = 0; i < 100; i++)
+            *(byte*)0xC100 = i;
+        return *(byte*)0xC100;
+    }
+
+    public static int CopyCost()
+    {
+        byte* source = (byte*)0xC100;
+        byte* destination = (byte*)0xC200;
+        for (byte i = 0; i < 32; i++)
+            source[i] = i;
+        byte count = 32;
+        while (count != 0)
+        {
+            *destination = *source;
+            destination++;
+            source++;
+            count--;
+        }
+        int result = 0;
+        for (int i = 0; i < 32; i++)
+            result |= ((byte*)0xC200)[i] ^ i;
+        return result;
+    }
+
     private static byte Touch(byte value) => (byte)(value + 5);
 
     public static int LoopExit(int count, int other)

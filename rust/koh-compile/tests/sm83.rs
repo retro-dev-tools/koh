@@ -30,6 +30,77 @@ mod support;
 use support::{Host, dotnet};
 
 #[rstest::rstest]
+#[case("CountedCost", 99u64, 100u64)]
+#[case("CopyCost", 0u64, 32u64)]
+fn real_loop_cost_baselines(
+    host: &Host,
+    #[case] name: &str,
+    #[case] expected: u64,
+    #[case] iterations: u64,
+) {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/RewriteContracts");
+    let output = dotnet()
+        .arg("build")
+        .arg(fixture.join("RewriteContracts.csproj"))
+        .args(["-c", "Release", "--nologo", "-v:q", "-m:1"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let image = std::fs::read(fixture.join("bin/Release/net10.0/RewriteContracts.dll")).unwrap();
+    let resolver = koh_compile::resolve::Resolver::new(&[&image]).unwrap();
+    let metadata = resolver.assembly(0).unwrap().metadata();
+    let identity = Definition {
+        assembly: 0,
+        token: 0x06000001
+            + metadata
+                .method_defs
+                .iter()
+                .position(|m| metadata.strings.get(m.name).unwrap() == name)
+                .unwrap() as u32,
+    };
+    let mut function = koh_compile::lower::assembly_method(&resolver, identity).unwrap();
+    koh_compile::optimize::simplify(&mut function).unwrap();
+    verify_program(&[function.clone()]).unwrap();
+    let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
+    let path = directory.path().join("loop.gb");
+    std::fs::write(&path, rom_program(&[function], identity, &[], 0xd000)).unwrap();
+    let output = dotnet()
+        .arg(&host.dll)
+        .arg("--cost")
+        .arg(path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    let fields: Vec<_> = text.split_whitespace().collect();
+    assert_eq!(fields[0], "A5", "{text}");
+    assert_eq!(
+        fields[2],
+        expected
+            .to_le_bytes()
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<String>(),
+        "{text}"
+    );
+    assert_eq!(&fields[3..5], &["D000", "OK"], "{text}");
+    let cycles: u64 = fields[5].parse().unwrap();
+    println!(
+        "{name}: {cycles} T-cycles total; {:.3} per iteration including harness and result observation",
+        cycles as f64 / iterations as f64
+    );
+}
+
+#[rstest::rstest]
 #[case("Debug")]
 #[case("Release")]
 fn machine_rewrites_preserve_carry_control_and_observed_memory(

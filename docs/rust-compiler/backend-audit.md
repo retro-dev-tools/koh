@@ -666,11 +666,11 @@ Three behavioral methods now run through [guarded/sequential native copies](guar
 
 Classification: Observable loop values, aliasing and target cycle budgets. Exited induction values, old SSA values, nested/sequential loops and overlapping forward copies must retain their language meaning.
 
-Six exit/saved-value methods have [native real-CIL replacements](loop-exit-values.md). The other14 methods, including timing ceilings, remain open.
+Six exit/saved-value methods have [native real-CIL replacements](loop-exit-values.md). The [counted baseline](loop-costs.md) is also complete. The other13 methods, including timing ceilings, remain open.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `Baseline_CountedConstAddrStoreLoop` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `Baseline_CountedConstAddrStoreLoop` | Requirement | PORT complete | [Real-CIL100-iteration baseline with observed99 and explicit timing limitations](loop-costs.md). |
 | `CountedConstAddrStoreLoop_MeetsCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
 | `InductionValueUsedAfterLoopExit` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
 | `InductionValueUsedAfterLoopExit_WithInterveningClobber_StillCorrect` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |

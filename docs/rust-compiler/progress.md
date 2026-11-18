@@ -10,6 +10,17 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Loop cost baseline and remaining timing gap
+
+One counted-store baseline method now has a [native replacement](loop-costs.md).
+The separate190/740-dot ceilings remain open. Native inclusive cost probes
+measure71444 T-cycles for100 stores and166056 for32 copied/individually checked
+bytes; harness and observation overhead prevent claiming equivalent windows or
+exact ceiling violations. No timing assertion was weakened. Expanded validation
+passed224/224 in30.101s, exit0,207 explicitly unselected (/tmp/koh-loop-cost-final.log).
+Discovery1925workspace/1748compiler/0ignored. Ledger465/565 (464 replacements,
+one DELETE),100 outstanding. Next isolate hot-loop windows before codegen changes.
+
 ### Loop exit and saved values
 
 Six Sm83LoopCodegenTests methods have [native replacements](loop-exit-values.md).
@@ -505,7 +516,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-464/565 dispositions complete (463 native replacements, one DELETE),101 outstanding,
+465/565 dispositions complete (464 native replacements, one DELETE),100 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,
