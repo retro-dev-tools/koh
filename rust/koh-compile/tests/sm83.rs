@@ -30,6 +30,430 @@ mod support;
 use support::{Host, dotnet};
 
 #[rstest::rstest]
+#[case(false)]
+#[case(true)]
+fn byte_local_branch_reads_keep_alias_barriers_and_escaped_snapshots(
+    host: &Host,
+    #[case] escape: bool,
+) {
+    let value = |id, op| Instruction {
+        result: Some((id, Type::I32)),
+        op,
+        il_offset: id,
+    };
+    let mut instructions = vec![
+        value(
+            1,
+            Op::Convert {
+                value: 0,
+                bits: 8,
+                signed: false,
+            },
+        ),
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 1 },
+            il_offset: 1,
+        },
+        value(2, Op::LoadLocal(0)),
+    ];
+    if !escape {
+        instructions.extend([
+            Instruction {
+                result: Some((3, Type::ByRef(Scalar::U8))),
+                op: Op::LocalAddress {
+                    local: 0,
+                    storage: FieldStorage::Value(Storage::Scalar(Scalar::U8)),
+                },
+                il_offset: 3,
+            },
+            value(4, Op::Constant(20)),
+            Instruction {
+                result: None,
+                op: Op::StoreMemory {
+                    address: 3,
+                    value: 4,
+                    bits: 8,
+                },
+                il_offset: 4,
+            },
+        ]);
+    }
+    instructions.extend([
+        value(5, Op::Constant(100)),
+        value(
+            6,
+            Op::Compare {
+                op: Comparison::LessUnsigned,
+                left: 2,
+                right: 5,
+            },
+        ),
+    ]);
+    let f = Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![Type::I32],
+        returns: Some(Type::I32),
+        locals: vec![Type::I32],
+        blocks: vec![
+            Block {
+                parameters: vec![(0, Type::I32)],
+                instructions,
+                terminator: Terminator {
+                    kind: Control::Branch {
+                        condition: 6,
+                        yes: Edge {
+                            block: 1,
+                            arguments: if escape { vec![2] } else { vec![] },
+                        },
+                        no: Edge {
+                            block: 2,
+                            arguments: if escape { vec![2] } else { vec![] },
+                        },
+                    },
+                    il_offset: 6,
+                },
+            },
+            Block {
+                parameters: if escape { vec![(7, Type::I32)] } else { vec![] },
+                instructions: if escape {
+                    vec![
+                        value(8, Op::Constant(1)),
+                        value(
+                            9,
+                            Op::Binary {
+                                op: Binary::Add,
+                                left: 7,
+                                right: 8,
+                            },
+                        ),
+                    ]
+                } else {
+                    vec![value(8, Op::Constant(1))]
+                },
+                terminator: Terminator {
+                    kind: Control::Return(Some(if escape { 9 } else { 8 })),
+                    il_offset: 9,
+                },
+            },
+            Block {
+                parameters: if escape {
+                    vec![(10, Type::I32)]
+                } else {
+                    vec![]
+                },
+                instructions: if escape {
+                    vec![]
+                } else {
+                    vec![value(11, Op::Constant(0))]
+                },
+                terminator: Terminator {
+                    kind: Control::Return(Some(if escape { 10 } else { 11 })),
+                    il_offset: 11,
+                },
+            },
+        ],
+    };
+    let mut optimized = f.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    let mut cases = Vec::new();
+    for input in [0u64, 20, 99, 100, 200, 255] {
+        let expected = u64::from(input < 100) + if escape { input } else { 0 };
+        for function in [&f, &optimized] {
+            cases.push((function.clone(), vec![input], Ok(expected)));
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+#[case(Comparison::Equal)]
+#[case(Comparison::LessSigned)]
+#[case(Comparison::LessUnsigned)]
+#[case(Comparison::GreaterSigned)]
+#[case(Comparison::GreaterUnsigned)]
+fn byte_constant_branches_preserve_order_and_escaping_constants(
+    host: &Host,
+    #[case] op: Comparison,
+    #[values(false, true)] constant_first: bool,
+    #[values(false, true)] escape: bool,
+) {
+    let value = |id, op| Instruction {
+        result: Some((id, Type::I32)),
+        op,
+        il_offset: id,
+    };
+    let mut cases = Vec::new();
+    for constant in [0u32, 1, 127, 128, 255, 300, u32::MAX] {
+        let f = Function {
+            identity: Definition {
+                assembly: 0,
+                token: 0x06000001,
+            },
+            parameters: vec![Type::I32],
+            returns: Some(Type::I32),
+            locals: vec![Type::I32],
+            blocks: vec![
+                Block {
+                    parameters: vec![(0, Type::I32)],
+                    instructions: vec![
+                        value(
+                            1,
+                            Op::Convert {
+                                value: 0,
+                                bits: 8,
+                                signed: false,
+                            },
+                        ),
+                        Instruction {
+                            result: None,
+                            op: Op::StoreLocal { local: 0, value: 1 },
+                            il_offset: 1,
+                        },
+                        value(10, Op::LoadLocal(0)),
+                        value(
+                            11,
+                            Op::Convert {
+                                value: 10,
+                                bits: 8,
+                                signed: false,
+                            },
+                        ),
+                        value(2, Op::Constant(u64::from(constant))),
+                        value(
+                            3,
+                            Op::Compare {
+                                op,
+                                left: if constant_first { 2 } else { 11 },
+                                right: if constant_first { 11 } else { 2 },
+                            },
+                        ),
+                    ],
+                    terminator: Terminator {
+                        kind: Control::Branch {
+                            condition: 3,
+                            yes: Edge {
+                                block: 1,
+                                arguments: if escape { vec![2] } else { vec![] },
+                            },
+                            no: Edge {
+                                block: 2,
+                                arguments: if escape { vec![2] } else { vec![] },
+                            },
+                        },
+                        il_offset: 3,
+                    },
+                },
+                Block {
+                    parameters: if escape { vec![(4, Type::I32)] } else { vec![] },
+                    instructions: if escape {
+                        vec![
+                            value(5, Op::Constant(1)),
+                            value(
+                                8,
+                                Op::Binary {
+                                    op: Binary::Add,
+                                    left: 4,
+                                    right: 5,
+                                },
+                            ),
+                        ]
+                    } else {
+                        vec![value(5, Op::Constant(1))]
+                    },
+                    terminator: Terminator {
+                        kind: Control::Return(Some(if escape { 8 } else { 5 })),
+                        il_offset: 8,
+                    },
+                },
+                Block {
+                    parameters: if escape { vec![(6, Type::I32)] } else { vec![] },
+                    instructions: if escape {
+                        vec![]
+                    } else {
+                        vec![value(7, Op::Constant(0))]
+                    },
+                    terminator: Terminator {
+                        kind: Control::Return(Some(if escape { 6 } else { 7 })),
+                        il_offset: 9,
+                    },
+                },
+            ],
+        };
+        let mut optimized = f.clone();
+        koh_compile::optimize::simplify(&mut optimized).unwrap();
+        for input in [0u32, 1, 50, 127, 128, 200, 254, 255, 256, u32::MAX] {
+            let byte = u32::from(input as u8);
+            let (left, right) = if constant_first {
+                (constant, byte)
+            } else {
+                (byte, constant)
+            };
+            let truth = match op {
+                Comparison::Equal => left == right,
+                Comparison::LessSigned => (left as i32) < (right as i32),
+                Comparison::LessUnsigned => left < right,
+                Comparison::GreaterSigned => (left as i32) > (right as i32),
+                Comparison::GreaterUnsigned => left > right,
+            };
+            let expected = u32::from(truth).wrapping_add(if escape { constant } else { 0 });
+            for function in [&f, &optimized] {
+                cases.push((
+                    function.clone(),
+                    vec![u64::from(input)],
+                    Ok(u64::from(expected)),
+                ));
+            }
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+#[case("plain")]
+#[case("old-escapes")]
+#[case("sum-escapes")]
+#[case("alias-write")]
+#[case("signed")]
+fn byte_local_updates_preserve_wrap_escaped_values_and_alias_writes(
+    host: &Host,
+    #[case] shape: &str,
+    #[values(false, true)] subtract: bool,
+) {
+    let value = |id, op| Instruction {
+        result: Some((id, Type::I32)),
+        op,
+        il_offset: id,
+    };
+    let conversion = |value, signed| Op::Convert {
+        value,
+        bits: 8,
+        signed,
+    };
+    let mut instructions = vec![
+        value(1, conversion(0, false)),
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 1 },
+            il_offset: 1,
+        },
+    ];
+    if shape == "alias-write" {
+        instructions.push(Instruction {
+            result: Some((20, Type::ByRef(Scalar::U8))),
+            op: Op::LocalAddress {
+                local: 0,
+                storage: FieldStorage::Value(Storage::Scalar(Scalar::U8)),
+            },
+            il_offset: 2,
+        });
+    }
+    instructions.push(value(2, Op::LoadLocal(0)));
+    if shape == "alias-write" {
+        instructions.extend([
+            value(21, Op::Constant(20)),
+            Instruction {
+                result: None,
+                op: Op::StoreMemory {
+                    address: 20,
+                    value: 21,
+                    bits: 8,
+                },
+                il_offset: 3,
+            },
+        ]);
+    }
+    instructions.extend([
+        value(3, conversion(2, false)),
+        value(4, Op::Constant(1)),
+        value(
+            5,
+            Op::Binary {
+                op: if subtract {
+                    Binary::Subtract
+                } else {
+                    Binary::Add
+                },
+                left: 3,
+                right: 4,
+            },
+        ),
+        value(6, conversion(5, shape == "signed")),
+        value(7, conversion(6, shape == "signed")),
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local: 0, value: 7 },
+            il_offset: 7,
+        },
+        value(8, Op::LoadLocal(0)),
+    ]);
+    let escaped = match shape {
+        "old-escapes" => Some(2),
+        "sum-escapes" => Some(5),
+        _ => None,
+    };
+    let returned = if let Some(left) = escaped {
+        instructions.push(value(
+            9,
+            Op::Binary {
+                op: Binary::Add,
+                left,
+                right: 8,
+            },
+        ));
+        9
+    } else {
+        8
+    };
+    let f = Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![Type::I32],
+        returns: Some(Type::I32),
+        locals: vec![Type::I32],
+        blocks: vec![Block {
+            parameters: vec![(0, Type::I32)],
+            instructions,
+            terminator: Terminator {
+                kind: Control::Return(Some(returned)),
+                il_offset: 10,
+            },
+        }],
+    };
+    let mut optimized = f.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    let mut cases = Vec::new();
+    for input in [0u32, 1, 127, 128, 255] {
+        let sum = if subtract {
+            input.wrapping_sub(1)
+        } else {
+            input + 1
+        };
+        let mut expected = if shape == "signed" {
+            sum as u8 as i8 as i32 as u32
+        } else {
+            u32::from(sum as u8)
+        };
+        if let Some(old) = escaped {
+            expected = expected.wrapping_add(if old == 2 { input } else { sum });
+        }
+        for function in [&f, &optimized] {
+            cases.push((
+                function.clone(),
+                vec![u64::from(input)],
+                Ok(u64::from(expected)),
+            ));
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
 #[case(0xc1ffu64)]
 #[case(0xff90u64)]
 fn absolute_byte_memory_preserves_truncation_signedness_and_escaping_addresses(
@@ -190,6 +614,12 @@ fn real_loop_cost_baselines(
     let cycles: u64 = fields[5].parse().unwrap();
     let window: u64 = fields[6].parse().unwrap();
     assert!(window > 0 && window < cycles, "{text}");
+    if name == "CountedCost" {
+        assert!(
+            cycles <= 190 * iterations,
+            "{cycles}T exceeds190-dot counted-loop ceiling"
+        );
+    }
     println!(
         "{name}: {cycles} T-cycles total; {:.3} per iteration including harness and result observation",
         cycles as f64 / iterations as f64

@@ -31,8 +31,12 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:560/565 methods (559 native behavioral replacements,
+**Complete dispositions:561/565 methods (560 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
+The [counted-loop190-dot requirement](byte-loop-selection.md) now has a native
+PORT replacement for both original assertions:100 stores, result99 and18440
+total T-cycles including wrapper/observation. Thirty-two new cases execute2924
+ROMs checking modular updates, comparison order, escaped values and alias barriers.
 Six [Roslyn narrowing methods](cil-narrowing-contracts.md) now have native
 replacements for11 source assertion sites/16 expanded assertions. Four Rust
 configurations retain dynamic high-bit comparison, wrapped sums and strict
@@ -126,7 +130,8 @@ replacements for six source assertion sites, with112 added ROM executions.
 Six [loop exit/saved-value methods](loop-exit-values.md) now have native
 replacements for six source assertion sites, with288 added ROM executions.
 The [counted-store baseline](loop-costs.md) adds one native PORT disposition;
-the separate190/740-dot performance requirements remain open.
+the190-dot performance requirement is now complete; the separate740-dot
+pointer-copy requirement remains open.
 Eleven [pointer/multi-loop methods](loop-memory-flows.md) now have native
 replacements for19 source assertion sites, with624 added ROM executions.
 All five [background/window map methods](bg-win-maps.md) now have native
@@ -142,7 +147,7 @@ for36 source assertion sites, with32 real-library ROM executions checking exact
 planes, clipping, page flips and actual GDMA transfers.
 Seven [referenced-memory/string-table methods](reference-memory-contracts.md)
 now have native replacements for23 source assertion sites, with28 ROM executions.
-The remaining five methods still have
+The remaining four methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable

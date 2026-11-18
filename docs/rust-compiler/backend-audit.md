@@ -666,12 +666,12 @@ Three behavioral methods now run through [guarded/sequential native copies](guar
 
 Classification: Observable loop values, aliasing and target cycle budgets. Exited induction values, old SSA values, nested/sequential loops and overlapping forward copies must retain their language meaning.
 
-Six exit/saved-value methods have [native real-CIL replacements](loop-exit-values.md). The [counted baseline](loop-costs.md) is also complete. Eleven [pointer/multi-loop methods](loop-memory-flows.md) are now complete too. Only the two timing-ceiling methods remain open.
+Six exit/saved-value methods have [native real-CIL replacements](loop-exit-values.md). The [counted baseline](loop-costs.md) is also complete. Eleven [pointer/multi-loop methods](loop-memory-flows.md) are now complete too. The [counted190-dot ceiling](byte-loop-selection.md) now passes; only the pointer-copy timing method remains open.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
 | `Baseline_CountedConstAddrStoreLoop` | Requirement | PORT complete | [Real-CIL100-iteration baseline with observed99 and explicit timing limitations](loop-costs.md). |
-| `CountedConstAddrStoreLoop_MeetsCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `CountedConstAddrStoreLoop_MeetsCeiling` | Requirement | PORT complete | [Real CIL100 stores, observed99, stack/guards and18440 total T-cycles, below the unchanged19000 limit](byte-loop-selection.md). |
 | `InductionValueUsedAfterLoopExit` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
 | `InductionValueUsedAfterLoopExit_WithInterveningClobber_StillCorrect` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
 | `NestedLoops` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |

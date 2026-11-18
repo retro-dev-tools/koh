@@ -1317,6 +1317,130 @@ impl Layout {
     }
 }
 
+fn byte_local_read(
+    block: &Block,
+    mut value: u32,
+    layout: &Layout,
+    uses: &BTreeMap<u32, usize>,
+) -> Option<(u16, BTreeSet<u32>)> {
+    let mut consumed = BTreeSet::new();
+    for _ in 0..8 {
+        let (position, instruction) = block
+            .instructions
+            .iter()
+            .enumerate()
+            .find(|(_, i)| i.result.is_some_and(|r| r.0 == value))?;
+        if uses.get(&value) != Some(&1) || instruction.result?.1 != Type::I32 {
+            return None;
+        }
+        consumed.insert(value);
+        match instruction.op {
+            Op::Convert {
+                value: source,
+                bits: 8,
+                signed: false,
+            } => value = source,
+            Op::LoadLocal(local) if layout.local_widths[local as usize] == 1 => {
+                if block.instructions[position..block.instructions.len() - 1]
+                    .iter()
+                    .any(|i| {
+                        !i.result.is_some_and(|r| consumed.contains(&r.0))
+                            && !matches!(i.op, Op::Constant(_))
+                    })
+                {
+                    return None;
+                }
+                return Some((layout.locals[local as usize], consumed));
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+fn byte_local_updates(
+    block: &Block,
+    layout: &Layout,
+    uses: &BTreeMap<u32, usize>,
+    constants: &BTreeMap<u32, u64>,
+) -> (BTreeMap<usize, (u16, u8)>, BTreeSet<u32>) {
+    let definitions: BTreeMap<_, _> = block
+        .instructions
+        .iter()
+        .enumerate()
+        .filter_map(|(position, instruction)| {
+            instruction.result.map(|r| (r.0, (position, instruction)))
+        })
+        .collect();
+    let peel = |mut id, consumed: &mut BTreeSet<u32>| -> Option<u32> {
+        loop {
+            let instruction = definitions.get(&id)?.1;
+            if uses.get(&id) != Some(&1) || instruction.result?.1 != Type::I32 {
+                return None;
+            }
+            if let Op::Convert {
+                value,
+                bits: 8,
+                signed: false,
+            } = instruction.op
+            {
+                if !consumed.insert(id) {
+                    return None;
+                }
+                id = value;
+            } else {
+                return Some(id);
+            }
+        }
+    };
+    let mut updates = BTreeMap::new();
+    let mut omitted = BTreeSet::new();
+    for (position, instruction) in block.instructions.iter().enumerate() {
+        let Op::StoreLocal { local, value } = instruction.op else {
+            continue;
+        };
+        if layout.local_widths[local as usize] != 1 {
+            continue;
+        }
+        let mut consumed = BTreeSet::new();
+        let Some(sum) = peel(value, &mut consumed) else {
+            continue;
+        };
+        if consumed.is_empty() {
+            continue;
+        }
+        let Op::Binary { op, left, right } = definitions[&sum].1.op else {
+            continue;
+        };
+        let (input, one, opcode) = match op {
+            Binary::Add if constants.get(&right) == Some(&1) => (left, right, 0x34),
+            Binary::Add if constants.get(&left) == Some(&1) => (right, left, 0x34),
+            Binary::Subtract if constants.get(&right) == Some(&1) => (left, right, 0x35),
+            _ => continue,
+        };
+        consumed.insert(sum);
+        let Some(input) = peel(input, &mut consumed) else {
+            continue;
+        };
+        if !matches!(definitions[&input].1.op, Op::LoadLocal(index) if index == local) {
+            continue;
+        }
+        consumed.insert(input);
+        if uses.get(&one) == Some(&1) && definitions.contains_key(&one) {
+            consumed.insert(one);
+        }
+        let first = consumed.iter().map(|id| definitions[id].0).min().unwrap();
+        if block.instructions[first..position].iter().any(|i| {
+            !i.result.is_some_and(|r| consumed.contains(&r.0)) && !matches!(i.op, Op::Constant(_))
+        }) {
+            continue;
+        }
+        omitted.extend(consumed);
+        updates.insert(position, (layout.locals[local as usize], opcode));
+    }
+    (updates, omitted)
+}
+
 pub fn class_symbol(identity: Option<Definition>) -> String {
     match identity {
         Some(id) => format!("__koh_type_a{}_t{:08x}", id.assembly, id.token),
@@ -1543,6 +1667,7 @@ pub(crate) fn emit_with_stack_reserve(
         .collect();
     for (index, block) in function.blocks.iter().enumerate() {
         code.mark(labels[index]);
+        let (updates, omitted) = byte_local_updates(block, &layout, &uses, &constants);
         let fused = match (&block.terminator.kind, block.instructions.last()) {
             (
                 Control::Branch { condition, .. },
@@ -1559,9 +1684,48 @@ pub(crate) fn emit_with_stack_reserve(
             }
             _ => None,
         };
-        for instruction in &block.instructions {
+        let immediate = fused.and_then(|(_, op, left, right)| {
+            if layout.values[&left].2 != 1 {
+                return None;
+            }
+            if let Some(&constant) = constants.get(&right) {
+                return Some((op, left, right, constant as u8));
+            }
+            constants.get(&left).map(|&constant| {
+                let op = match op {
+                    Comparison::LessSigned => Comparison::GreaterSigned,
+                    Comparison::LessUnsigned => Comparison::GreaterUnsigned,
+                    Comparison::GreaterSigned => Comparison::LessSigned,
+                    Comparison::GreaterUnsigned => Comparison::LessUnsigned,
+                    Comparison::Equal => Comparison::Equal,
+                };
+                (op, right, left, constant as u8)
+            })
+        });
+        let branch_source =
+            immediate.and_then(|(_, value, _, _)| byte_local_read(block, value, &layout, &uses));
+        for (position, instruction) in block.instructions.iter().enumerate() {
             code.mark_unwind(layout.size, banked);
             code.mark_il(instruction.il_offset);
+            if let Some(&(offset, opcode)) = updates.get(&position) {
+                code.address(offset);
+                code.bytes(&[opcode]);
+                continue;
+            }
+            if instruction.result.is_some_and(|r| omitted.contains(&r.0)) {
+                continue;
+            }
+            if branch_source.as_ref().is_some_and(|(_, consumed)| {
+                instruction.result.is_some_and(|r| consumed.contains(&r.0))
+            }) {
+                continue;
+            }
+            if immediate.is_some_and(|(_, _, constant, _)| {
+                instruction.result.is_some_and(|r| r.0 == constant)
+                    && uses.get(&constant) == Some(&1)
+            }) {
+                continue;
+            }
             if matches!(instruction.op, Op::Constant(_))
                 && instruction.result.is_some_and(|r| embedded.contains(&r.0))
             {
@@ -2298,7 +2462,8 @@ pub(crate) fn emit_with_stack_reserve(
                 } => {
                     if bits == 8 && layout.values[&address].1 == Type::Native {
                         if let Some(&address) = constants.get(&address) {
-                            code.load_a(slot(value));
+                            code.address(slot(value));
+                            code.bytes(&[0x7e]);
                             if address >= 0xff00 {
                                 code.bytes(&[0xe0, address as u8]);
                             } else {
@@ -2720,12 +2885,31 @@ pub(crate) fn emit_with_stack_reserve(
                         };
                     }
                     let falsity = code.label();
-                    code.compare_jumps(
-                        [layout.values[&left].0, layout.values[&right].0],
-                        width,
-                        op,
-                        [truth, falsity],
-                    );
+                    if let Some((op, value, _, constant)) = immediate {
+                        code.address(
+                            branch_source
+                                .as_ref()
+                                .map_or(layout.values[&value].0, |(offset, _)| *offset),
+                        );
+                        code.bytes(&[0x7e, 0xfe, constant]);
+                        match op {
+                            Comparison::Equal => code.jump(0xca, truth),
+                            Comparison::LessSigned | Comparison::LessUnsigned => {
+                                code.jump(0xda, truth)
+                            }
+                            Comparison::GreaterSigned | Comparison::GreaterUnsigned => {
+                                code.jump(0xca, falsity);
+                                code.jump(0xd2, truth);
+                            }
+                        }
+                    } else {
+                        code.compare_jumps(
+                            [layout.values[&left].0, layout.values[&right].0],
+                            width,
+                            op,
+                            [truth, falsity],
+                        );
+                    }
                     code.mark(falsity);
                 } else {
                     code.bytes(&[0x0e, 0]);

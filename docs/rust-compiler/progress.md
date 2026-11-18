@@ -10,6 +10,20 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Counted-loop190-dot acceptance
+
+[Byte-local instruction selection](byte-loop-selection.md) preserves wrapping,
+escaped values and alias barriers while using direct local updates and immediate
+branch guards. The real100-store CIL fixture now asserts the original190-dot
+ceiling against18440 total T-cycles, including wrapper, markers and observed99.
+Thirty-two new cases execute2924 independent ROM observations. Final944/944
+passed321.036s, exit0,621 explicitly unselected, including full compiler/IR/SM83,
+PDB, hardware tests and all four real graphics showcase configurations; separate
+compiler doctests pass. Ledger561/565, four outstanding; copy740-dot acceptance,
+three private FlushRun replacements and final whole-migration gates remain open.
+Fresh discovery lists2201 workspace cases,2024 compiler-owned, zero ignored.
+Rust formatting and diff checks pass; this increment changes no C# implementation.
+
 ### Immediate memory and conversion folding
 
 [Constant native byte addresses](immediate-memory.md) now select absolute/LDH

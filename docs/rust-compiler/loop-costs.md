@@ -1,5 +1,14 @@
 # Loop cost investigation
 
+## Current acceptance
+
+The [counted190-dot requirement](byte-loop-selection.md) is now PORT complete:
+18440 total T-cycles for100 stores, including wrapper, markers and observed99,
+below the unchanged19000 limit. The pointer-copy740-dot requirement remains
+open. Historical measurements below describe earlier code and acceptance states.
+
+## Initial investigation
+
 `tests/sm83.rs::real_loop_cost_baselines` builds ordinary Release Roslyn CIL,
 lowers and optimizes it, verifies the program, emits ELF through Rust, links and
 executes through the existing emulator's `--cost` mode. Two rstest inputs select
