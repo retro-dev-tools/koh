@@ -10,6 +10,17 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Isolated source-loop timing
+
+Test-only [marked source windows](loop-costs.md#marked-source-windows) now exclude
+native wrapper and result observation. Counted70900T/100=709T; copy85320T/32=
+2666.25T including original source initialization. Empty marker pair96T, not
+subtracted as an assumed identical cost. Original190/740-dot ceilings stay open;
+no new disposition credit or production changes. Expanded225/225 passed31.807s,
+exit0,207 explicitly unselected (/tmp/koh-loop-window-final.log). Discovery1926/
+1749/0ignored. Ledger remains465/565,100 outstanding. This identifies a real
+codegen gap for subsequent optimization rather than blaming wrapper overhead.
+
 ### Loop cost baseline and remaining timing gap
 
 One counted-store baseline method now has a [native replacement](loop-costs.md).

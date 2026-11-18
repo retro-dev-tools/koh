@@ -2,6 +2,7 @@ using Koh.Emulator;
 using Koh.Emulator.Cartridge;
 
 bool cost = args.Length > 0 && args[0] == "--cost";
+bool loopCost = args.Length > 0 && args[0] == "--loop-cost";
 bool observe = args.Length > 0 && args[0] == "--observe-memory";
 bool fillCost = args.Length > 0 && args[0] == "--native-heap-cost";
 bool fillWrap = args.Length > 0 && args[0] == "--native-fill-wrap";
@@ -47,7 +48,7 @@ int stopBank = native ? Convert.ToInt32(stopParts[0], 16) : 0;
 foreach (
     string path in args.Skip(
         native ? 2
-        : cost || observe ? 1
+        : cost || observe || loopCost ? 1
         : 0
     )
 )
@@ -68,6 +69,9 @@ foreach (
     var rasterTrace = new RasterTrace(gb);
     var halTrace = new HalTrace(gb);
     var observed = new ObservedMemory();
+    var loopTiming = new LoopTiming(gb);
+    if (loopCost)
+        gb.Mmu.Hook = loopTiming;
     if (cgbHal)
     {
         gb.Mmu.DebugWrite(0xff40, 0);
@@ -408,8 +412,38 @@ foreach (
     Console.WriteLine(
         $"{gb.Mmu.DebugRead(0xC000):X2} {gb.Mmu.DebugRead(0xC001):X2} {Convert.ToHexString(result)} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}"
             + (cost ? $" {gb.Cpu.TotalTCycles}" : "")
+            + (loopCost ? $" {gb.Cpu.TotalTCycles} {loopTiming.Elapsed()}" : "")
             + (observe ? $" {string.Join(',', observed.Events.DefaultIfEmpty("-"))}" : "")
     );
+}
+
+sealed class LoopTiming(GameBoySystem gb) : Koh.Emulator.Debug.MemoryHook
+{
+    int count;
+    ulong start;
+    ulong end;
+
+    public override void OnRead(ushort address, byte value) { }
+
+    public override void OnWrite(ushort address, byte value)
+    {
+        if (address == 0xFF81)
+        {
+            if (count >= 2 || value != count + 1)
+                throw new InvalidOperationException("Invalid loop timing marker order");
+            if (count++ == 0)
+                start = gb.Cpu.TotalTCycles;
+            else
+                end = gb.Cpu.TotalTCycles;
+        }
+    }
+
+    public ulong Elapsed()
+    {
+        if (count != 2)
+            throw new InvalidOperationException("Expected exactly one ordered loop timing window");
+        return end - start;
+    }
 }
 
 sealed class ObservedMemory : Koh.Emulator.Debug.MemoryHook

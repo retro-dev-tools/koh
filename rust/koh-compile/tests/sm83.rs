@@ -30,6 +30,7 @@ mod support;
 use support::{Host, dotnet};
 
 #[rstest::rstest]
+#[case("EmptyCost", 0u64, 1u64)]
 #[case("CountedCost", 99u64, 100u64)]
 #[case("CopyCost", 0u64, 32u64)]
 fn real_loop_cost_baselines(
@@ -71,7 +72,7 @@ fn real_loop_cost_baselines(
     std::fs::write(&path, rom_program(&[function], identity, &[], 0xd000)).unwrap();
     let output = dotnet()
         .arg(&host.dll)
-        .arg("--cost")
+        .arg("--loop-cost")
         .arg(path)
         .output()
         .unwrap();
@@ -94,9 +95,15 @@ fn real_loop_cost_baselines(
     );
     assert_eq!(&fields[3..5], &["D000", "OK"], "{text}");
     let cycles: u64 = fields[5].parse().unwrap();
+    let window: u64 = fields[6].parse().unwrap();
+    assert!(window > 0 && window < cycles, "{text}");
     println!(
         "{name}: {cycles} T-cycles total; {:.3} per iteration including harness and result observation",
         cycles as f64 / iterations as f64
+    );
+    println!(
+        "{name}: {window} T-cycles in marked source window; {:.3} per iteration",
+        window as f64 / iterations as f64
     );
 }
 

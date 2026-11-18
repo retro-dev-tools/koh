@@ -42,8 +42,35 @@ The timing probes intentionally print measurements without claiming the still-op
 ceiling assertions pass. They are discoverable native tests, not ignored tests,
 an optional feature or a hidden success route around a failed timing assertion.
 
-Final current observer results: counted71444 T-cycles (714.440 per iteration);
+Previous unmarked observer results: counted71444 T-cycles (714.440 per iteration);
 copy166056 (5189.250 per byte), including the overhead described above. Expanded
 compiler-library/baseline/rewrite validation passed224/224 in30.101s, exit0,
 207 explicitly unselected. Log: `/tmp/koh-loop-cost-final.log`. Formatting and
 diff checks passed. No production compiler or emulator changes are included.
+
+## Marked source windows
+
+The fixture now writes1/2 to test HRAM addressFF81 around the source workload.
+The test-only emulator host's `--loop-cost` mode timestamps those writes through
+the existing memory hook and requires exactly one ordered pair. Other modes and
+the production emulator are unchanged. The counted window surrounds its loop;
+the pointer window includes source initialization and copying, matching the old
+source workload, and ends before all result-observation reads.
+
+Measured windows are70900 T-cycles for100 stores (709.000 each), and85320 for32
+initialized/copied bytes (2666.250 each). This removes the large copy observation
+cost from the comparison and confirms a substantial code-generation gap remains.
+The window still includes emitted marker setup; it is not a drop-in replacement
+for the old full-startup ceiling test. `EmptyCost` measures an otherwise empty
+marker pair as a calibration, without subtracting it as an assumed identical
+frame/code-layout cost.
+
+The marker instrumentation is a measurement aid, not a compiler intrinsic or a
+new runtime API. No additional legacy disposition is closed. Existing frame-slot
+load/store helpers visibly preserve flags with push/pop and compute SP-relative
+addresses; their contribution should be measured before choosing an optimization.
+
+Marked-window validation passed225/225 in31.807s, exit0,207 explicitly
+unselected: `/tmp/koh-loop-window-final.log`. The empty marker pair measures96
+T-cycles. Fresh discovery1926 workspace/1749 compiler/zero ignored. Stable fmt,
+CSharpier and diff checks passed. Both performance dispositions remain open.

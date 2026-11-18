@@ -1,14 +1,24 @@
 public static unsafe class Program
 {
+    public static int EmptyCost()
+    {
+        *(byte*)0xFF81 = 1;
+        *(byte*)0xFF81 = 2;
+        return 0;
+    }
+
     public static int CountedCost()
     {
+        *(byte*)0xFF81 = 1;
         for (byte i = 0; i < 100; i++)
             *(byte*)0xC100 = i;
+        *(byte*)0xFF81 = 2;
         return *(byte*)0xC100;
     }
 
     public static int CopyCost()
     {
+        *(byte*)0xFF81 = 1;
         byte* source = (byte*)0xC100;
         byte* destination = (byte*)0xC200;
         for (byte i = 0; i < 32; i++)
@@ -21,6 +31,7 @@ public static unsafe class Program
             source++;
             count--;
         }
+        *(byte*)0xFF81 = 2;
         int result = 0;
         for (int i = 0; i < 32; i++)
             result |= ((byte*)0xC200)[i] ^ i;
