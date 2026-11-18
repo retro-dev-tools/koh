@@ -113,15 +113,15 @@ Float operations, conversions and byrefs must preserve the declared target numer
 
 ### CilFontTextTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilFontTextTests.cs`. Future Rust test group: `cil_font_text`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilFontTextTests.cs`. Native Rust test group: `driver::font_text`; [source dispositions and full font/VRAM evidence](font-text.md).
 
 Built-in font expansion, BG/window glyph maps, byte-array text and decimal alignment/padding including zero. Public text rendering and hardware bitplanes justify exact content checks.
 
-- **PORT** `Draw_WritesExpectedMapCellsAndExpandsGlyphPixels`.
-- **PORT** `DrawToWindow_WritesGlyphIndicesToWindowMap`.
-- **PORT** `DrawNumber_RightAligned_SpacePadsToWidth`.
-- **PORT** `DrawNumber_LeftAligned_NoPadding_HandlesZero`.
-- **PORT** `Draw_ByteArrayOverload_WritesExpectedGlyphIndices`.
+- **PORT, complete** `Draw_WritesExpectedMapCellsAndExpandsGlyphPixels` — actual font/text library, all1536 font bytes, exact map layout and untouched memory in Debug/Release × DMG/CGB; [evidence](font-text.md).
+- **PORT, complete** `DrawToWindow_WritesGlyphIndicesToWindowMap` — actual font/text library, all1536 font bytes, exact map layout and untouched memory in Debug/Release × DMG/CGB; [evidence](font-text.md).
+- **PORT, complete** `DrawNumber_RightAligned_SpacePadsToWidth` — actual font/text library, all1536 font bytes, exact map layout and untouched memory in Debug/Release × DMG/CGB; [evidence](font-text.md).
+- **PORT, complete** `DrawNumber_LeftAligned_NoPadding_HandlesZero` — actual font/text library, all1536 font bytes, exact map layout and untouched memory in Debug/Release × DMG/CGB; [evidence](font-text.md).
+- **PORT, complete** `Draw_ByteArrayOverload_WritesExpectedGlyphIndices` — actual font/text library, all1536 font bytes, exact map layout and untouched memory in Debug/Release × DMG/CGB; [evidence](font-text.md).
 
 ### CilFrameworkTests.cs
 

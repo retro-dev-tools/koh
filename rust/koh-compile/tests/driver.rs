@@ -6,6 +6,8 @@ mod cgb_hal;
 mod checked_arithmetic;
 #[path = "driver/checked_casts.rs"]
 mod checked_casts;
+#[path = "driver/font_text.rs"]
+mod font_text;
 #[path = "driver/int128.rs"]
 mod int128;
 #[path = "driver/interrupts.rs"]

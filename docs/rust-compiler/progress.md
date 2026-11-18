@@ -10,6 +10,17 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Font and decimal text acceptance
+
+All five [font/text source methods](font-text.md),31 assertion sites, now have
+native PORT replacements.24 Debug/Release × DMG/CGB ROMs check authored768-row
+font input expanded to1536 tile bytes, original string/window/byte-array text,
+decimal alignment/zero, shifted font base and65535 exceeding field width.
+Whole VRAM, OAM, LCD/palette/result/stack guards remain checked. Expanded238/238
+passed38.961s, exit0,512 explicitly unselected (/tmp/koh-font-text-final.log).
+Ledger486/565 (485 replacements, one DELETE),79 outstanding. No production/API
+changes or framebuffer/debugger claims; final hosted acceptance remains open.
+
 ### Background/window graphics acceptance
 
 All five [Bg/Win source methods](bg-win-maps.md),50 assertion sites, now have
@@ -580,7 +591,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-481/565 dispositions complete (480 native replacements, one DELETE),84 outstanding,
+486/565 dispositions complete (485 native replacements, one DELETE),79 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

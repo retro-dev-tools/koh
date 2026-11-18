@@ -3,6 +3,58 @@ using Koh.GameBoy.Graphics;
 
 public static unsafe class Program
 {
+    private static void StartFont()
+    {
+        Video.Init();
+        Font.LoadDefault(0);
+    }
+
+    public static int FontScore()
+    {
+        StartFont();
+        Text.Draw(1, 0, "SCORE");
+        return 42;
+    }
+
+    public static int FontWindow()
+    {
+        StartFont();
+        Text.DrawToWindow(2, 3, "HI");
+        return 42;
+    }
+
+    public static int FontRight()
+    {
+        StartFont();
+        Text.DrawNumber(0, 0, 1234, 5);
+        return 42;
+    }
+
+    public static int FontLeft()
+    {
+        StartFont();
+        Text.DrawNumber(0, 0, 42);
+        Text.DrawNumber(0, 1, 0);
+        return 42;
+    }
+
+    public static int FontBytes()
+    {
+        StartFont();
+        Text.Draw(4, 2, new byte[] { (byte)'H', (byte)'I', (byte)'!' }, 3);
+        return 42;
+    }
+
+    public static int FontOffset()
+    {
+        Video.Init();
+        Font.LoadDefault(7);
+        Text.Draw(1, 0, "SCORE");
+        Text.DrawNumber(0, 1, 65535, 3);
+        Text.DrawNumberToWindow(0, 2, 0, 3);
+        return 42;
+    }
+
     public static int BackgroundContract()
     {
         Video.Init();
