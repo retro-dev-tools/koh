@@ -187,6 +187,55 @@ mod tests {
     use crate::ir::*;
 
     #[rstest::rstest]
+    #[case(0xff69)]
+    #[case(0xff6b)]
+    fn palette_transactions_are_forbidden_in_interrupt_roots(#[case] port: u16) {
+        let f = Function {
+            identity: Definition {
+                assembly: 0,
+                token: 0x06000001,
+            },
+            parameters: vec![],
+            returns: None,
+            locals: vec![],
+            blocks: vec![Block {
+                parameters: vec![],
+                instructions: vec![
+                    Instruction {
+                        result: Some((0, Type::I32)),
+                        op: Op::Constant(0),
+                        il_offset: 0,
+                    },
+                    Instruction {
+                        result: Some((1, Type::I32)),
+                        op: Op::Constant(0x1234),
+                        il_offset: 1,
+                    },
+                    Instruction {
+                        result: None,
+                        op: Op::PaletteWrite {
+                            port,
+                            index: 0,
+                            color: 1,
+                        },
+                        il_offset: 2,
+                    },
+                ],
+                terminator: Terminator {
+                    kind: Control::Return(None),
+                    il_offset: 3,
+                },
+            }],
+        };
+        crate::ir::verify(&f).unwrap();
+        let error = verify_interrupt(&f).unwrap_err();
+        assert!(
+            error.contains("IL_0002") && error.contains("PaletteWrite"),
+            "{error}"
+        );
+    }
+
+    #[rstest::rstest]
     #[case(Type::Native, 8, true)]
     #[case(Type::I32, 8, true)]
     #[case(Type::I64, 8, true)]

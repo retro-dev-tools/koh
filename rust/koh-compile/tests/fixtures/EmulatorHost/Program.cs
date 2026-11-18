@@ -16,7 +16,9 @@ bool raster = args.Length > 0 && args[0] == "--native-raster";
 bool stack = args.Length > 0 && args[0] == "--native-stack";
 bool frame = args.Length > 0 && args[0] == "--native-frame";
 bool lifecycle = args.Length > 0 && args[0] == "--native-video-lifecycle";
-bool sprites = args.Length > 0 && args[0] == "--native-sprites";
+bool paletteTrap = args.Length > 0 && args[0] == "--native-palettes-trap";
+bool palettes = paletteTrap || (args.Length > 0 && args[0] == "--native-palettes");
+bool sprites = palettes || (args.Length > 0 && args[0] == "--native-sprites");
 bool oamMode = sprites || (args.Length > 0 && args[0] == "--native-oam");
 bool rawOam = args.Length > 0 && args[0] == "--native-oam-trigger";
 bool canvas = args.Length > 0 && args[0] == "--native-canvas";
@@ -92,7 +94,7 @@ foreach (
     int inputPhase = 0;
     var frameMarkers = new List<string>();
     byte priorScroll = 0;
-    if (lifecycle)
+    if (lifecycle || palettes)
     {
         gb.Mmu.DebugWrite(0xFF43, 0);
         gb.Mmu.DebugWrite(0xFF42, 0);
@@ -100,7 +102,7 @@ foreach (
         gb.Mmu.DebugWrite(0xFF4B, 0);
     }
     var videoGuard = new Koh.Emulator.Debug.Mode3WriteGuard(gb);
-    var timing = new VideoTiming(gb, oamMode, sprites);
+    var timing = new VideoTiming(gb, oamMode, sprites, palettes);
     var fillWrites = new WrapTrace(copyWrap);
     var rasterTrace = new RasterTrace(gb);
     var halTrace = new HalTrace(gb);
@@ -339,7 +341,11 @@ foreach (
         if (cpu && controlIme is null && gb.Mmu.DebugRead(0xff43) == 1)
             controlIme = gb.Cpu.Ime;
     }
-    if (oamMode && (gb.OamDma.IsBusLocking || timing.OamStarts == 0 || dmaInstructions == 0))
+    if (
+        oamMode
+        && !paletteTrap
+        && (gb.OamDma.IsBusLocking || timing.OamStarts == 0 || dmaInstructions == 0)
+    )
         throw new InvalidOperationException("OAM DMA was not observed completing");
     if (rawOam)
     {
@@ -448,6 +454,18 @@ foreach (
                         ? $" {(gb.Mmu.DebugRead(0xff6a) & 0xbf):X2}:{gb.Mmu.DebugRead(0xff6b):X2}"
                         : " -"
                 );
+        if (palettes)
+            snapshot +=
+                " "
+                + (color ? Convert.ToHexString(gb.Ppu.BgPalette.RawData) : "-")
+                + (
+                    color
+                        ? $" {(gb.Mmu.DebugRead(0xFF68) & 0xBF):X2}:{gb.Mmu.DebugRead(0xFF69):X2}"
+                        : " -"
+                )
+                + $" {gb.Mmu.DebugRead(0xFF43):X2}{gb.Mmu.DebugRead(0xFF42):X2}";
+        if (palettes)
+            snapshot += $" {(gb.KeyOne.DoubleSpeed ? 1 : 0)}:{(gb.KeyOne.SwitchArmed ? 1 : 0)}";
         if (arena)
             snapshot += $" {gb.Mmu.DebugRead(0xff47):X2}";
         if (scroll)
@@ -620,8 +638,12 @@ sealed class WrapTrace(bool reads) : Koh.Emulator.Debug.MemoryHook
     }
 }
 
-sealed class VideoTiming(GameBoySystem system, bool guardOam, bool guardPalettes)
-    : Koh.Emulator.Debug.MemoryHook
+sealed class VideoTiming(
+    GameBoySystem system,
+    bool guardOam,
+    bool guardPalettes,
+    bool guardPaletteIme
+) : Koh.Emulator.Debug.MemoryHook
 {
     ulong lastBlank;
     public List<string> Writes { get; } = [];
@@ -637,13 +659,17 @@ sealed class VideoTiming(GameBoySystem system, bool guardOam, bool guardPalettes
 
     public override void OnWrite(ushort address, byte value)
     {
+        if (guardPaletteIme && (address == 0xFF69 || address == 0xFF6B) && system.Cpu.Ime)
+            throw new InvalidOperationException("Palette write with IME enabled");
         if (
             guardPalettes
-            && address == 0xff6b
+            && (address == 0xff6b || address == 0xff69)
             && (system.Ppu.LCDC & 0x80) != 0
             && system.Ppu.Mode == Koh.Emulator.Ppu.PpuMode.Drawing
         )
-            throw new InvalidOperationException("Mode-3 OBJ palette write");
+            throw new InvalidOperationException(
+                address == 0xff6b ? "Mode-3 OBJ palette write" : "Mode-3 BG palette write"
+            );
         if (address == 0xff46)
         {
             if (

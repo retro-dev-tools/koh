@@ -10,6 +10,20 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Palette transactions and hardware detection
+
+Five [palette/RGB methods](palette-contracts.md) now have native replacements:
+four configurations execute36 successful ROMs, six hardware-fault ROMs and20
+malformed-contract diagnostics. Independent RGB packing replaces the same-library
+host oracle. Native atomic palette writes fix observed LCD-on mode3 writes;
+KEY1 probing preserves a valid armed double-speed CGB state instead of rejecting
+it as absent hardware. Focused14/14 passed33.322s, exit0, including palette IR
+verification/effect preservation and neighboring HAL tests. Broader game/speed
+validation passed8/8 IRQ/CGB cube cases and4/4 CPU-control cases. Fresh workspace
+discovery lists2143 cases,1966 compiler-owned, zero ignored. Ledger552/565,
+13 outstanding; legacy removal and
+final acceptance remain open.
+
 ### Struct, pointer and switch closure
 
 Eleven remaining source methods now have native replacements for64 expanded

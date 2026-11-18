@@ -471,6 +471,11 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                 | Op::VramWrite {
                     address,
                     value: stored,
+                }
+                | Op::PaletteWrite {
+                    index: address,
+                    color: stored,
+                    ..
                 } => {
                     value(address);
                     value(stored);

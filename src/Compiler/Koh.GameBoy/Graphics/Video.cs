@@ -132,21 +132,10 @@ public static unsafe class Video
         Cgb.SetBackgroundColor(0, 1, GrayLight);
         Cgb.SetBackgroundColor(0, 2, GrayDark);
         Cgb.SetBackgroundColor(0, 3, GrayBlack);
-        SetObjectColor(0, 0, GrayWhite);
-        SetObjectColor(0, 1, GrayLight);
-        SetObjectColor(0, 2, GrayDark);
-        SetObjectColor(0, 3, GrayBlack);
-    }
-
-    /// <summary>Same OCPS/OCPD index-and-write-twice protocol as <see cref="Cgb.SetBackgroundColor"/>,
-    /// targeting object palette RAM instead of background palette RAM (Cgb.cs has no OBJ variant).</summary>
-    private static void SetObjectColor(byte palette, byte color, ushort rgb555)
-    {
-        byte index = (byte)(((palette & 7) * 8 + (color & 3) * 2) & 0x3F);
-        Hardware.OCPS = index;
-        Hardware.OCPD = (byte)rgb555;
-        Hardware.OCPS = (byte)(index + 1);
-        Hardware.OCPD = (byte)(rgb555 >> 8);
+        Cgb.SetObjectColor(0, 0, GrayWhite);
+        Cgb.SetObjectColor(0, 1, GrayLight);
+        Cgb.SetObjectColor(0, 2, GrayDark);
+        Cgb.SetObjectColor(0, 3, GrayBlack);
     }
 }
 

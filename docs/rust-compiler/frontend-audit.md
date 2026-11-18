@@ -282,7 +282,7 @@ Unsigned byte ordering and wrapping accumulation must survive optimization in De
 
 ### CilPalettesRgbTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilPalettesRgbTests.cs`. Future Rust test group: `cil_palettes_rgb`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilPalettesRgbTests.cs`. Native group: `driver::palettes`; all five methods have native replacements. See [contracts and assertion audit](palette-contracts.md).
 
 DMG shade registers, CGB palette RAM, unsupported DMG slots and RGB555 channel packing follow documented public API/hardware rules. Exact packing is independently defined by hardware.
 
@@ -290,7 +290,7 @@ DMG shade registers, CGB palette RAM, unsupported DMG slots and RGB555 channel p
 - **PORT** `SetObj_OnDmg_Slot1_WritesObp1`.
 - **PORT** `SetBgSetObj_OnCgb_WriteRgb555ColorsToPaletteRam`.
 - **PORT** `SetBgSetObj_OnDmg_SlotsAboveHardwareRange_AreNoOps`.
-- **PORT** `RgbMake_PacksChannelsIntoRgb555`.
+- **REPLACE** `RgbMake_PacksChannelsIntoRgb555` — independent Rust bit packing replaces the same-library host oracle.
 
 ### CilRecursionTests.cs
 

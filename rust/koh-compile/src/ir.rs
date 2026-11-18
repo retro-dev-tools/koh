@@ -465,6 +465,11 @@ pub enum Op {
         address: u32,
         value: u32,
     },
+    PaletteWrite {
+        port: u16,
+        index: u32,
+        color: u32,
+    },
     CpuControl(CpuControl),
     OamDma(u32),
     StringLiteral(Vec<u16>),
@@ -622,6 +627,7 @@ impl Op {
     }
     pub fn operands(&self) -> impl Iterator<Item = u32> + '_ {
         let pair = match *self {
+            Self::PaletteWrite { index, color, .. } => [Some(index), Some(color)],
             Self::NewRectangle { rows, columns, .. } => [Some(rows), Some(columns)],
             Self::NewDelegate { receiver, .. } => [Some(receiver), None],
             Self::RectangleAddress { array, row, .. } => [Some(array), Some(row)],
@@ -1331,6 +1337,15 @@ fn verify_inner(function: &Function) -> Result<(), String> {
                             || !is_hblank_register(register)
                         {
                             return Err("HBlank stream requires native source, int32 line/count and a display register".into());
+                        }
+                        None
+                    }
+                    Op::PaletteWrite { port, index, color } => {
+                        if !matches!(port, 0xff69 | 0xff6b)
+                            || check(index, position)? != Type::I32
+                            || check(color, position)? != Type::I32
+                        {
+                            return Err("Palette write requires a BG/OBJ data port and int32 index/color storage".into());
                         }
                         None
                     }

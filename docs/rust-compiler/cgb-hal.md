@@ -24,7 +24,7 @@ configuration produce24 ROMs: compile/execute smoke, bank1, bank round trip,
 palette0/color0, palette2/color3 and all32 valid background colors. The sweep
 uses the independent grayscale value `slotIndex*0x421`, ending at0x7fff.
 Rust checks full BG/OBJ contents, selected/index registers, exact CPU MMIO
-write order and absence of those writes on DMG, return values, stack balance,
+palette-byte write order and absence of those writes on DMG, return values, stack balance,
 reserved-memory guards and unchanged WRAM banks. CGB checks cover1536
 palette-byte observations across12 ROMs, not just the four original bytes.
 
@@ -58,3 +58,20 @@ Workspace/all-features nextest discovery lists1592 cases, including all32
 added by the current four-commit batch; none of those32 is ignored. Discovery
 does not mean1592 tests were executed locally. The discovery build retains the
 existing unused `cubes` test-helper warning.
+
+## Atomic palette follow-up
+
+The native `palettewrite` operation now uses auto-increment for its two data
+bytes and restores the final manual index. The HAL test replays observed BCPS
+and BCPD writes according to the hardware protocol and compares every effective
+byte address and value, retaining exact bank writes, full palette snapshots,
+index readback and DMG no-write assertions. This replaces the incidental choice
+of manual indexing between the low and high bytes.
+
+`Cgb.IsColor` also handles KEY1 reading FF in double-speed mode with the switch
+armed. In that ambiguous state it clears only the writable arm bit, reads back,
+and restores the original armed state on CGB. It executes no STOP and changes
+neither current speed nor IE. A DMG ignores the probe write. The native palette
+guard uses the same bounded probe, preserving its staged index and color.
+See [Pan Docs KEY1](https://github.com/gbdev/pandocs/blob/master/src/CGB_Registers.md#ff4d--key1spd-cgb-mode-only-prepare-speed-switch)
+for the read-only speed bit and writable arm bit; speed changes require STOP.

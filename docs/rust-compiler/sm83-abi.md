@@ -325,3 +325,14 @@ its Z flag is not a calling-convention result. Instruction encodings and flags
 are independently checked against the [gbdev opcode table](https://github.com/gbdev/gb-opcodes/blob/master/Opcodes.json).
 The existing software arithmetic emitter and external call, return, frame and
 temporary stack budgets remain unchanged.
+
+### Palette transactions
+
+The metadata-selected `palettewrite` intrinsic accepts a byte index and ushort
+RGB555 payload for BG/OBJ data ports FF69/FF6B. It requires an even index0..62
+and available CGB registers, otherwise hardware fault9. The native sequence
+stages four stack bytes before polling, writes both color bytes within52 normal
+T-cycles of an accessible STAT sample, and restores the high-byte index without
+auto-increment. It leaves IME disabled and is forbidden in interrupt roots.
+The KEY1 capability probe preserves both current speed and the armed-switch bit.
+See [timing proof, contract and independent tests](palette-contracts.md).

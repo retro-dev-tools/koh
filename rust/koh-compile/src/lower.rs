@@ -2412,6 +2412,15 @@ fn translate(
                         },
                         il_offset: b.offset,
                     }),
+                    Intrinsic::PaletteWrite(port) => b.instructions.push(Instruction {
+                        result: None,
+                        op: Op::PaletteWrite {
+                            port,
+                            index: arguments[0],
+                            color: arguments[1],
+                        },
+                        il_offset: b.offset,
+                    }),
                     Intrinsic::VramWrite => b.instructions.push(Instruction {
                         result: None,
                         op: Op::VramWrite {

@@ -10,6 +10,85 @@ mod accumulator_recursion;
 #[path = "ir/float32.rs"]
 mod float32;
 
+#[rstest]
+#[case(0xff69, Type::I32, Type::I32, false, true)]
+#[case(0xff6b, Type::I32, Type::I32, false, true)]
+#[case(0xff47, Type::I32, Type::I32, false, false)]
+#[case(0xff69, Type::Native, Type::I32, false, false)]
+#[case(0xff69, Type::I32, Type::I64, false, false)]
+#[case(0xff69, Type::I32, Type::I32, true, false)]
+fn palette_write_verifies_storage_and_preserves_effects(
+    #[case] port: u16,
+    #[case] index: Type,
+    #[case] color: Type,
+    #[case] result: bool,
+    #[case] valid: bool,
+) {
+    let mut f = Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![],
+        returns: Some(Type::I32),
+        locals: vec![],
+        blocks: vec![Block {
+            parameters: vec![],
+            instructions: vec![
+                instruction(0, index, Op::Constant(0)),
+                instruction(1, color, Op::Constant(0x1234)),
+                Instruction {
+                    result: result.then_some((2, Type::I32)),
+                    op: Op::PaletteWrite {
+                        port,
+                        index: 0,
+                        color: 1,
+                    },
+                    il_offset: 2,
+                },
+                instruction(3, Type::I32, Op::Constant(42)),
+            ],
+            terminator: Terminator {
+                kind: Control::Return(Some(3)),
+                il_offset: 4,
+            },
+        }],
+    };
+    if valid {
+        f.blocks[0].instructions.insert(
+            2,
+            instruction(
+                4,
+                Type::I32,
+                Op::Binary {
+                    op: Binary::Add,
+                    left: 0,
+                    right: 0,
+                },
+            ),
+        );
+        if let Op::PaletteWrite { index, .. } = &mut f.blocks[0].instructions[3].op {
+            *index = 4;
+        }
+        verify(&f).unwrap();
+        koh_compile::optimize::simplify(&mut f).unwrap();
+        verify(&f).unwrap();
+        assert!(
+            f.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .any(|i| matches!(i.op, Op::PaletteWrite { .. }))
+        );
+        let bytes = koh_objects::write_elf(&koh_compile::sm83::emit(&f).unwrap()).unwrap();
+        assert_eq!(
+            bytes,
+            koh_objects::write_elf(&koh_objects::read_elf(&bytes).unwrap()).unwrap()
+        );
+    } else {
+        assert!(verify(&f).is_err());
+    }
+}
+
 #[test]
 fn delegate_ref_results_cannot_hide_a_frame_escape() {
     let kind = DelegateType::new(

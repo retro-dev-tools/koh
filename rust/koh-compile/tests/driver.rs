@@ -59,6 +59,8 @@ mod mono;
 mod native_stop;
 #[path = "driver/original_2048.rs"]
 mod original_2048;
+#[path = "driver/palettes.rs"]
+mod palettes;
 #[path = "driver/pdb.rs"]
 mod pdb;
 #[path = "driver/rectangular.rs"]

@@ -4,7 +4,13 @@ public static unsafe class Cgb
 {
     public static bool IsColor()
     {
-        return Hardware.KEY1 != 0xFF;
+        if (Hardware.KEY1 != 0xFF)
+            return true;
+        Hardware.KEY1 = 0;
+        if (Hardware.KEY1 == 0xFF)
+            return false;
+        Hardware.KEY1 = 1;
+        return true;
     }
 
     /// <summary>Startup speed switch; call with IME disabled. Preserves IE and leaves IME disabled.</summary>
@@ -68,14 +74,38 @@ public static unsafe class Cgb
         Hardware.HDMA5 = control;
     }
 
+    /// <remarks>IME disabled after CGB writes.</remarks>
     public static void SetBackgroundColor(byte palette, byte color, ushort rgb555)
     {
         if (!IsColor())
             return;
         byte index = (byte)(((palette & 7) * 8 + (color & 3) * 2) & 0x3F);
+        WriteBackgroundColor(index, rgb555);
+    }
+
+    internal static void SetObjectColor(byte palette, byte color, ushort rgb555)
+    {
+        if (!IsColor())
+            return;
+        byte index = (byte)(((palette & 7) * 8 + (color & 3) * 2) & 0x3F);
+        WriteObjectColor(index, rgb555);
+    }
+
+    [KohIntrinsic("palettewrite", 0xFF69)]
+    private static void WriteBackgroundColor(byte index, ushort rgb555)
+    {
         Hardware.BCPS = index;
         Hardware.BCPD = (byte)rgb555;
         Hardware.BCPS = (byte)(index + 1);
         Hardware.BCPD = (byte)(rgb555 >> 8);
+    }
+
+    [KohIntrinsic("palettewrite", 0xFF6B)]
+    private static void WriteObjectColor(byte index, ushort rgb555)
+    {
+        Hardware.OCPS = index;
+        Hardware.OCPD = (byte)rgb555;
+        Hardware.OCPS = (byte)(index + 1);
+        Hardware.OCPD = (byte)(rgb555 >> 8);
     }
 }

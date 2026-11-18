@@ -73,6 +73,7 @@ fn referenced_cgb_hal_preserves_banks_and_palette_bytes(
         );
         let mut palette = [0x3du8; 64];
         let mut writes = Vec::new();
+        let mut palette_writes = Vec::new();
         if color && matches!(entry, "Main" | "Bank" | "BankRoundTrip") {
             writes.push((0xff4fu16, 1u8));
         }
@@ -89,12 +90,7 @@ fn referenced_cgb_hal_preserves_banks_and_palette_bytes(
             for (index, value) in colors {
                 let [low, high] = value.to_le_bytes();
                 palette[index * 2..index * 2 + 2].copy_from_slice(&[low, high]);
-                writes.extend([
-                    (0xff68, (index * 2) as u8),
-                    (0xff69, low),
-                    (0xff68, (index * 2 + 1) as u8),
-                    (0xff69, high),
-                ]);
+                palette_writes.extend([((index * 2) as u8, low), ((index * 2 + 1) as u8, high)]);
             }
         }
         let index = if !color {
@@ -146,6 +142,27 @@ fn referenced_cgb_hal_preserves_banks_and_palette_bytes(
                 })
                 .collect()
         };
-        assert_eq!(observed, writes, "{entry} CPU MMIO writes");
+        let mut observed_banks = Vec::new();
+        let mut observed_palette = Vec::new();
+        let mut selected = 0x2au8;
+        for (address, value) in observed {
+            assert!(color, "{entry} CGB-only write on DMG");
+            match address {
+                0xff4f => observed_banks.push((address, value)),
+                0xff68 => selected = value & 0xbf,
+                0xff69 => {
+                    observed_palette.push((selected & 63, value));
+                    if selected & 128 != 0 {
+                        selected = 128 | (selected.wrapping_add(1) & 63);
+                    }
+                }
+                _ => panic!("{entry} unexpected MMIO port {address:04X}"),
+            }
+        }
+        assert_eq!(observed_banks, writes, "{entry} bank writes");
+        assert_eq!(
+            observed_palette, palette_writes,
+            "{entry} palette byte writes"
+        );
     }
 }

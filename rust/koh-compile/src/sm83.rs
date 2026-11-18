@@ -1477,6 +1477,7 @@ pub(crate) fn emit_with_stack_reserve(
                     | Op::MemoryCopy { .. }
                     | Op::VBlankCopy { .. }
                     | Op::VramWrite { .. }
+                    | Op::PaletteWrite { .. }
             )
         });
     code.mark_unwind(0, banked);
@@ -1732,6 +1733,39 @@ pub(crate) fn emit_with_stack_reserve(
                     ]);
                     code.jump(0xc2, next);
                     code.mark(done);
+                }
+                Op::PaletteWrite { port, index, color } => {
+                    code.extend(place(color), layout.arithmetic, 2);
+                    code.indirect(layout.arithmetic);
+                    code.bytes(&[0xc5]);
+                    code.load_a(slot(index) + 2);
+                    code.bytes(&[0xd1, 0xe6, 0xc1]);
+                    let hardware = code.import("__koh_trap_hardware".into());
+                    code.jump(0xc2, hardware);
+                    code.bytes(&[0xf0, 0x4d, 0xfe, 0xff]);
+                    let detected = code.label();
+                    code.jump(0xc2, detected);
+                    code.bytes(&[0xaf, 0xe0, 0x4d, 0xf0, 0x4d, 0xfe, 0xff]);
+                    code.jump(0xca, hardware);
+                    code.bytes(&[0x3e, 1, 0xe0, 0x4d]);
+                    code.mark(detected);
+                    code.bytes(&[0xf3, 0x78, 0xf6, 0x80, 0xe0, (port - 1) as u8]);
+                    let accessible = code.label();
+                    code.mark(accessible);
+                    code.bytes(&[0xf0, 0x41, 0xe6, 2]);
+                    code.jump(0xc2, accessible);
+                    code.bytes(&[
+                        0x7b,
+                        0xe0,
+                        port as u8,
+                        0x7a,
+                        0xe0,
+                        port as u8,
+                        0x78,
+                        0x3c,
+                        0xe0,
+                        (port - 1) as u8,
+                    ]);
                 }
                 Op::VramWrite { address, value } => {
                     code.indirect(slot(address));
