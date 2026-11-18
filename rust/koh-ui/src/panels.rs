@@ -165,6 +165,15 @@ impl Desktop {
         }
         let ready = self.snapshot.as_ref().is_some_and(|s| s.vram.is_some());
         div()
+            .id("tile-atlas")
+            .role(Role::Image)
+            .aria_label(if !ready {
+                "No ROM loaded"
+            } else if self.tiles_height == 384 {
+                "VRAM tiles: 384 per bank, bank 0 above bank 1"
+            } else {
+                "VRAM tiles: 384 in bank 0"
+            })
             .flex()
             .flex_col()
             .gap_3()
@@ -268,6 +277,9 @@ impl Desktop {
             )
             .children(self.memory_error.as_ref().map(|error| {
                 div()
+                    .id("memory-error")
+                    .role(Role::Alert)
+                    .aria_label(error.clone())
                     .text_sm()
                     .text_color(cx.theme().danger)
                     .child(error.clone())
@@ -282,6 +294,7 @@ impl Desktop {
                 div()
                     .id("memory-rows")
                     .role(Role::List)
+                    .aria_label("Memory bytes in hexadecimal and ASCII")
                     .track_focus(&self.memory_focus)
                     .overflow_x_scroll()
                     .on_mouse_down(

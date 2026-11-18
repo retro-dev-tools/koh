@@ -1,6 +1,7 @@
 # GPUI desktop migration
 
-Status: connected GPUI window implemented; inspector parity and polish in progress.
+Status: GPUI implementation and Linux functional checks complete; legacy removal
+and package integration in progress.
 Baseline: `9ebb6e5`.
 
 ## Whole-goal checkpoints
@@ -9,7 +10,7 @@ Draft [PR #56](https://github.com/retro-dev-tools/koh/pull/56) tracks this work.
 The bar counts completed checkpoints, not estimated effort.
 
 ```text
-[#######>--] 7/10 complete; current: connected GPUI interface
+[########>-] 8/10 complete; current: KohUI removal and integration
 ```
 
 | # | Checkpoint | State / evidence |
@@ -21,7 +22,7 @@ The bar counts completed checkpoints, not estimated effort.
 | 5 | Producers, consumers and KDBG removal | Done: CLI/SDK/editor/sample/fixture cutover; old writer/reader/builder removed; seven SDK sidecars verified |
 | 6 | Real DWARF debugging acceptance | Done: 37 compiler/debugger integration cases; Debug/Release SDK 2048, source breakpoints, framework stack recovery and machine state |
 | 7 | Windowless engine session | Done: copied coherent snapshots, frame-boundary commands while paused, persistence, DAP coordination; nine NativeAOT process tests and real SDK 2048 run |
-| 8 | Complete GPUI Kit interface | In progress: connected LCD, controls, picker code and four inspectors; full input/accessibility and polish remain |
+| 8 | Complete GPUI Kit interface | Done: four inspectors, native picker, all joypad keys, focus/toolbar behavior, slate light/dark styling and accessible content; Linux native evidence below |
 | 9 | Complete KohUI removal and integration | Pending: both backends/demo/tests/dependencies/references; launch/package/CI |
 | 10 | Final native acceptance | Pending: real-game visual/input/audio, headless regressions and platform validation |
 
@@ -46,9 +47,10 @@ Without `KOH_ENGINE`, the UI resolves the engine beside its executable. Empty
 startup offers the ROM picker from the window. OS picker failures become visible
 errors; the current session survives failed ROM loads. `Esc` switches between
 game input and toolbar focus. Controls retain P/R/D/F5/F9 and held Tab shortcuts.
-Right Shift / Select still needs an implementation against GPUI modifier events;
-the public modifier state does not distinguish sides. No binding substitution
-is counted as completed parity.
+Right Shift activates Select through GPUI modifier events. Its public modifier
+state combines both sides, so left Shift also activates Select. Game focus
+isolates these bindings from text entry and toolbar navigation. Tab uses a
+scoped action so GPUI focus traversal cannot consume held fast-forward input.
 
 Use the [upstream installation guide](https://gpui-kit.com/docs/installation/)
 for native prerequisites. CI now installs the Linux build dependencies for the
@@ -81,11 +83,10 @@ serde and base64 dependencies handle pixels and the private engine protocol.
   SHA256 `1964cbcc22cf7beb655802065aa06cef477657cb0a5d1ff8aa5f0368b6e86b3d`.
   Log: `/tmp/koh-gpui-headless.log`.
 
-The native window check used OpenAL's null driver; it does not prove audible
-output. Full picker, shortcut/focus, inspector, theme, resize, accessibility,
-Wayland and cross-platform acceptance remain open. KohUI still exists until
-the replacement reaches parity. New GUI dependency notices and packaging are
-part of the removal/integration checkpoint.
+The native window checks use OpenAL's null driver; they do not prove audible
+output. Later inspector/input/appearance checks below cover Linux functional
+acceptance. Wayland and cross-platform acceptance remain open. KohUI removal,
+new GUI dependency notices and packaging are the next checkpoint.
 
 ### Inspector increment
 
@@ -117,9 +118,56 @@ sizes. Inspector content scrolls vertically.
   OBJ palettes. Exit 0: `/tmp/koh-gpui-inspectors-cgb-pattern.log` and
   `/tmp/koh-gpui-inspectors-cgb-bank1.log`.
 
-![Native memory inspector showing FFF0 and wrapped addresses](images/gpui-memory.png)
+![Early native memory inspector capture showing FFF0 and wrapped addresses](images/gpui-memory.png)
 
-The full checkpoint stays at 7/10 until interface acceptance is complete.
+The checkpoint ledger above tracks current completion.
+
+### Input, appearance and accessibility
+
+The interface uses slate surfaces, blue primary actions and amber paused status
+in both system light and dark modes. CPU values, palette colors, tile-bank
+descriptions, memory rows, validation alerts and operation status are exposed
+to accessibility tools. Text labels supply their AccessKit value; naming a
+static label alone does not expose its contents through AT-SPI.
+
+Native checks in `/tmp/koh-gpui-polish-native-final.log` cover every joypad key,
+both Shift keys, text-field isolation, internal focus changes and actual X11
+window deactivation. Held Tab advances the core beyond normal pacing and clears
+on focus loss. Toolbar Tab/Enter navigation, system light/dark changes, and
+the live AT-SPI inspector contents were exercised. The appearance service runs
+on a private D-Bus session with `GSETTINGS_BACKEND=memory`; a private bus alone
+does not isolate dconf storage.
+
+The native GTK portal picker opens/cancels, loads a ROM whose path contains
+spaces, and reports an invalid ROM accessibly while retaining the current ROM.
+Log: `/tmp/koh-gpui-picker-native-final.log`.
+
+Empty startup has no default/private ROM, leaves transport inactive and exposes
+no disabled-button actions. A native pointer click on disabled Reset produces
+no reset command. Opening/cancelling and selecting valid/invalid ROMs work from
+this state too. Exit 0: `/tmp/koh-gpui-empty-picker-native.log`.
+
+The real SDK 2048 native window still matches exact engine LCD pixels. P freezes
+it, F5 completes a save, R resets the paused core and F9 restores the exact saved
+CPU state. Resuming refreshes LCD pixels, which again match the engine snapshot.
+Native window close exits 0. Log: `/tmp/koh-gpui-transport-native-final.log`.
+The desktop screenshot above is updated from this styled, real-game run.
+
+Focused tests including the published-engine case: 8/8 passed, zero ignored,
+`/tmp/koh-gpui-polish-tests.log`. Build, focused Clippy with warnings denied and
+Rustfmt check exit 0: `/tmp/koh-gpui-polish-build-final.log`,
+`/tmp/koh-gpui-polish-clippy-final.log`,
+`/tmp/koh-gpui-polish-format-check.log`.
+
+Two separate proposals remain outside this UI migration:
+
+- Core save states omit framebuffer pixels. Preserve the existing raw format;
+  paused restore tells the user to resume to refresh the display. Persisting
+  framebuffer pixels requires a separate compatible core-format change.
+- The pinned Linux AccessKit adapter reports disabled buttons as sensitive:
+  `accesskit_atspi_common` checks read-only support when constructing these
+  state flags. Disabled buttons still expose no click action. Track the adapter
+  flag correction separately; do not alter semantic button roles to hide it.
 
 ## Required outcome
 
@@ -168,8 +216,9 @@ ROM / status                     Frame count / fast-forward
 
 ## Acceptance inventory
 
-Read from `EmulatorApp.cs`, `Program.cs`, `EmulatorLoop.cs` and
-`CpuSnapshot.cs` at baseline. None is yet proven through GPUI.
+Recorded from `EmulatorApp.cs`, `Program.cs`, `EmulatorLoop.cs` and
+`CpuSnapshot.cs` at baseline. Current Linux evidence is recorded above;
+final package/platform acceptance remains checkpoint 10.
 
 | Surface | Required behavior | Evidence needed |
 | --- | --- | --- |

@@ -8,6 +8,32 @@ progress, preview commands and full parity/removal acceptance are in
 `docs/gpui-migration.md`; the wire contract is in `docs/engine-session.md`.
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
+Current progress8/10: GPUI implementation and Linux functional checks complete.
+Next unit: physically remove KohUI/backends/demo/tests, decouple the engine,
+switch launch/editor/package paths and stage the new dependency notices.
+Empty startup/picker: /tmp/koh-gpui-empty-picker-native.log exit0 (no default ROM,
+inactive transport, no disabled click actions, valid/spaced/invalid selection).
+Real SDK2048 transport: /tmp/koh-gpui-transport-native-final.log exit0 (exact LCD,
+P/F5/R/F9, exact CPU restore; resume refreshes legacy-format LCD; close0).
+Focused8/8inclNativeAOT, build/Clippy/format exit0; /tmp/koh-gpui-polish-*.log.
+Hosted checks pass atfedce21, run44416460511; new increment checks pending.
+Input/polish increment: both Shift keys activate Select through combined GPUI
+modifier state; release on internal/window focus loss and picker opening.
+Tab requires a scoped FastForward action: GPUI action dispatch precedes raw
+key handlers, so capture_key_down alone does not prevent Root tab traversal.
+Slate light/dark theme, blue primary controls and amber paused status applied.
+CPU labels need aria_value (not aria_label) to expose AT-SPI text. Status,
+memory validation and tile-bank descriptions now have accessible content.
+Native all-key/focus/theme/AT-SPI checks: /tmp/koh-gpui-polish-native-final.log.
+Actual GTK portal cancel, spaced-path load and invalid-ROM retention/error:
+/tmp/koh-gpui-picker-native-final.log. Bounded harnesses under
+/tmp/koh-gpui-preview; run them serially (shared X capture/probe paths).
+Use GSETTINGS_BACKEND=memory for the whole private D-Bus test session: a
+private bus alone still persists dconf. Host toolkit-accessibility reads false
+after cleanup. Do not write host theme/accessibility settings for future tests.
+Separate proposals: core raw states omit framebuffer pixels (paused restore
+needs Resume to redraw); Linux AccessKit adapter misreports disabled-button
+SENSITIVE flags despite removing their click action. No core format/role change.
 Inspector increment: CPU/Palettes/Tiles/Memory tabs, conditional detailed snapshots,
 integer-scale cached tile images with explicit release, validated hex entry,
 wrapping PageUp/PageDown/Home. Normal memory pane fits hex+ASCII; small windows
@@ -17,7 +43,7 @@ distinct bank0/bank1 images match too, including scrolled bank1. Reviewed memory
 FFF0 wrap, invalid entry and680x480 layout. Logs /tmp/koh-gpui-inspectors-*.log;
 bounded harnesses /tmp/koh-gpui-preview/run_inspectors_oracle.py and
 run_cgb_inspectors.py. Curated docs/images/gpui-memory.png is actual capture.
-Still7/10 checkpoints: full input/accessibility/picker/theme polish, complete
+Inspector increment evidence predates the completed input/polish work above.
 KohUI deletion/package/notices and final platform/audio/DAP acceptance remain.
 Hosted PR checks pass at3642a44, run44413679545. No full-suite rerun required for
 inspector-only Rust change; earlier workspace1484/1484 remains prior evidence.

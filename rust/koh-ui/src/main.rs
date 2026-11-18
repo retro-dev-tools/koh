@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use std::{ffi::OsString, path::Path, sync::Arc, time::Duration};
 mod panels;
 use panels::Inspector;
+gpui_kit::actions!(koh, [FastForward]);
 
 struct Desktop {
     engine: Option<Engine>,
@@ -23,6 +24,7 @@ struct Desktop {
     status: String,
     error: bool,
     focus: FocusHandle,
+    select_down: bool,
     open_focus: FocusHandle,
     show_inspector: bool,
     inspector: Inspector,
@@ -61,19 +63,17 @@ impl Desktop {
         let subscriptions = vec![
             cx.observe_window_activation(window, |this, window, _| {
                 if !window.is_window_active() {
-                    this.send(json!({"command": "releaseInput"}));
+                    this.release_input();
                 }
             }),
             cx.on_blur(&focus, window, |this, _, _| {
-                this.send(json!({"command": "releaseInput"}));
+                this.release_input();
             }),
             cx.on_app_quit(|this, _| {
                 this.engine.take();
                 async {}
             }),
-            cx.observe_window_appearance(window, |_, window, cx| {
-                Theme::sync_system_appearance(Some(window), cx)
-            }),
+            cx.observe_window_appearance(window, |_, window, cx| apply_theme(window, cx)),
             cx.subscribe_in(&memory_input, window, |this, _, event, window, cx| {
                 if matches!(event, InputEvent::PressEnter { .. }) {
                     this.jump_memory(window, cx);
@@ -119,6 +119,11 @@ impl Desktop {
                                         "resume" => "Running",
                                         "step" => "Stepped one instruction",
                                         "save" => "State saved",
+                                        "restore"
+                                            if this.snapshot.as_ref().is_some_and(|s| s.paused) =>
+                                        {
+                                            "State restored · Resume to refresh the display"
+                                        }
                                         "restore" => "State restored",
                                         _ => "",
                                     }
@@ -151,6 +156,7 @@ impl Desktop {
             status,
             error,
             focus,
+            select_down: false,
             open_focus: cx.focus_handle(),
             show_inspector: true,
             inspector: Inspector::Cpu,
@@ -181,7 +187,7 @@ impl Desktop {
     }
 
     fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.send(json!({"command": "releaseInput"}));
+        self.release_input();
         let picker = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -221,6 +227,28 @@ impl Desktop {
         .detach();
     }
 
+    fn release_input(&mut self) {
+        self.select_down = false;
+        self.send(json!({"command": "releaseInput"}));
+    }
+
+    fn modifiers_changed(
+        &mut self,
+        event: &ModifiersChangedEvent,
+        window: &mut Window,
+        _: &mut Context<Self>,
+    ) {
+        let down = self.focus.is_focused(window)
+            && event.modifiers.shift
+            && !event.modifiers.control
+            && !event.modifiers.alt
+            && !event.modifiers.platform;
+        if down != self.select_down {
+            self.select_down = down;
+            self.send(json!({"command": "joypad", "button": "Select", "down": down}));
+        }
+    }
+
     fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         if key == "escape" {
@@ -250,7 +278,6 @@ impl Desktop {
             return;
         }
         match key {
-            "tab" => self.send(json!({"command": "fastForward", "enabled": true})),
             "p" => self.send(json!({"command": if self.snapshot.as_ref().is_none_or(|s| s.paused) { "resume" } else { "pause" }})),
             "r" => self.send(json!({"command": "reset"})),
             "f5" => self.send(json!({"command": "save"})),
@@ -290,6 +317,9 @@ impl Desktop {
             ] {
                 panel = panel.child(
                     div()
+                        .id(SharedString::from(format!("cpu-{name}")))
+                        .role(Role::Label)
+                        .aria_value(format!("{name}: {value}"))
                         .flex()
                         .justify_between()
                         .font_family(cx.theme().mono_font_family.clone())
@@ -297,24 +327,32 @@ impl Desktop {
                         .child(value),
                 );
             }
+            let flags = format!(
+                "Z {}   N {}   H {}   C {}",
+                u8::from(cpu.flag_z),
+                u8::from(cpu.flag_n),
+                u8::from(cpu.flag_h),
+                u8::from(cpu.flag_c)
+            );
+            let cycles = format!("{} T-cycles", cpu.total_t_cycles);
             panel = panel
                 .child(
                     div()
+                        .id("cpu-flags")
+                        .role(Role::Label)
+                        .aria_value(flags.clone())
                         .text_sm()
                         .font_family(cx.theme().mono_font_family.clone())
-                        .child(format!(
-                            "Z {}   N {}   H {}   C {}",
-                            u8::from(cpu.flag_z),
-                            u8::from(cpu.flag_n),
-                            u8::from(cpu.flag_h),
-                            u8::from(cpu.flag_c)
-                        )),
+                        .child(flags),
                 )
                 .child(
                     div()
+                        .id("cpu-cycles")
+                        .role(Role::Label)
+                        .aria_value(cycles.clone())
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(format!("{} T-cycles", cpu.total_t_cycles)),
+                        .child(cycles),
                 );
         } else {
             panel = panel.child(
@@ -431,9 +469,15 @@ impl Render for Desktop {
         let inspector = self
             .show_inspector
             .then(|| self.inspector_panel(inspector_width, window, cx));
-        div().id("desktop").track_focus(&self.focus).size_full().flex().flex_col()
+        div().id("desktop").key_context("Koh").track_focus(&self.focus).size_full().flex().flex_col()
             .bg(cx.theme().background).text_color(cx.theme().foreground).font_family(cx.theme().font_family.clone())
             .on_key_down(cx.listener(Self::key_down)).on_key_up(cx.listener(|this, event, _, _| this.key_up(event)))
+            .on_action(cx.listener(|this, _: &FastForward, window, cx| {
+                if this.focus.is_focused(window) {
+                    this.send(json!({"command": "fastForward", "enabled": true}));
+                } else { cx.propagate(); }
+            }))
+            .on_modifiers_changed(cx.listener(Self::modifiers_changed))
             .child(div().flex().items_center().flex_wrap().gap_2().p_3().border_b_1().border_color(cx.theme().border)
                 .child(div().text_lg().font_weight(FontWeight::BOLD).mr_3().child("Koh"))
                 .child(Button::new("open").primary().label("Open ROM").track_focus(&self.open_focus).disabled(!connected).on_click(cx.listener(Self::open_click)))
@@ -447,11 +491,12 @@ impl Render for Desktop {
             .child(div().flex().flex_1().min_h_0()
                 .child(div().flex().flex_col().flex_1().min_w_0().items_center().justify_center().gap_4().p_4()
                     .child(div().p_3().rounded_lg().bg(rgb(0x17212d)).child(lcd))
-                    .child(div().text_xs().text_color(cx.theme().muted_foreground).child("Arrows move · X A · Z B · Enter Start · Tab fast-forward · Esc controls")))
+                    .child(div().text_xs().text_color(cx.theme().muted_foreground).child("Arrows move · X A · Z B · Enter Start · Shift Select · Tab fast-forward · Esc controls")))
                 .children(inspector))
-            .child(div().id("status").role(Role::Status).flex().flex_col().gap_1().px_4().py_2().border_t_1().border_color(cx.theme().border)
+            .child(div().id("status").role(Role::Status).aria_label(format!("{path}: {}. {}", if !loaded { "Ready" } else if paused { "Paused" } else { "Running" }, self.status)).flex().flex_col().gap_1().px_4().py_2().border_t_1().border_color(cx.theme().border)
                 .child(div().flex().justify_between().gap_3().text_sm().child(path)
-                    .child(if loaded { format!("{} · Frame {}{}", if paused { "Paused" } else { "Running" }, self.snapshot.as_ref().map_or(0, |s| s.frame), if self.snapshot.as_ref().is_some_and(|s| s.fast_forward) { " · Fast-forward" } else { "" }) } else { "Ready".into() }))
+                    .child(div().text_color(if paused && loaded { rgb(if cx.theme().is_dark() { 0xfbbf24 } else { 0x92400e }).into() } else { cx.theme().muted_foreground })
+                        .child(if loaded { format!("{} · Frame {}{}", if paused { "Paused" } else { "Running" }, self.snapshot.as_ref().map_or(0, |s| s.frame), if self.snapshot.as_ref().is_some_and(|s| s.fast_forward) { " · Fast-forward" } else { "" }) } else { "Ready".into() })))
                 .child(div().text_xs().text_color(if self.error { cx.theme().danger } else { cx.theme().muted_foreground }).child(self.status.clone())))
     }
 }
@@ -460,6 +505,35 @@ impl Desktop {
     fn open_click(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.open(window, cx);
     }
+}
+
+fn apply_theme(window: &mut Window, cx: &mut App) {
+    Theme::sync_system_appearance(Some(window), cx);
+    Theme::update(cx, |theme| {
+        let dark = theme.is_dark();
+        theme.background = rgb(if dark { 0x0f172a } else { 0xf8fafc }).into();
+        theme.foreground = rgb(if dark { 0xf1f5f9 } else { 0x0f172a }).into();
+        theme.border = rgb(if dark { 0x334155 } else { 0xcbd5e1 }).into();
+        theme.muted_foreground = rgb(if dark { 0x94a3b8 } else { 0x475569 }).into();
+        theme.button = rgb(if dark { 0x1e293b } else { 0xffffff }).into();
+        theme.button_hover = rgb(if dark { 0x334155 } else { 0xe2e8f0 }).into();
+        theme.button_active = rgb(if dark { 0x475569 } else { 0xcbd5e1 }).into();
+        theme.input = rgb(if dark { 0x1e293b } else { 0xffffff }).into();
+        theme.primary = rgb(0x2563eb).into();
+        theme.primary_hover = rgb(0x1d4ed8).into();
+        theme.primary_active = rgb(0x1e40af).into();
+        theme.primary_foreground = rgb(0xffffff).into();
+        theme.button_primary = theme.primary;
+        theme.button_primary_hover = theme.primary_hover;
+        theme.button_primary_active = theme.primary_active;
+        theme.button_primary_foreground = theme.primary_foreground;
+        theme.tab_bar = theme.button;
+        theme.tab = theme.background;
+        theme.tab_active = theme.button;
+        theme.tab_foreground = theme.muted_foreground;
+        theme.tab_active_foreground = theme.foreground;
+        theme.ring = rgb(0x3b82f6).into();
+    });
 }
 
 fn main() {
@@ -483,6 +557,7 @@ fn main() {
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx| {
             gpui_kit::init(cx);
+            cx.bind_keys([KeyBinding::new("tab", FastForward, Some("Koh"))]);
             gpui_kit::open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -499,7 +574,7 @@ fn main() {
                 },
                 cx,
                 |window, cx| {
-                    Theme::sync_system_appearance(Some(window), cx);
+                    apply_theme(window, cx);
                     cx.new(|cx| Desktop::new(arguments, window, cx))
                 },
             )
