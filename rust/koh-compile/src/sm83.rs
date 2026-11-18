@@ -812,17 +812,26 @@ impl Code<'_> {
         self.store_a(destination);
     }
 
-    fn compare(
-        &mut self,
-        mut left: u16,
-        mut right: u16,
-        destination: u16,
-        width: u16,
-        op: Comparison,
-    ) {
+    fn compare(&mut self, left: u16, right: u16, destination: u16, width: u16, op: Comparison) {
         let yes = self.label();
         let no = self.label();
         let end = self.label();
+        self.compare_jumps([left, right], width, op, [yes, no]);
+        self.mark(yes);
+        self.constant(destination, 1, 1);
+        self.jump(0xc3, end);
+        self.mark(no);
+        self.constant(destination, 1, 0);
+        self.mark(end);
+    }
+
+    fn compare_jumps(
+        &mut self,
+        [mut left, mut right]: [u16; 2],
+        width: u16,
+        op: Comparison,
+        [yes, no]: [SymbolId; 2],
+    ) {
         if matches!(op, Comparison::GreaterSigned | Comparison::GreaterUnsigned) {
             std::mem::swap(&mut left, &mut right);
         }
@@ -853,12 +862,6 @@ impl Code<'_> {
             }
         }
         self.jump(0xc3, if op == Comparison::Equal { yes } else { no });
-        self.mark(yes);
-        self.constant(destination, 1, 1);
-        self.jump(0xc3, end);
-        self.mark(no);
-        self.constant(destination, 1, 0);
-        self.mark(end);
     }
 
     fn multiply(&mut self, width: u16, temp: u16) {
@@ -1480,12 +1483,52 @@ pub(crate) fn emit_with_stack_reserve(
         argument += width;
     }
     let labels: Vec<_> = function.blocks.iter().map(|_| code.label()).collect();
+    let mut uses = BTreeMap::<u32, usize>::new();
+    for block in &function.blocks {
+        for value in block.instructions.iter().flat_map(|i| i.op.operands()) {
+            *uses.entry(value).or_default() += 1;
+        }
+        for edge in block.terminator.kind.edges() {
+            for &value in &edge.arguments {
+                *uses.entry(value).or_default() += 1;
+            }
+        }
+        match block.terminator.kind {
+            Control::Return(Some(value))
+            | Control::Branch {
+                condition: value, ..
+            }
+            | Control::Switch {
+                selector: value, ..
+            } => *uses.entry(value).or_default() += 1,
+            _ => {}
+        }
+    }
     code.check_size()?;
     for (index, block) in function.blocks.iter().enumerate() {
         code.mark(labels[index]);
+        let fused = match (&block.terminator.kind, block.instructions.last()) {
+            (
+                Control::Branch { condition, .. },
+                Some(Instruction {
+                    result: Some((id, _)),
+                    op: Op::Compare { op, left, right },
+                    ..
+                }),
+            ) if id == condition
+                && uses.get(id) == Some(&1)
+                && layout.values[left].2 == layout.values[right].2 =>
+            {
+                Some((*id, *op, *left, *right))
+            }
+            _ => None,
+        };
         for instruction in &block.instructions {
             code.mark_unwind(layout.size, banked);
             code.mark_il(instruction.il_offset);
+            if fused.is_some_and(|(id, ..)| instruction.result.is_some_and(|r| r.0 == id)) {
+                continue;
+            }
             let output = instruction.result.map(|r| layout.values[&r.0]);
             let slot = |id| layout.values[&id].0;
             let place = |id| Slot {
@@ -2552,14 +2595,33 @@ pub(crate) fn emit_with_stack_reserve(
                 transfer(&mut code, default);
             }
             Control::Branch { condition, yes, no } => {
-                code.bytes(&[0x0e, 0]);
-                for byte in 0..layout.values[condition].2 {
-                    code.load_a(layout.values[condition].0 + byte);
-                    code.bytes(&[0xb1, 0x4f]);
-                }
-                code.bytes(&[0x79, 0xb7]);
                 let truth = code.label();
-                code.jump(0xc2, truth);
+                if let Some((_, mut op, left, right)) = fused {
+                    let width = layout.values[&left].2;
+                    if width < layout.values[&left].1.bits() / 8 {
+                        op = match op {
+                            Comparison::LessSigned => Comparison::LessUnsigned,
+                            Comparison::GreaterSigned => Comparison::GreaterUnsigned,
+                            _ => op,
+                        };
+                    }
+                    let falsity = code.label();
+                    code.compare_jumps(
+                        [layout.values[&left].0, layout.values[&right].0],
+                        width,
+                        op,
+                        [truth, falsity],
+                    );
+                    code.mark(falsity);
+                } else {
+                    code.bytes(&[0x0e, 0]);
+                    for byte in 0..layout.values[condition].2 {
+                        code.load_a(layout.values[condition].0 + byte);
+                        code.bytes(&[0xb1, 0x4f]);
+                    }
+                    code.bytes(&[0x79, 0xb7]);
+                    code.jump(0xc2, truth);
+                }
                 transfer(&mut code, no);
                 code.mark(truth);
                 transfer(&mut code, yes);

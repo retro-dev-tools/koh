@@ -78,3 +78,7 @@ CSharpier and diff checks passed. Both performance dispositions remain open.
 The first [immediate-arithmetic improvement](immediate-arithmetic.md) reduces
 these marked windows to68900 and83528 T-cycles. Both original performance
 requirements remain open; the pre-optimization values above are historical.
+
+[Direct comparison branches](comparison-branches.md) subsequently reduce marked
+windows to55588 and75504 T-cycles. The original190/740-dot requirements remain
+open; neither this narrower timing window nor the incremental gain closes them.

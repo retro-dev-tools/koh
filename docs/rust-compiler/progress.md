@@ -10,6 +10,21 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Direct terminal comparison branches
+
+The backend now [branches directly from terminal single-use comparisons](comparison-branches.md).
+It counts all instruction/edge/terminator consumers; escaped/shared Booleans,
+intervening operations and mismatched storage widths retain materialization.
+The shared comparison routine preserves existing signed/unsigned logic and
+parallel edge copies. Four new rstest cases execute280 direct/escaped predicate
+ROMs. Full compiler-library/SM83 validation passed440/440 in127.552s, exit0,
+zero skipped (/tmp/koh-fused-compare-final.log). Marked Release windows improve
+689->555.88 dots/count and2610.25->2359.5 dots/copied byte. Original190/740-dot
+ceilings and remaining100 legacy dispositions stay open. No ABI/API change.
+Real-C# int128/wide and PDB checks12/12 passed105.147s, exit0
+(/tmp/koh-fused-compare-integration.log); discovery1934/1757/0ignored.
+Full current-head debugger/cross-platform acceptance remains unproven.
+
 ### Immediate arithmetic in the SM83 backend
 
 Known right-hand constants now use [immediate arithmetic](immediate-arithmetic.md),

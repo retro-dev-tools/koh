@@ -2378,6 +2378,115 @@ fn literal_alu_preserves_carry_borrow_and_large_frames(
 }
 
 #[rstest::rstest]
+#[case(Type::I32, false)]
+#[case(Type::I32, true)]
+#[case(Type::I64, false)]
+#[case(Type::I64, true)]
+fn terminal_comparisons_preserve_predicates_and_escaping_booleans(
+    host: &Host,
+    #[case] ty: Type,
+    #[case] escape: bool,
+) {
+    let mask = if ty == Type::I64 {
+        u64::MAX
+    } else {
+        u32::MAX as u64
+    };
+    let sign = 1u64 << (ty.bits() - 1);
+    let mut cases = Vec::new();
+    for op in [
+        Comparison::Equal,
+        Comparison::LessUnsigned,
+        Comparison::GreaterUnsigned,
+        Comparison::LessSigned,
+        Comparison::GreaterSigned,
+    ] {
+        let mut f = function(
+            ty,
+            Op::Compare {
+                op,
+                left: 0,
+                right: 1,
+            },
+        );
+        f.returns = Some(Type::I32);
+        f.blocks[0].instructions[0].result = Some((2, Type::I32));
+        for (id, value) in [(3, 11), (4, 22)] {
+            f.blocks[0].instructions.insert(
+                0,
+                Instruction {
+                    result: Some((id, Type::I32)),
+                    op: Op::Constant(value),
+                    il_offset: 0,
+                },
+            );
+        }
+        f.blocks[0].terminator.kind = Control::Branch {
+            condition: 2,
+            yes: Edge {
+                block: 1,
+                arguments: if escape { vec![2] } else { vec![] },
+            },
+            no: Edge {
+                block: 2,
+                arguments: if escape { vec![2] } else { vec![] },
+            },
+        };
+        for (parameter, value) in [(5, 3), (6, 4)] {
+            f.blocks.push(Block {
+                parameters: if escape {
+                    vec![(parameter, Type::I32)]
+                } else {
+                    vec![]
+                },
+                instructions: vec![],
+                terminator: Terminator {
+                    kind: Control::Return(Some(if escape { parameter } else { value })),
+                    il_offset: 1,
+                },
+            });
+        }
+        for (left, right) in [
+            (0, 0),
+            (0, 1),
+            (1, 0),
+            (mask, 0),
+            (0, mask),
+            (sign, mask),
+            (mask, sign),
+        ] {
+            let signed = |value| {
+                if ty == Type::I32 {
+                    value as u32 as i32 as i64
+                } else {
+                    value as i64
+                }
+            };
+            let truth = match op {
+                Comparison::Equal => left == right,
+                Comparison::LessUnsigned => left < right,
+                Comparison::GreaterUnsigned => left > right,
+                Comparison::LessSigned => signed(left) < signed(right),
+                Comparison::GreaterSigned => signed(left) > signed(right),
+            };
+            let expected = if escape {
+                u64::from(truth)
+            } else if truth {
+                11
+            } else {
+                22
+            };
+            let mut optimized = f.clone();
+            koh_compile::optimize::simplify(&mut optimized).unwrap();
+            for function in [f.clone(), optimized] {
+                cases.push((function, vec![left, right], Ok(expected)));
+            }
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
 #[case("Debug")]
 #[case("Release")]
 fn roslyn_methods_execute_as_sm83(host: &Host, #[case] configuration: &str) {
