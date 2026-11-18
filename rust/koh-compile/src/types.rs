@@ -324,7 +324,7 @@ impl Resolver<'_> {
                     type_args,
                 } => {
                     if resolver.delegate_signature_type(assembly, ty)?.is_some() {
-                        return crate::generics::scoped(assembly, ty, methods);
+                        return crate::generics::scoped(assembly, ty, methods, types);
                     }
                     let definition = resolver.resolve_type(assembly, type_token(*type_ref)?)?;
                     let arguments = type_args
@@ -384,7 +384,7 @@ impl Resolver<'_> {
                     assembly: 0,
                     ty: ty.clone(),
                 }),
-                _ if types.is_empty() => crate::generics::scoped(assembly, ty, methods),
+                _ if types.is_empty() => crate::generics::scoped(assembly, ty, methods, types),
                 _ => Err(
                     "Constructed signature modifier/function-pointer binding is unfinished".into(),
                 ),

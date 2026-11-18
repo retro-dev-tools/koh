@@ -121,6 +121,17 @@ iterator pipeline probe now reaches generic declaring storage at Where IL_0020,
 exit1/no object. Recursive constraints and array/interface adaptation remain open;
 the five LINQ methods still have no completed native acceptance replacements.
 
+The subsequent [generic callback scope correction](delegates.md#generic-declaring-and-method-scopes)
+also fixes ordinary Func fields, invocation, captures and method groups in generic
+classes. Thirty-two independent callback ROM executions cover that behavior.
+The same iterator pipeline now reaches Where IL_0040 and rejects with
+`castclass requires a supported reference class`, exit1/no object
+(`/tmp/koh-generic-callback-linq-probe.log`): the framework body tests whether its
+source is an array, outside current reference-class RTTI. This does not justify
+classifying valid array casts as malformed or promise that complete framework
+LINQ bodies are a sensible Game Boy runtime. Array/interface adaptation, recursive
+constraints and actual query implementation remain required decisions.
+
 Fresh `cargo nextest list --workspace --all-features --locked --message-format
 json` discovery reports2019 workspace cases,1842 compiler cases and zero ignored
 (`/tmp/koh-framework-root-discovery.json`, exit0). Existing cubes dead-code warning

@@ -1,5 +1,66 @@
 using System;
 
+public sealed class GenericCallbackBox<T>
+{
+    public Func<T, T> Callback;
+
+    public GenericCallbackBox(Func<T, T> callback) => Callback = callback;
+
+    public T Read(T value) => Callback(value);
+
+    public U Select<U>(T value, Func<T, U> selector) => selector(value);
+
+    public Func<T, T> Capture(T value) => ignored => value;
+
+    public T Echo(T value) => value;
+}
+
+public static unsafe class GenericCallbackRules
+{
+    public static int Int() => new GenericCallbackBox<int>(x => x + 5).Read(37);
+
+    public static int Byte() => new GenericCallbackBox<byte>(x => (byte)(x + 2)).Read(254) + 42;
+
+    public static int Signed() => new GenericCallbackBox<short>(x => (short)(x - 5)).Read(-7) + 54;
+
+    public static int Long()
+    {
+        long value = new GenericCallbackBox<long>(x => x + 5).Read(0x1234567800000025L);
+        *(long*)0xDF08 = value;
+        return (int)value;
+    }
+
+    public static int Mixed()
+    {
+        var box = new GenericCallbackBox<int>(x => x);
+        long value = box.Select<long>(42, x => 0x1234567800000000L + x);
+        *(long*)0xDF08 = value;
+        return (int)value;
+    }
+
+    public static int Array()
+    {
+        int[] values = { 7, 42 };
+        return new GenericCallbackBox<int[]>(x => x).Read(values)[1];
+    }
+
+    public static int Captured()
+    {
+        var box = new GenericCallbackBox<long>(x => x);
+        Func<long, long> callback = box.Capture(0x123456780000002AL);
+        long value = callback(0);
+        *(long*)0xDF08 = value;
+        return (int)value;
+    }
+
+    public static int OwnerGroup()
+    {
+        var box = new GenericCallbackBox<int>(x => x);
+        Func<int, int> callback = box.Echo;
+        return callback(42);
+    }
+}
+
 public delegate long WideCallback(long value, ref int state);
 public delegate int ByteCallback(byte value);
 

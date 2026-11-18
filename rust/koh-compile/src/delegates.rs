@@ -388,6 +388,8 @@ pub(crate) fn member(
     resolver: &Resolver<'_>,
     assembly: usize,
     token: u32,
+    methods: &[crate::generics::Argument],
+    types: &[crate::generics::Argument],
 ) -> Result<Option<(DelegateType, bool, Signature)>, String> {
     use clrmeta::{TableId, TypeSig};
     let metadata = resolver.assembly(assembly)?.metadata();
@@ -417,7 +419,11 @@ pub(crate) fn member(
         }
         _ => return Ok(None),
     };
-    let Some(kind) = bind(resolver, assembly, &ty)? else {
+    if resolver.delegate_signature_type(assembly, &ty)?.is_none() {
+        return Ok(None);
+    }
+    let ty = resolver.bind_signature(assembly, &ty, methods, types)?;
+    let Some(kind) = bind(resolver, ty.assembly, &ty.ty)? else {
         return Ok(None);
     };
     let resolved = resolver.resolve_method(assembly, token)?;

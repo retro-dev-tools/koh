@@ -2100,8 +2100,13 @@ fn translate(
                 return Ok(Control::Jump(b.edge(next()?)));
             }
             if constrained.is_none()
-                && let Some((kind, constructor, mut signature)) =
-                    crate::delegates::member(resolver, method.identity.assembly, token)?
+                && let Some((kind, constructor, mut signature)) = crate::delegates::member(
+                    resolver,
+                    method.identity.assembly,
+                    token,
+                    &b.method_arguments,
+                    &b.type_arguments,
+                )?
             {
                 if constructor != constructing {
                     return Err(

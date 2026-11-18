@@ -34,6 +34,48 @@ extends the earlier verifiable-pattern-only boundary without changing the ABI.
 These relationships are checked before SSA block parameters rename values;
 comparing raw SSA IDs was an incorrect initial implementation.
 
+### Generic declaring and method scopes
+
+Delegate signatures inside generic classes now bind both declaring-type `!n`
+and method `!!n` arguments. The existing scoped signature binder previously
+accepted only method arguments on its delegate path, incorrectly rejecting
+ordinary `Func<T,T>` fields while laying out their containing class. Delegate
+constructor/Invoke member binding now receives the same caller scopes before
+selecting the nominal callback kind. Same-numbered parameters from the two
+scopes remain distinct; argument storage widths and signedness are retained.
+No generated class names or LINQ-specific patterns are recognized.
+
+Ordinary closed generic class method groups and returned capturing lambdas are
+covered, including a generic closure retaining a full64-bit captured value.
+This changes compiler internals only; the C# authoring API, callback heap layout
+and far-call convention remain unchanged. Foreign named arguments inside a
+constructed delegate signature still require richer scoped layout binding and
+diagnose explicitly. Neither parameter namespace may be silently substituted
+from the other or reinterpreted in the delegate definition's assembly.
+
+Four new rstest cases build actual Debug/Release C# and execute32 DMG/CGB ROMs:
+int, wrapping byte, negative short, long, distinct class/method arguments,
+array reference, returned generic capture and generic-owner method group.
+Each returns42, restores SPD000 and preserves guards. Full256-byte packets check
+wide/captured123456780000002A and untouched5A bytes independently of old compiler
+output. Unit tests check distinct scopes, missing arguments and foreign-name
+rejection for both parameter namespaces.
+
+Before the fix, all four cases failed on `!0 requires instantiated storage`
+(`/tmp/koh-generic-callback-red.log`, exit100). The first six-entry checkpoint
+passed20/20 in11.916s (`/tmp/koh-generic-callback-first.log`, exit0). Expanded
+binding/generic/layout/reference validation passed454/454 in198.597s, exit0,
+443 explicitly unselected (`/tmp/koh-generic-callback-final.log`). After adding
+the returned-capture and owner-method entries, all affected delegate fixtures
+and scoped-substitution checks passed86/86 in42.660s, exit0,747 explicitly
+unselected (`/tmp/koh-generic-callback-captures.log`). No production changes
+followed that expanded checkpoint. All five LINQ methods remain outstanding;
+this is a shared compiler correction, not a claim that pipeline reductions work.
+Fresh nextest discovery reports2053 workspace/1876 compiler cases, zero ignored
+(`/tmp/koh-generic-callback-discovery.json`, exit0). Final rustfmt/CSharpier and
+diff checks pass. Discovery is not full workspace execution; current-head SDK,
+debugger and three-platform acceptance are not claimed by this focused increment.
+
 ## Heap and calling ABI
 
 A delegate consumes eight bytes in the ordinary checked managed heap:
@@ -78,7 +120,7 @@ Exact nominal target signatures are supported, including valid variance-marked
 declarations with the exact instantiated signature. [Generic parameter flag
 words are validated](delegate-parameter-flags.md). Variance conversions/adaptation, closed-static
 and open-instance forms, multicast/equality APIs, async delegate APIs, arbitrary
-calli, constructed generic declaring-type targets and boxed value-type receivers still
+calli and boxed value-type receivers still
 require explicit support decisions and diagnostics. This is a visible current
 boundary, not approval to retire useful legacy coverage. Interface/general
 generic/language-runtime completion remains a whole-migration gate.

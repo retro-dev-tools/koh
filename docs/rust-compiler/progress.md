@@ -10,6 +10,20 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Generic callback storage
+
+Delegate binding now preserves both declaring-type and method parameter scopes,
+fixing Func<T,T> fields in generic classes without LINQ-specific patterns. Four
+Debug/Release × DMG/CGB cases execute32 ROMs across scalar widths, array references,
+distinct scopes, generic captures and owner method groups, with full memory packets.
+Expanded binding/layout/reference validation passed454/454 in198.597s; the final
+affected fixture and scope selection passed86/86 in42.660s, both exit0.
+[Contract and limits](delegates.md#generic-declaring-and-method-scopes).
+Foreign named argument combinations still diagnose; no ABI/API changes or LINQ
+source closure is claimed. The LINQ probe now reaches unsupported array RTTI in
+Where. Ledger509/565,56 outstanding; final validation and legacy deletion remain open.
+Fresh discovery2053 workspace/1876 compiler cases, zero ignored.
+
 ### Local definite assignment
 
 Nonzeroed CIL locals now use bounded verifier must-assignment analysis across

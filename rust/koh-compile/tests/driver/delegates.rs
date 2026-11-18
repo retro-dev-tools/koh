@@ -2,6 +2,61 @@ use super::{Host, compile, execute_mode, gameboy_images, host};
 use koh_compile::resolve::Resolver;
 use rstest::rstest;
 
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn generic_callback_storage_keeps_type_and_method_arguments(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "DelegateCalls");
+    let framework = framework_image(directory.path(), configuration);
+    let resolver = Resolver::new(&[&images[0], &images[1], &framework]).unwrap();
+    for entry in [
+        "Int",
+        "Byte",
+        "Signed",
+        "Long",
+        "Mixed",
+        "Array",
+        "Captured",
+        "OwnerGroup",
+    ] {
+        let object = compile::object(&resolver, Some(&format!("GenericCallbackRules::{entry}")))
+            .unwrap_or_else(|e| panic!("{entry}: {e}"));
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+        let mut packet = vec![0x5a; 256];
+        if matches!(entry, "Long" | "Mixed" | "Captured") {
+            packet[8..16].copy_from_slice(&0x123456780000002Au64.to_le_bytes());
+        }
+        super::assert_heap_snapshot(&fields[4][0xf00 * 2..], &packet, entry);
+    }
+}
+
 fn replace_method_token(
     image: &koh_compile::assembly::Assembly<'_>,
     bytes: &[u8],

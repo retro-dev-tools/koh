@@ -48,11 +48,13 @@ pub(crate) fn scoped(
     assembly: usize,
     ty: &TypeSig,
     arguments: &[Argument],
+    types: &[Argument],
 ) -> Result<Argument, String> {
     fn inner(
         assembly: usize,
         ty: &TypeSig,
         arguments: &[Argument],
+        types: &[Argument],
         depth: usize,
         nodes: &mut usize,
     ) -> Result<Argument, String> {
@@ -63,18 +65,18 @@ pub(crate) fn scoped(
         if depth > 64 {
             return Err("Generic substitution exceeds64 levels".into());
         }
-        let mut nested = |ty| inner(assembly, ty, arguments, depth + 1, nodes);
+        let mut nested = |ty| inner(assembly, ty, arguments, types, depth + 1, nodes);
         let ty = match ty {
-            TypeSig::MVar(index) => {
-                let argument = arguments
+            TypeSig::MVar(index) | TypeSig::Var(index) => {
+                let values = if matches!(ty, TypeSig::Var(_)) {
+                    types
+                } else {
+                    arguments
+                };
+                let argument = values
                     .get(*index as usize)
-                    .ok_or_else(|| format!("Unbound generic method parameter !!{index}"))?;
-                return inner(argument.assembly, &argument.ty, &[], depth + 1, nodes);
-            }
-            TypeSig::Var(index) => {
-                return Err(format!(
-                    "Generic declaring type parameter !{index} requires instantiated storage"
-                ));
+                    .ok_or_else(|| format!("Unbound generic parameter {ty:?}"))?;
+                return inner(argument.assembly, &argument.ty, &[], &[], depth + 1, nodes);
             }
             TypeSig::SzArray(element)
             | TypeSig::ByRef(element)
@@ -153,7 +155,7 @@ pub(crate) fn scoped(
             ty,
         })
     }
-    inner(assembly, ty, arguments, 0, &mut 0)
+    inner(assembly, ty, arguments, types, 0, &mut 0)
 }
 
 pub(crate) struct MethodTypes {
@@ -334,7 +336,7 @@ mod tests {
             .cloned()
             .map(|ty| Argument { assembly: 0, ty })
             .collect::<Vec<_>>();
-        scoped(0, ty, &arguments).map(|argument| argument.ty)
+        scoped(0, ty, &arguments, &[]).map(|argument| argument.ty)
     }
 
     #[rstest]
@@ -346,7 +348,7 @@ mod tests {
             ty: ty.clone(),
         }];
         let input = TypeSig::ByRef(Box::new(TypeSig::SzArray(Box::new(TypeSig::MVar(0)))));
-        let result = scoped(2, &input, &arguments).unwrap();
+        let result = scoped(2, &input, &arguments, &[]).unwrap();
         assert_eq!(result.assembly, 7);
         assert_eq!(
             result.ty,
@@ -368,7 +370,7 @@ mod tests {
             sizes: vec![],
             lo_bounds: vec![0, 0],
         };
-        let result = scoped(2, &input, &arguments).unwrap();
+        let result = scoped(2, &input, &arguments, &[]).unwrap();
         assert_eq!(result.assembly, 7);
         assert_eq!(
             result.ty,
@@ -381,27 +383,36 @@ mod tests {
         );
     }
 
-    #[test]
-    fn constructed_signatures_do_not_reinterpret_foreign_tokens() {
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn constructed_signatures_do_not_reinterpret_foreign_tokens(#[case] declaring: bool) {
         let signature = TypeSig::GenericInst {
             is_value_type: false,
             type_ref: 8,
-            type_args: vec![TypeSig::MVar(0)],
+            type_args: vec![if declaring {
+                TypeSig::Var(0)
+            } else {
+                TypeSig::MVar(0)
+            }],
         };
         let foreign = Argument {
             assembly: 7,
             ty: TypeSig::Class(12),
         };
-        assert!(
-            scoped(2, &signature, &[foreign])
-                .unwrap_err()
-                .contains("foreign named")
-        );
+        let bind = |argument: Argument| {
+            if declaring {
+                scoped(2, &signature, &[], &[argument])
+            } else {
+                scoped(2, &signature, &[argument], &[])
+            }
+        };
+        assert!(bind(foreign).unwrap_err().contains("foreign named"));
         let primitive = Argument {
             assembly: 7,
             ty: TypeSig::Primitive(ElementType::I4),
         };
-        let result = scoped(2, &signature, &[primitive]).unwrap();
+        let result = bind(primitive).unwrap();
         assert_eq!(result.assembly, 2);
         assert_eq!(
             result.ty,
@@ -410,6 +421,46 @@ mod tests {
                 type_ref: 8,
                 type_args: vec![TypeSig::Primitive(ElementType::I4)]
             }
+        );
+    }
+
+    #[test]
+    fn method_and_declaring_parameters_have_distinct_scopes() {
+        let signature = TypeSig::GenericInst {
+            is_value_type: false,
+            type_ref: 8,
+            type_args: vec![TypeSig::Var(0), TypeSig::MVar(0)],
+        };
+        let methods = [Argument {
+            assembly: 7,
+            ty: TypeSig::Primitive(ElementType::I8),
+        }];
+        let types = [Argument {
+            assembly: 9,
+            ty: TypeSig::Primitive(ElementType::U1),
+        }];
+        let result = scoped(2, &signature, &methods, &types).unwrap();
+        assert_eq!(result.assembly, 2);
+        assert_eq!(
+            result.ty,
+            TypeSig::GenericInst {
+                is_value_type: false,
+                type_ref: 8,
+                type_args: vec![
+                    TypeSig::Primitive(ElementType::U1),
+                    TypeSig::Primitive(ElementType::I8)
+                ],
+            }
+        );
+        assert!(
+            scoped(2, &signature, &methods, &[])
+                .unwrap_err()
+                .contains("Var(0)")
+        );
+        assert!(
+            scoped(2, &signature, &[], &types)
+                .unwrap_err()
+                .contains("MVar(0)")
         );
     }
 
