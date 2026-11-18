@@ -619,22 +619,16 @@ impl<'r, 'a> Binder<'r, 'a> {
     }
 
     fn typed_signature(&mut self, method: Definition) -> Result<Signature, String> {
-        if let Some(instance) = self.resolver.instance(method)? {
-            let signature = self.signature(instance.method)?;
-            return Ok(crate::generics::method_types(
-                self.resolver,
-                method,
-                &signature,
-                &instance.arguments,
-            )?
-            .signature);
-        }
-        let signature = self.signature(method)?;
-        lower::bound_signature(
+        let instance = self.resolver.instance(method)?;
+        let raw = instance.as_ref().map_or(method, |i| i.method);
+        let signature = self.signature(raw)?;
+        Ok(crate::generics::method_types(
             self.resolver,
-            method.assembly,
-            &lower::storage_signature(self.resolver, method, &signature)?,
-        )
+            method,
+            &signature,
+            instance.as_ref().map_or(&[], |i| i.arguments.as_slice()),
+        )?
+        .signature)
     }
 
     pub(crate) fn validate_interfaces(&mut self, class: ClassType) -> Result<(), String> {

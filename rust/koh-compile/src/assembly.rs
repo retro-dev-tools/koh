@@ -23,6 +23,104 @@ pub struct MethodBody<'a> {
     pub local_signature: u32,
     pub init_locals: bool,
     pub extra_sections: bool,
+    pub regions: Vec<ExceptionRegion>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExceptionRegion {
+    pub flags: u32,
+    pub protected: std::ops::Range<u32>,
+    pub handler: std::ops::Range<u32>,
+}
+
+fn exception_regions(
+    bytes: &[u8],
+    code_end: usize,
+    code_size: u32,
+) -> Result<Vec<ExceptionRegion>, String> {
+    let mut offset = code_end
+        .checked_add(3)
+        .ok_or("Exception section offset overflow")?
+        & !3;
+    let mut regions = Vec::new();
+    for _ in 0..256 {
+        let header = range(bytes, offset, 4)?;
+        let kind = header[0];
+        if kind & 0x3f != 1 {
+            return Err(format!("Unsupported extra method section kind0x{kind:02x}"));
+        }
+        let fat = kind & 0x40 != 0;
+        let size = if fat {
+            (u32_at(header, 0)? >> 8) as usize
+        } else {
+            if header[2..] != [0, 0] {
+                return Err("Invalid small exception section reserved bytes".into());
+            }
+            header[1] as usize
+        };
+        let width = if fat { 24 } else { 12 };
+        if size < 4 || (size - 4) % width != 0 {
+            return Err("Invalid exception section size".into());
+        }
+        let data = range(bytes, offset, size)?;
+        if regions.len() + (size - 4) / width > 256 {
+            return Err("Exception clause count exceeds256".into());
+        }
+        for clause in data[4..].chunks_exact(width) {
+            let (flags, start, length, handler, handler_length, extra) = if fat {
+                (
+                    u32_at(clause, 0)?,
+                    u32_at(clause, 4)?,
+                    u32_at(clause, 8)?,
+                    u32_at(clause, 12)?,
+                    u32_at(clause, 16)?,
+                    u32_at(clause, 20)?,
+                )
+            } else {
+                (
+                    u16_at(clause, 0)? as u32,
+                    u16_at(clause, 2)? as u32,
+                    clause[4] as u32,
+                    u16_at(clause, 5)? as u32,
+                    clause[7] as u32,
+                    u32_at(clause, 8)?,
+                )
+            };
+            let checked = |start: u32, length: u32| -> Result<std::ops::Range<u32>, String> {
+                let end = start
+                    .checked_add(length)
+                    .filter(|&end| length != 0 && end <= code_size)
+                    .ok_or("Invalid exception region range")?;
+                Ok(start..end)
+            };
+            if !matches!(flags, 0 | 1 | 2 | 4) {
+                return Err(format!("Unsupported exception clause flags0x{flags:x}"));
+            }
+            if matches!(flags, 2 | 4) && extra != 0 {
+                return Err("Invalid finally/fault clause payload".into());
+            }
+            if flags == 1 && extra >= code_size {
+                return Err("Invalid exception filter offset".into());
+            }
+            if flags == 0 && (extra & 0xffffff == 0 || !matches!(extra >> 24, 1 | 2 | 0x1b)) {
+                return Err("Invalid exception catch type token".into());
+            }
+            regions.push(ExceptionRegion {
+                flags,
+                protected: checked(start, length)?,
+                handler: checked(handler, handler_length)?,
+            });
+        }
+        if kind & 0x80 == 0 {
+            return Ok(regions);
+        }
+        offset = offset
+            .checked_add(size)
+            .and_then(|end| end.checked_add(3))
+            .ok_or("Exception section offset overflow")?
+            & !3;
+    }
+    Err("Exception section count exceeds256".into())
 }
 
 fn range(bytes: &[u8], offset: usize, length: usize) -> Result<&[u8], String> {
@@ -732,13 +830,79 @@ mod tests {
 
     #[test]
     fn preserves_fat_header_contract() {
-        let bytes = [0x1b, 0x30, 3, 0, 1, 0, 0, 0, 1, 0, 0, 0x11, 0x2a];
+        let bytes = [
+            0x1b, 0x30, 3, 0, 1, 0, 0, 0, 1, 0, 0, 0x11, 0x2a, 0, 0, 0, 1, 16, 0, 0, 2, 0, 0, 0, 1,
+            0, 0, 1, 0, 0, 0, 0,
+        ];
         let body = body(&bytes).unwrap();
         assert_eq!(body.il, &[0x2a]);
         assert_eq!(body.max_stack, 3);
         assert_eq!(body.local_signature, 0x11000001);
         assert!(body.init_locals);
         assert!(body.extra_sections);
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn reads_bounded_exception_sections(#[case] fat: bool) {
+        let mut bytes = if fat {
+            let mut data = vec![0x41, 28, 0, 0];
+            for word in [2u32, 0, 3, 3, 2, 0] {
+                data.extend(word.to_le_bytes());
+            }
+            data
+        } else {
+            vec![1, 16, 0, 0, 2, 0, 0, 0, 3, 3, 0, 2, 0, 0, 0, 0]
+        };
+        let expected = ExceptionRegion {
+            flags: 2,
+            protected: 0..3,
+            handler: 3..5,
+        };
+        assert_eq!(
+            exception_regions(&bytes, 0, 6).unwrap(),
+            vec![expected.clone()]
+        );
+        for end in 0..bytes.len() {
+            assert!(
+                exception_regions(&bytes[..end], 0, 6).is_err(),
+                "prefix{end}"
+            );
+        }
+        bytes[0] |= 0x80;
+        let second = bytes.clone();
+        let second_offset = bytes.len();
+        bytes.extend(second);
+        bytes[second_offset] &= !0x80;
+        assert_eq!(
+            exception_regions(&bytes, 0, 6).unwrap(),
+            vec![expected.clone(), expected]
+        );
+    }
+
+    #[rstest]
+    #[case(0, 2)]
+    #[case(1, 3)]
+    #[case(1, 15)]
+    #[case(2, 1)]
+    #[case(4, 3)]
+    #[case(8, 0)]
+    #[case(12, 1)]
+    fn rejects_malformed_exception_sections(#[case] offset: usize, #[case] value: u8) {
+        let mut bytes = vec![1, 16, 0, 0, 2, 0, 0, 0, 3, 3, 0, 2, 0, 0, 0, 0];
+        bytes[offset] = value;
+        assert!(exception_regions(&bytes, 0, 6).is_err());
+    }
+
+    #[test]
+    fn empty_chained_sections_have_a_work_limit() {
+        let bytes = [0x81, 4, 0, 0].repeat(257);
+        assert!(
+            exception_regions(&bytes, 0, 6)
+                .unwrap_err()
+                .contains("section count")
+        );
     }
 }
 
@@ -751,6 +915,7 @@ fn body(bytes: &[u8]) -> Result<MethodBody<'_>, String> {
             local_signature: 0,
             init_locals: false,
             extra_sections: false,
+            regions: Vec::new(),
         }),
         3 => {
             let flags = u16_at(bytes, 0)?;
@@ -768,6 +933,15 @@ fn body(bytes: &[u8]) -> Result<MethodBody<'_>, String> {
                 local_signature,
                 init_locals: flags & 0x10 != 0,
                 extra_sections: flags & 8 != 0,
+                regions: if flags & 8 != 0 {
+                    exception_regions(
+                        bytes,
+                        header_size + u32_at(bytes, 4)? as usize,
+                        u32_at(bytes, 4)?,
+                    )?
+                } else {
+                    Vec::new()
+                },
             })
         }
         _ => Err("Invalid CIL method header".into()),

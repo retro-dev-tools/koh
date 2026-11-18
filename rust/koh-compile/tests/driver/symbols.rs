@@ -301,6 +301,117 @@ fn debugger_replies(debugger: &Host, requests: &[String]) -> Vec<serde_json::Val
 }
 
 #[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn debugger_breaks_in_finally_and_unwinds_its_caller(
+    host: &Host,
+    debugger: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    use serde_json::json;
+    let (directory, images) = gameboy_images(host, configuration, "FrameworkContracts");
+    let resolver = koh_compile::resolve::Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let pdb = std::fs::read(directory.path().join(format!(
+        "bin/{configuration}/net10.0/FrameworkContracts.pdb"
+    )))
+    .unwrap();
+    let object = koh_compile::compile::object_with_debug(
+        &resolver,
+        Some("FinallyRules::EarlyReturn"),
+        &[Some(pdb.as_slice()), None],
+    )
+    .unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Compatible
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let source_text = std::fs::read_to_string(directory.path().join("Program.cs")).unwrap();
+    let lines: Vec<_> = source_text.lines().collect();
+    let method = lines
+        .iter()
+        .position(|s| s.contains("private static int Early(int value)"))
+        .unwrap();
+    let line = method
+        + lines[method..]
+            .iter()
+            .position(|s| s.trim() == "Mark(2);")
+            .unwrap()
+        + 1;
+    let caller = lines
+        .iter()
+        .position(|s| s.trim() == "int result = Early(1);")
+        .unwrap()
+        + 1;
+    let point = linked
+        .lines
+        .iter()
+        .find(|p| p.file.ends_with("Program.cs") && p.line as usize == line)
+        .unwrap();
+    let rom = directory.path().join("finally debug.gb");
+    let kdbg = rom.with_extension("kdbg");
+    std::fs::write(&rom, &linked.rom).unwrap();
+    std::fs::write(&kdbg, linked.kdbg().unwrap()).unwrap();
+    let mut requests = Vec::new();
+    for (command, arguments) in [
+        (
+            "launch",
+            json!({"program":rom,"debugInfo":kdbg,"hardwareMode":if color {"cgb"} else {"dmg"}}),
+        ),
+        (
+            "setBreakpoints",
+            json!({"source":{"path":point.file},"breakpoints":[{"line":line}]}),
+        ),
+        ("continue", json!({"threadId":1})),
+        ("advance", json!({"frames":600})),
+        ("stackTrace", json!({"threadId":1})),
+        (
+            "disassemble",
+            json!({"memoryReference":format!("0x{:04X}",point.address),"instructionCount":4}),
+        ),
+    ] {
+        requests.push(json!({"seq":requests.len()+1,"type":"request","command":command,"arguments":arguments}).to_string());
+    }
+    let replies = debugger_replies(debugger, &requests);
+    for index in [0, 1, 2, 4, 5] {
+        assert_eq!(replies[index]["success"], true, "{}", replies[index]);
+    }
+    assert_eq!(replies[1]["body"]["breakpoints"][0]["verified"], true);
+    assert_eq!(replies[3]["reason"], "Breakpoint");
+    assert_eq!(replies[3]["bootMapped"], false);
+    assert_eq!(replies[3]["pc"], point.address);
+    assert!(replies[3]["sp"].as_u64().unwrap() < 0xD000);
+    let frames = replies[4]["body"]["stackFrames"].as_array().unwrap();
+    assert_eq!(frames[0]["source"]["path"], point.file);
+    assert_eq!(frames[0]["line"], line);
+    assert!(
+        frames
+            .iter()
+            .skip(1)
+            .any(|f| f["source"]["path"] == point.file && f["line"] == caller),
+        "{frames:#?}"
+    );
+    let instructions = replies[5]["body"]["instructions"].as_array().unwrap();
+    assert_eq!(instructions.len(), 4);
+    assert!(
+        instructions
+            .iter()
+            .all(|i| !i["instructionBytes"].as_str().unwrap().is_empty())
+    );
+}
+
+#[rstest]
 #[case("Debug", false, false)]
 #[case("Release", false, false)]
 #[case("Debug", true, true)]

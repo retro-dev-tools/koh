@@ -11,6 +11,120 @@ use rstest::rstest;
 #[case("Release", false)]
 #[case("Debug", true)]
 #[case("Release", true)]
+fn structured_finally_runs_on_normal_exits(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "FrameworkContracts");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let assembly = resolver.assembly(0).unwrap();
+    let pdb_bytes = std::fs::read(directory.path().join(format!(
+        "bin/{configuration}/net10.0/FrameworkContracts.pdb"
+    )))
+    .unwrap();
+    koh_compile::pdb::PortablePdb::for_assembly(&pdb_bytes, assembly).unwrap();
+    for row in 1..=assembly.metadata().method_defs.len() {
+        let token = 0x06000000 | row as u32;
+        if !assembly
+            .method_name(token)
+            .unwrap()
+            .starts_with("FinallyRules::")
+        {
+            continue;
+        }
+        let body = assembly.method_body(token).unwrap();
+        if body.regions.is_empty() || body.regions.iter().any(|r| r.flags != 2) {
+            continue;
+        }
+        let function =
+            koh_compile::lower::assembly_method(&resolver, Definition { assembly: 0, token })
+                .unwrap();
+        koh_compile::ir::verify(&function).unwrap();
+        for block in &function.blocks {
+            assert!(block.terminator.il_offset < body.il.len() as u32);
+            for instruction in &block.instructions {
+                assert!(instruction.il_offset < body.il.len() as u32);
+            }
+        }
+    }
+    let error = compile::object(&resolver, Some("FinallyRules::Catch")).unwrap_err();
+    assert!(
+        error.contains("Unsupported exception execution semantics: catch")
+            && error.contains("FinallyRules::Catch"),
+        "{error}"
+    );
+    for (entry, expected) in [
+        ("Single", 12i32),
+        ("EarlyReturn", 12),
+        ("Nested", 1234),
+        ("Break", 1727),
+        ("Continue", 182838),
+        ("CleanupInsideCleanup", 12345),
+        ("Recursive", 321123),
+        ("SavedReturn", 4),
+        ("WideReturn", 7),
+        ("Sequential", 1234),
+    ] {
+        let object = compile::object_with_debug(
+            &resolver,
+            Some(&format!("FinallyRules::{entry}")),
+            &[Some(pdb_bytes.as_slice()), None],
+        )
+        .unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        if entry == "Single" {
+            let source = std::fs::read_to_string(directory.path().join("Program.cs")).unwrap();
+            let line = source.lines().position(|s| s.trim() == "Mark(2);").unwrap() as u32 + 1;
+            assert!(
+                linked
+                    .lines
+                    .iter()
+                    .any(|p| p.file.ends_with("Program.cs") && p.line == line)
+            );
+            assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+        }
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+        if entry == "WideReturn" {
+            assert_heap_snapshot(
+                &fields[4][0xf08 * 2..0xf08 * 2 + 16],
+                &0x123456780000002Au64.to_le_bytes(),
+                entry,
+            );
+        }
+        assert_heap_snapshot(
+            &fields[4][0xf00 * 2..0xf00 * 2 + 8],
+            &expected.to_le_bytes(),
+            entry,
+        );
+    }
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
 fn framework_interface_without_base_binds(
     host: &Host,
     #[case] configuration: &str,
@@ -19,11 +133,6 @@ fn framework_interface_without_base_binds(
     let (directory, images) = gameboy_images(host, configuration, "FrameworkContracts");
     let (facade, core) = runtime_images();
     let resolver = Resolver::new(&[&images[0], &images[1], &facade, &core]).unwrap();
-    let error = compile::object(&resolver, Some("IteratorRules::Sum")).unwrap_err();
-    assert!(
-        error.contains("Exception/extra method sections") && error.contains("IteratorRules::Sum"),
-        "{error}"
-    );
     let object = compile::object(&resolver, Some("IteratorRules::InterfaceNull")).unwrap();
     let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
     let linked = koh_link::link(
@@ -47,6 +156,76 @@ fn framework_interface_without_base_binds(
     );
     let fields: Vec<_> = text.split_whitespace().collect();
     assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"]);
+}
+
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn roslyn_iterator_state_machines_execute(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "FrameworkContracts");
+    let (facade, core) = runtime_images();
+    let resolver = Resolver::new(&[&images[0], &images[1], &facade, &core]).unwrap();
+    for (entry, expected) in [
+        ("Sum", 10),
+        ("Twice", 12),
+        ("Repeat", 12),
+        ("Nested", 9),
+        ("EarlyBreak", 1),
+        ("Generic", 42),
+        ("ThreadId", 1),
+        ("Empty", 0),
+        ("WideValues", 42),
+        ("DisposeNormal", 1),
+        ("DisposeBreak", 1),
+    ] {
+        let object = compile::object(&resolver, Some(&format!("IteratorRules::{entry}")))
+            .unwrap_or_else(|e| panic!("{entry}: {e}"));
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let text = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = text.split_whitespace().collect();
+        assert_eq!(fields[0], "00", "{entry}: {text}");
+        assert_eq!(fields[1], format!("{expected:08X}"), "{entry}");
+        assert_eq!(&fields[2..4], &["D000", "OK"], "{entry}");
+        if entry.starts_with("Dispose") {
+            let expected = if entry == "DisposeNormal" { 3i32 } else { 1 };
+            assert_heap_snapshot(
+                &fields[4][0xf00 * 2..0xf00 * 2 + 8],
+                &expected.to_le_bytes(),
+                entry,
+            );
+        }
+        if entry == "WideValues" {
+            let expected: Vec<_> = [0x123456780000002Ai64, -7]
+                .into_iter()
+                .flat_map(i64::to_le_bytes)
+                .collect();
+            assert_heap_snapshot(&fields[4][0xf00 * 2..0xf00 * 2 + 32], &expected, entry);
+        }
+    }
 }
 
 fn runtime_images() -> (Vec<u8>, Vec<u8>) {

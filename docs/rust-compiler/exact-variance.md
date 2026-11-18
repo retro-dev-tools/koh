@@ -42,10 +42,9 @@ heap guards and boxing rejection remain checked. Cross-instantiation conversion,
 type-test and cast probes must reject explicitly. No old compiler result is the
 execution oracle and no legacy source-method disposition receives new credit.
 
-The Steps iterator fixture now passes declaration variance and ordinary
-AllowByRefLike instantiation, reaching the exception-section limitation. Its three
-source methods remain outstanding; structured finally and generated state-machine
-runtime dependencies still require implementation and execution evidence.
+Subsequent [structured cleanup and iterator support](finally-iterators.md) now
+executes the Steps fixture and closes its three source methods. Fault clauses
+and exceptional unwinding remain outside that explicitly documented contract.
 
 Final compiler-library/reference/interface/generic/variance validation passed
 300/300 in99.675s, exit0;485 explicitly unselected

@@ -2,6 +2,8 @@
 mod float32;
 #[path = "sdk/game.rs"]
 mod game;
+#[path = "sdk/iterators.rs"]
+mod iterators;
 #[path = "sdk/jrpg.rs"]
 mod jrpg;
 #[path = "sdk/original_2048.rs"]

@@ -45,10 +45,9 @@ original Objects contract with that flag and independently expects42. Invalid
 reference constraints and variant class flags still reject. No original source
 test method receives duplicate disposition credit for correcting this assertion.
 
-The real Steps iterator probe now passes this declaration check and reaches the
-explicit exception/extra-section rejection. The three original iterator source
-methods remain outstanding: structured finally/disposal and generated state
-machine runtime dependencies still need implementation and execution tests.
+Subsequent [structured cleanup and iterator support](finally-iterators.md) now
+executes the real Steps iterator and closes its three source methods. Actual
+ref-like argument lifetime support remains outside this change.
 
 Expanded compiler-library/reference/interface/generic/variance/Int128 validation
 passed308/308 in133.153s, exit0;481 cases explicitly unselected

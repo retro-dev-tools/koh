@@ -183,17 +183,17 @@ Both property accessors and ordinary methods must resolve intrinsic kind/address
 
 ### CilIteratorTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilIteratorTests.cs`. Future Rust test group: `cil_iterator`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilIteratorTests.cs`. Native group: `driver::reference_contracts`.
 
 Generated yield state machines and independent foreach consumers retain their own state and dispose on normal structured exit. C# iteration behavior justifies observable sequences; concrete-type tracking is optional.
 
-[Current investigation](iterator-gaps.md) fixes null interface base classification;
-variant generic binding and structured cleanup still block actual execution.
-None of these three methods is counted complete.
+[Native execution and contract](finally-iterators.md): ordinary generated state
+machines, exact interface calls and structured consumer cleanup now execute.
+User iterator bodies that generate fault clauses remain explicitly unsupported.
 
-- **PORT** `ForeachOverIterator_VerifiesCleanAndComputesExpectedValue`.
-- **PORT** `ForeachOverIterator_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `TwoIndependentForeachLoops_VerifiesCleanAndComputesExpectedValue`.
+- **PORT, complete** `ForeachOverIterator_VerifiesCleanAndComputesExpectedValue` — native verified pipeline and actual BGP10 in Debug/Release × DMG/CGB.
+- **REPLACE, complete** `ForeachOverIterator_DebugAndReleaseProduceIdenticalObservableState` — require independently expected BGP10 in both configurations.
+- **PORT, complete** `TwoIndependentForeachLoops_VerifiesCleanAndComputesExpectedValue` — actual BGP12 from both original loops, plus repeated/nested/empty/early-break/generic/wide iterator and observable-disposal cases.
 
 ### CilKohRuntimeTests.cs
 

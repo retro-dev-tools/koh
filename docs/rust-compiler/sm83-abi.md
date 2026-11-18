@@ -6,6 +6,14 @@ additional interrupt-safe pointer publication; SP-relative frames avoid that sha
 state. The first allocator spills SSA values into deterministic frame slots.
 Register residency and lifetime-based slot reuse are optimizations, not semantics.
 
+[Structured finally](finally-iterators.md) uses private int32 continuation locals
+inside these same activation frames. There is no shared/static unwind state.
+Pending return values and nested/recursive cleanup retain the ordinary call ABI.
+Normal cleanup is supported; fatal target traps do not perform managed exception
+unwinding. The exact framework CurrentManagedThreadId getter returns logical
+managed-thread identity1, including interrupt execution; it does not expose host
+OS threads or implement managed threading.
+
 [Closed generic reference methods](closed-types.md#generic-methods-on-closed-reference-receivers)
 use the ordinary specialized call ABI. Declaring and method arguments are bound
 at compilation; no hidden runtime type arguments or generic dictionaries are

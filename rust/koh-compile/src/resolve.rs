@@ -366,7 +366,7 @@ impl<'a> Resolver<'a> {
                     .map_err(|e| e.to_string())?,
             );
         }
-        let Some(("System", name)) = self.framework_type(assembly, token)? else {
+        let named = || -> Result<TypeSig, String> {
             let encoded = match token >> 24 {
                 1 => ((token & 0xffffff) << 2) | 1,
                 2 => (token & 0xffffff) << 2,
@@ -374,12 +374,16 @@ impl<'a> Resolver<'a> {
             };
             let identity = self.resolve_type(assembly, token)?;
             let value = matches!(self.type_argument(identity)?.ty, TypeSig::ValueType(_));
-            return Ok(if value {
+            Ok(if value {
                 TypeSig::ValueType(encoded)
             } else {
                 TypeSig::Class(encoded)
-            });
+            })
         };
+        let Some(("System", name)) = self.framework_type(assembly, token)? else {
+            return named();
+        };
+
         Ok(TypeSig::Primitive(match name {
             "Boolean" => ElementType::Boolean,
             "Char" => ElementType::Char,
@@ -405,10 +409,7 @@ impl<'a> Resolver<'a> {
                 };
                 return Ok(TypeSig::ValueType(encoded));
             }
-            _ if self.delegate_type(assembly, token)?.is_some() => {
-                return Ok(TypeSig::Class(((token & 0xffffff) << 2) | 1));
-            }
-            _ => return Err("Array element is not a supported integer primitive".into()),
+            _ => return named(),
         }))
     }
 

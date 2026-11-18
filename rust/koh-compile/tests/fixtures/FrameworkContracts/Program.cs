@@ -263,11 +263,374 @@ public static class IteratorRules
 
     public static int InterfaceNull() => IsNull(null) ? 42 : 0;
 
+    public static int Empty()
+    {
+        int sum = 0;
+        foreach (byte value in Steps(0))
+            sum += value;
+        return sum;
+    }
+
+    private static System.Collections.Generic.IEnumerable<long> Wide()
+    {
+        yield return 0x123456780000002AL;
+        yield return -7;
+    }
+
+    public static unsafe int WideValues()
+    {
+        int count = 0;
+        foreach (long value in Wide())
+            ((long*)0xDF00)[count++] = value;
+        return count + 40;
+    }
+
+    private sealed class ObservedSequence
+        : System.Collections.Generic.IEnumerable<byte>,
+            System.Collections.Generic.IEnumerator<byte>
+    {
+        private int current = -1;
+        public static int Disposals;
+
+        public System.Collections.Generic.IEnumerator<byte> GetEnumerator() => this;
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
+
+        public bool MoveNext() => ++current < 3;
+
+        public byte Current => (byte)current;
+        object System.Collections.IEnumerator.Current => Current;
+
+        public void Dispose() => Disposals++;
+
+        public void Reset() => current = -1;
+    }
+
+    public static unsafe int DisposeNormal()
+    {
+        ObservedSequence.Disposals = 0;
+        int sum = 0;
+        foreach (byte value in new ObservedSequence())
+            sum += value;
+        *(int*)0xDF00 = sum;
+        return ObservedSequence.Disposals;
+    }
+
+    public static unsafe int DisposeBreak()
+    {
+        ObservedSequence.Disposals = 0;
+        int sum = 0;
+        foreach (byte value in new ObservedSequence())
+        {
+            sum += value;
+            if (value == 1)
+                break;
+        }
+        *(int*)0xDF00 = sum;
+        return ObservedSequence.Disposals;
+    }
+
+    public static int ThreadId() => System.Environment.CurrentManagedThreadId;
+
+    public static int Twice()
+    {
+        int sum = 0;
+        foreach (byte b in Steps(4))
+            sum += b;
+        foreach (byte b in Steps(4))
+            sum += b;
+        Hardware.BGP = (byte)sum;
+        return Hardware.BGP;
+    }
+
+    public static int Repeat()
+    {
+        var values = Steps(4);
+        int sum = 0;
+        foreach (byte b in values)
+            sum += b;
+        foreach (byte b in values)
+            sum += b;
+        return sum;
+    }
+
+    public static int Nested()
+    {
+        int sum = 0;
+        foreach (byte a in Steps(3))
+        foreach (byte b in Steps(2))
+            sum += a + b;
+        return sum;
+    }
+
+    public static int EarlyBreak()
+    {
+        int sum = 0;
+        foreach (byte b in Steps(5))
+        {
+            if (b == 2)
+                break;
+            sum += b;
+        }
+        return sum;
+    }
+
+    private static System.Collections.Generic.IEnumerable<T> Echo<T>(T value)
+    {
+        yield return value;
+        yield return value;
+    }
+
+    public static int Generic()
+    {
+        int sum = 0;
+        foreach (int b in Echo(21))
+            sum += b;
+        return sum;
+    }
+
     public static int Sum()
     {
         int sum = 0;
         foreach (byte value in Steps(5))
             sum += value;
-        return sum;
+        Hardware.BGP = (byte)sum;
+        return Hardware.BGP;
+    }
+}
+
+public static unsafe class FinallyRules
+{
+    private static int trace;
+
+    private static void Mark(int digit) => trace = trace * 10 + digit;
+
+    private static int Finish(int result)
+    {
+        *(int*)0xDF00 = trace;
+        return result;
+    }
+
+    public static int Single()
+    {
+        trace = 0;
+        try
+        {
+            Mark(1);
+        }
+        finally
+        {
+            Mark(2);
+        }
+        return Finish(42);
+    }
+
+    private static int Early(int value)
+    {
+        try
+        {
+            Mark(1);
+            if (value != 0)
+                return 42;
+            Mark(9);
+            return 0;
+        }
+        finally
+        {
+            Mark(2);
+        }
+    }
+
+    public static int EarlyReturn()
+    {
+        trace = 0;
+        int result = Early(1);
+        return Finish(result);
+    }
+
+    private static int NestedWork()
+    {
+        try
+        {
+            Mark(1);
+            try
+            {
+                Mark(2);
+                return 42;
+            }
+            finally
+            {
+                Mark(3);
+            }
+        }
+        finally
+        {
+            Mark(4);
+        }
+    }
+
+    public static int Nested()
+    {
+        trace = 0;
+        int result = NestedWork();
+        return Finish(result);
+    }
+
+    public static int Break()
+    {
+        trace = 0;
+        for (int i = 0; i < 3; i++)
+        {
+            try
+            {
+                Mark(i + 1);
+                if (i == 1)
+                    break;
+            }
+            finally
+            {
+                Mark(7);
+            }
+        }
+        return Finish(42);
+    }
+
+    public static int Continue()
+    {
+        trace = 0;
+        for (int i = 0; i < 3; i++)
+        {
+            try
+            {
+                Mark(i + 1);
+                continue;
+            }
+            finally
+            {
+                Mark(8);
+            }
+        }
+        return Finish(42);
+    }
+
+    public static int CleanupInsideCleanup()
+    {
+        trace = 0;
+        try
+        {
+            Mark(1);
+        }
+        finally
+        {
+            Mark(2);
+            try
+            {
+                Mark(3);
+            }
+            finally
+            {
+                Mark(4);
+            }
+            Mark(5);
+        }
+        return Finish(42);
+    }
+
+    private static int Recur(int n)
+    {
+        try
+        {
+            Mark(n);
+            if (n > 1)
+                return Recur(n - 1) + 1;
+            return 40;
+        }
+        finally
+        {
+            Mark(n);
+        }
+    }
+
+    public static int Recursive()
+    {
+        trace = 0;
+        int result = Recur(3);
+        return Finish(result);
+    }
+
+    private static int SavedWork()
+    {
+        int value = 42;
+        try
+        {
+            return value;
+        }
+        finally
+        {
+            value = 99;
+            Mark(4);
+        }
+    }
+
+    public static int SavedReturn()
+    {
+        trace = 0;
+        int result = SavedWork();
+        return Finish(result);
+    }
+
+    private static long WideWork()
+    {
+        try
+        {
+            return 0x123456780000002AL;
+        }
+        finally
+        {
+            Mark(7);
+        }
+    }
+
+    public static int WideReturn()
+    {
+        trace = 0;
+        long result = WideWork();
+        *(long*)0xDF08 = result;
+        return Finish((int)result);
+    }
+
+    public static int Sequential()
+    {
+        trace = 0;
+        try
+        {
+            Mark(1);
+        }
+        finally
+        {
+            Mark(2);
+        }
+        try
+        {
+            Mark(3);
+        }
+        finally
+        {
+            Mark(4);
+        }
+        return Finish(42);
+    }
+
+    public static int Catch()
+    {
+        try
+        {
+            return 42;
+        }
+        catch
+        {
+            return 0;
+        }
     }
 }

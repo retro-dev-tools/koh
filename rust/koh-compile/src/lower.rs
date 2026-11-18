@@ -5,6 +5,7 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 mod checked;
+mod finally;
 mod int128;
 mod spans;
 
@@ -146,40 +147,6 @@ pub(crate) fn storage_type(
         }
         _ => ty.clone(),
     })
-}
-
-pub(crate) fn storage_signature(
-    resolver: &crate::resolve::Resolver<'_>,
-    identity: Definition,
-    signature: &clrmeta::MethodSig,
-) -> Result<clrmeta::MethodSig, String> {
-    let mut result = signature.clone();
-    result.params = signature
-        .params
-        .iter()
-        .map(|ty| storage_type(resolver, identity.assembly, ty))
-        .collect::<Result<_, _>>()?;
-    result.return_type = storage_type(resolver, identity.assembly, &signature.return_type)?;
-    if signature.calling_convention.has_this() {
-        let owner = owner_type(resolver, identity)?;
-        let raw = resolver.type_definition(owner)?;
-        let metadata = resolver.assembly(raw.assembly)?.metadata();
-        let ty = &metadata.type_defs[(raw.token & 0xffffff) as usize - 1];
-        let value = ty.extends.table == Some(clrmeta::TableId::TypeRef)
-            && crate::resolve::framework_type(metadata, 0x01000000 | ty.extends.row)?
-                == Some(("System", "ValueType"));
-        let receiver = resolver.type_argument(owner)?.ty;
-        let receiver = if value {
-            crate::layout::value(resolver, owner)?;
-            clrmeta::TypeSig::ByRef(Box::new(receiver))
-        } else {
-            crate::layout::class(resolver, owner)?;
-            receiver
-        };
-        result.params.insert(0, receiver);
-        result.calling_convention.0 &= !0x20;
-    }
-    Ok(result)
 }
 
 pub(crate) fn owner_type(
@@ -378,34 +345,6 @@ pub(crate) fn field_storage(
     }
 }
 
-pub(crate) fn bound_signature(
-    resolver: &crate::resolve::Resolver<'_>,
-    assembly: usize,
-    signature: &clrmeta::MethodSig,
-) -> Result<Signature, String> {
-    if signature.calling_convention.has_this() || signature.generic_param_count != 0 {
-        return Err("Instance/generic methods require instantiated lowering".into());
-    }
-    if signature.calling_convention.0 & 0x0f != 0 || signature.params.len() > 1024 {
-        return Err("Unsupported calling convention or parameter count".into());
-    }
-    let parameters = signature
-        .params
-        .iter()
-        .map(|ty| bound_type(resolver, assembly, ty))
-        .collect::<Result<_, _>>()?;
-    let returns =
-        if signature.return_type == clrmeta::TypeSig::Primitive(clrmeta::ElementType::Void) {
-            None
-        } else {
-            Some(bound_type(resolver, assembly, &signature.return_type)?)
-        };
-    Ok(Signature {
-        parameters,
-        returns,
-    })
-}
-
 pub fn assembly_method(
     resolver: &crate::resolve::Resolver<'_>,
     identity: Definition,
@@ -463,9 +402,6 @@ pub fn assembly_method(
             })
             .collect();
         let body = assembly.method_body(identity.token)?;
-        if body.extra_sections {
-            return Err("Exception/extra method sections require explicit lowering".into());
-        }
         let mut function = lower_with(
             Method {
                 identity,
@@ -480,6 +416,7 @@ pub fn assembly_method(
             &pinned,
             arguments,
             declaring,
+            &body.regions,
         )?;
         let mut prefix = Vec::new();
         for constructor in [
@@ -612,6 +549,7 @@ fn next_result(instruction: &Instruction) -> Result<u32, String> {
         .ok_or("Conversion has no result".into())
 }
 
+#[derive(Clone)]
 pub struct Method<'a> {
     pub identity: Definition,
     pub il: &'a [u8],
@@ -1007,7 +945,7 @@ impl Builder<'_, '_> {
 }
 
 pub fn lower(method: Method<'_>) -> Result<Function, String> {
-    lower_with(method, None, &[], &[], None)
+    lower_with(method, None, &[], &[], None, &[])
 }
 
 fn lower_with(
@@ -1016,8 +954,17 @@ fn lower_with(
     pinned: &[usize],
     method_arguments: &[crate::generics::Argument],
     declaring: Option<Definition>,
+    regions: &[crate::assembly::ExceptionRegion],
 ) -> Result<Function, String> {
-    lower_inner(&method, resolver, pinned, method_arguments, declaring).map_err(|error| {
+    lower_inner(
+        &method,
+        resolver,
+        pinned,
+        method_arguments,
+        declaring,
+        regions,
+    )
+    .map_err(|error| {
         format!(
             "Assembly {} method 0x{:08x}: {error}",
             method.identity.assembly, method.identity.token
@@ -1031,7 +978,9 @@ fn lower_inner(
     pinned: &[usize],
     method_arguments: &[crate::generics::Argument],
     declaring: Option<Definition>,
+    regions: &[crate::assembly::ExceptionRegion],
 ) -> Result<Function, String> {
+    let mut method = method.clone();
     let cil = decode(method.il)?;
     if cil.len() >= 16_384
         || cil
@@ -1049,6 +998,20 @@ fn lower_inner(
     }
     if !method.init_locals && !method.locals.is_empty() {
         return Err("IL_0000: Uninitialized locals require definite-assignment lowering".into());
+    }
+    let normalized = finally::normalize(&mut method, cil, regions)?;
+    let cil = normalized.instructions;
+    if cil.len() >= 16_384
+        || cil
+            .iter()
+            .map(|i| match &i.operand {
+                Operand::Targets(t) => t.len(),
+                _ => 0,
+            })
+            .sum::<usize>()
+            > 262_144
+    {
+        return Err("Finally expansion exceeds lowering resource limits".into());
     }
     let indices: HashMap<_, _> = cil
         .iter()
@@ -1135,7 +1098,19 @@ fn lower_inner(
     let mut total_parameters = 0usize;
     while let Some(block) = queue.pop_front() {
         let instruction = &cil[block - 1];
-        builder.offset = instruction.offset;
+        let source_offset = normalized
+            .sources
+            .get(&instruction.offset)
+            .copied()
+            .unwrap_or(instruction.offset);
+        if normalized.entries.contains(&instruction.offset)
+            && incoming[block].as_ref().is_some_and(|s| !s.is_empty())
+        {
+            return Err(format!(
+                "IL_{source_offset:04x}: Protected region entry requires an empty evaluation stack"
+            ));
+        }
+        builder.offset = source_offset;
         builder.stack.clear();
         let mut parameters = Vec::new();
         for &ty in incoming[block]
@@ -1150,7 +1125,7 @@ fn lower_inner(
         if total_parameters > 262_144 || builder.next > 262_144 {
             return Err(format!(
                 "IL_{:04x}: Evaluation stack parameters exceed limit",
-                instruction.offset
+                source_offset
             ));
         }
         builder.stack.extend_from_slice(&parameters);
@@ -1160,22 +1135,27 @@ fn lower_inner(
             block,
             cil.len(),
             &indices,
-            method,
+            &method,
             &locals,
             resolver,
         )
-        .map_err(|error| format!("IL_{:04x}: {error}", instruction.offset))?;
+        .map_err(|error| format!("IL_{source_offset:04x}: {error}"))?;
         builder.edge_arguments += kind.edges().map(|e| e.arguments.len()).sum::<usize>();
         if builder.edge_arguments > 1_048_576 {
             return Err(format!(
                 "IL_{:04x}: Evaluation stack edge arguments exceed limit",
-                instruction.offset
+                source_offset
             ));
         }
-        if builder.stack.len() > usize::from(method.max_stack) {
+        let max_stack = if instruction.offset >= method.il.len() as u32 {
+            method.max_stack.max(1)
+        } else {
+            method.max_stack
+        };
+        if builder.stack.len() > usize::from(max_stack) {
             return Err(format!(
                 "IL_{:04x}: Evaluation stack exceeds declared maxstack",
-                instruction.offset
+                source_offset
             ));
         }
         let shape: Vec<_> = builder.stack.iter().map(|v| v.1).collect();
@@ -1231,7 +1211,7 @@ fn lower_inner(
             parameters,
             instructions: std::mem::take(&mut builder.instructions),
             terminator: Terminator {
-                il_offset: instruction.offset,
+                il_offset: source_offset,
                 kind,
             },
         });
@@ -2261,6 +2241,14 @@ fn translate(
                 &b.method_arguments,
                 &b.type_arguments,
             )?;
+            if crate::contracts::managed_thread_id(resolver, &target)? {
+                if i.opcode != 0x28 || constrained.is_some() {
+                    return Err("CurrentManagedThreadId requires an ordinary static call".into());
+                }
+                let value = b.value(Type::I32, Op::Constant(1))?;
+                b.stack.push(value);
+                return Ok(Control::Jump(b.edge(next()?)));
+            }
             let constrained_value = if let Some(Type::Struct(value)) = constrained {
                 let declaration = resolver.instantiate_in(
                     &target,
@@ -2713,6 +2701,14 @@ fn translate(
                 return Err("CIL return leaves values on evaluation stack".into());
             }
             return Ok(Control::Return(value));
+        }
+        0xdd | 0xde => {
+            b.stack.clear();
+            return Ok(Control::Jump(b.edge(target()?)));
+        }
+        0xdc => {
+            b.stack.clear();
+            return Ok(Control::Jump(b.edge(target()?)));
         }
         0x2b | 0x38 => return Ok(Control::Jump(b.edge(target()?))),
         0x2c..=0x37 | 0x39..=0x44 => {

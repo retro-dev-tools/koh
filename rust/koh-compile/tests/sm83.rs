@@ -3993,7 +3993,10 @@ fn roslyn_reachable_calls_and_recursion_execute(host: &Host, #[case] configurati
     for (name, diagnostic) in [
         ("Dead", "System.Runtime"),
         ("DeadThrow", "opcode"),
-        ("Protected", "sections"),
+        (
+            "Protected",
+            "Unsupported exception execution semantics: catch",
+        ),
         ("StaticInit", ".cctor"),
     ] {
         let error = koh_compile::compile::reachable(

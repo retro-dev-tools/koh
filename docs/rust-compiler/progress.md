@@ -10,6 +10,27 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Structured finally and ordinary iterator closure
+
+Normal structured cleanup now lowers to the existing typed CFG and per-call ABI.
+Bounded small/fat/chained EH decoding, original stack/local checks and source
+provenance accompany normal leave/endfinally semantics. ECMA stack discard and
+disjoint-block entry rules are tested independently of Roslyn. Scoped dispatch
+signature loss and System named-type misclassification were fixed; the exact
+CurrentManagedThreadId getter has a single-managed-thread identity1 contract.
+No generated state-machine names, native BCL execution or new dependency is used.
+[Contract, ABI, dispositions and evidence](finally-iterators.md).
+
+Three original iterator methods/seven assertion sites now map to native tests:
+84 direct ROM executions, four standard-reference SDK build/run cases and four
+real debugger source-breakpoint/unwind sessions. Final315/315 passed62.156s,
+exit0;797 explicitly unselected. A broader651-case checkpoint found two obsolete
+catch diagnostic expectations, now corrected; it is not called a green run.
+Ledger509/565 (508 native replacements, one DELETE),56 outstanding. Catch/filter/
+fault, exceptional unwinding and yield bodies requiring fault remain explicitly
+unsupported. Full current-head hosted validation and legacy deletion remain open. Fresh
+discovery2017 workspace cases/1840 compiler cases, zero ignored.
+
 ### Ordinary AllowByRefLike arguments
 
 The anti-constraint now permits ordinary arguments instead of rejecting its
@@ -690,7 +711,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-506/565 dispositions complete (505 native replacements, one DELETE),59 outstanding,
+509/565 dispositions complete (508 native replacements, one DELETE),56 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

@@ -181,6 +181,41 @@ pub(crate) fn byref_like(resolver: &Resolver<'_>, owner: Definition) -> Result<b
     Ok(found)
 }
 
+pub(crate) fn managed_thread_id(
+    resolver: &Resolver<'_>,
+    method: &crate::resolve::ResolvedMethod,
+) -> Result<bool, String> {
+    let image = resolver.assembly(method.definition.assembly)?;
+    let row = image.method(method.definition.token)?;
+    let metadata = image.metadata();
+    if metadata.strings.get(row.name).map_err(|e| e.to_string())? != "get_CurrentManagedThreadId" {
+        return Ok(false);
+    }
+    let owner = metadata
+        .type_defs
+        .partition_point(|ty| ty.method_list <= method.definition.token & 0xffffff);
+    if owner == 0
+        || resolver.framework_definition(Definition {
+            assembly: method.definition.assembly,
+            token: 0x02000000 | owner as u32,
+        })? != Some(("System", "Environment"))
+    {
+        return Ok(false);
+    }
+    let signature = image.method_signature(method.definition.token)?;
+    if !method.type_arguments.is_empty()
+        || !method.method_arguments.is_empty()
+        || signature.calling_convention.0 != 0
+        || signature.generic_param_count != 0
+        || !signature.params.is_empty()
+        || signature.sentinel.is_some()
+        || signature.return_type != TypeSig::Primitive(clrmeta::ElementType::I4)
+    {
+        return Err("Invalid CurrentManagedThreadId runtime contract".into());
+    }
+    Ok(true)
+}
+
 fn kind(
     resolver: &Resolver<'_>,
     assembly: usize,
