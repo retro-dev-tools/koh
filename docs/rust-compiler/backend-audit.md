@@ -331,15 +331,16 @@ Complete native replacement: [independent encoding/length/execution contracts](e
 
 Classification: Address computation and private fusion decisions. Pointer indexing and both uses must remain correct even if another instruction is scheduled between address definition and use.
 
-Proposed future location: `rust/koh-compiler/tests/addressing.rs` (not implemented).
+Complete native replacement: [indexed address/liveness contracts](indexed-addresses.md),
+`rust/koh-compile/tests/{sm83.rs,support/rewrites.rs}`.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `SingleUseGep_ImmediatelyStored_ComputesCorrectAddress` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `SingleUseGep_ImmediatelyLoaded_ComputesCorrectAddress` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `TwoUseGep_StillComputesBothUsesCorrectly` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `DeferredSingleUseGep_AcrossInterveningInstructions_StillComputesCorrectly` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `FusedGep_IsInternalContextSet_ForImmediatelyConsumedGepOnly` | Detail | REPLACE | Check the same fixture's runtime result and an independently chosen size/cycle budget; omit old allocation/fusion structure. |
+| `SingleUseGep_ImmediatelyStored_ComputesCorrectAddress` | Requirement | PORT complete | [Real Debug/Release indexed address and physical memory observation](indexed-addresses.md#source-disposition). |
+| `SingleUseGep_ImmediatelyLoaded_ComputesCorrectAddress` | Requirement | PORT complete | [Real Debug/Release indexed address and physical memory observation](indexed-addresses.md#source-disposition). |
+| `TwoUseGep_StillComputesBothUsesCorrectly` | Requirement | PORT complete | [Real Debug/Release indexed address and physical memory observation](indexed-addresses.md#source-disposition). |
+| `DeferredSingleUseGep_AcrossInterveningInstructions_StillComputesCorrectly` | Requirement | PORT complete | [Real Debug/Release indexed address and physical memory observation](indexed-addresses.md#source-disposition). |
+| `FusedGep_IsInternalContextSet_ForImmediatelyConsumedGepOnly` | Detail | REPLACE complete | [Visible address reuse replaces the private context; no arbitrary cycle/slot contract](indexed-addresses.md#source-disposition). |
 
 ### Backends/Sm83LoopPointerPhiResidencyTests.cs (5)
 

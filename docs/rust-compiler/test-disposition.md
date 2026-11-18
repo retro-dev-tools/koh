@@ -31,7 +31,7 @@ Completed log: `/tmp/koh-compiler-legacy-baseline.log`; HTML artifact:
 The baseline establishes that the existing fixtures pass on this checkout;
 it does not make their expectations correctness oracles.
 
-**Complete dispositions:445/565 methods (444 native behavioral replacements,
+**Complete dispositions:450/565 methods (449 native behavioral replacements,
 one obsolete private-parser DELETE decision); zero physically retired.**
 All19 [narrowing methods](narrowing.md) now have native replacements for73 source
 assertion sites, with3224 executed ROMs and independently checked escaping widths.
@@ -59,7 +59,10 @@ probes; all19 methods in that source group are complete.
 Five [encoding/parity methods](encoding-contracts.md) now replace34 assertion sites
 with33 named ISA vectors, independent512-encoding boundaries and14224 executable
 instruction probes.
-The remaining 120 methods still have
+Five [indexed-address methods](indexed-addresses.md) now have native replacements
+for7 source assertion sites, with320 added real-Roslyn ROM executions and exact
+physical-address traces across calls, page boundaries and signed offsets.
+The remaining 115 methods still have
 partial coverage or outstanding dependencies. Legacy definitions temporarily
 remain with the live C# compiler; the final migration deletes that test project.
 Proposed Rust filenames in source audits are not implemented or discoverable

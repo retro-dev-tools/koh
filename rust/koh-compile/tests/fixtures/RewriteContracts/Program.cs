@@ -141,4 +141,44 @@ public static unsafe class Program
             *(byte*)0xc020 = unchecked((byte)(y + 1));
         return *(byte*)0xc020;
     }
+
+    public static int IndexedStore(int raw, int index)
+    {
+        byte* pointer = (byte*)(ushort)raw;
+        pointer[(short)index] = 77;
+        return pointer[(short)index];
+    }
+
+    public static int IndexedLoad(int raw, int index)
+    {
+        byte* pointer = (byte*)(ushort)raw + (short)index;
+        *pointer = 200;
+        return *((byte*)(ushort)raw + (short)index);
+    }
+
+    public static int IndexedTwice(int raw, int index)
+    {
+        byte* pointer = (byte*)(ushort)raw + (short)index;
+        *pointer = 9;
+        return *pointer + 1;
+    }
+
+    public static ulong IndexedDelayed(int raw, int index)
+    {
+        byte* pointer = (byte*)(ushort)raw + (short)index;
+        *pointer = 41;
+        int previous = *pointer;
+        uint noise = unchecked((uint)Leaf(raw ^ index));
+        *pointer = (byte)(previous + 1);
+        return ((ulong)noise << 32) | *pointer;
+    }
+
+    public static int IndexedReuse(int raw, int index)
+    {
+        byte* pointer = (byte*)(ushort)raw;
+        pointer[(short)index] = 1;
+        byte* other = pointer + (short)index;
+        *other = 2;
+        return *other;
+    }
 }

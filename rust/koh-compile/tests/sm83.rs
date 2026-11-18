@@ -80,6 +80,10 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
                         .map(move |y| (x, y))
                 })
                 .collect(),
+            _ if shape.starts_with("Indexed") => rewrites::INDEX_INPUTS
+                .iter()
+                .map(|&(x, y)| (u64::from(x), u64::from(y)))
+                .collect(),
             _ => rewrites::INPUTS
                 .iter()
                 .map(|&(x, y)| (u64::from(x), u64::from(y)))
@@ -108,7 +112,7 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
                 let mut functions = vec![root];
                 for helper in match shape {
                     "Call" => &["Change"][..],
-                    "Tail" | "NotTail" | "ReturnJoin" => &["Leaf"][..],
+                    "Tail" | "NotTail" | "ReturnJoin" | "IndexedDelayed" => &["Leaf"][..],
                     _ => &[],
                 } {
                     functions.push(
@@ -133,7 +137,7 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
         executions += cases.len();
         run_roms_observed(host, &cases, 0xd000, Some(&observed));
     }
-    assert_eq!(executions, 768);
+    assert_eq!(executions, 928);
 }
 
 #[rstest::rstest]

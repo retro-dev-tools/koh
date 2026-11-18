@@ -17,6 +17,21 @@ pub const SHAPES: &[&str] = &[
     "IncrementEntry",
     "PostDecrement",
     "BranchStores",
+    "IndexedStore",
+    "IndexedLoad",
+    "IndexedTwice",
+    "IndexedDelayed",
+    "IndexedReuse",
+];
+pub const INDEX_INPUTS: &[(u32, u32)] = &[
+    (0xc050, 3),
+    (0xc050, 4),
+    (0xc060, 1),
+    (0xc070, 2),
+    (0xc0f8, 30),
+    (0xc050, u32::MAX),
+    (0xc180, 0xfffffff0),
+    (0xc050, 0x101),
 ];
 pub const INPUTS: &[(u32, u32)] = &[
     (0, 0),
@@ -48,6 +63,21 @@ pub fn expected(shape: &str, x: u32, y: u32) -> (u64, String) {
     let b = y as u8;
     let w = |address: u16, value: u8| format!("W{address:04X}:{value:02X}");
     let r = |address: u16| format!("R{address:04X}");
+    if shape.starts_with("Indexed") {
+        let address = (x as u16).wrapping_add(y as u16);
+        let (value, events) = match shape {
+            "IndexedStore" => (77, vec![w(address, 77), r(address)]),
+            "IndexedLoad" => (200, vec![w(address, 200), r(address)]),
+            "IndexedTwice" => (10, vec![w(address, 9), r(address)]),
+            "IndexedDelayed" => (
+                (u64::from((x ^ y).wrapping_add(3)) << 32) | 42,
+                vec![w(address, 41), r(address), w(address, 42), r(address)],
+            ),
+            "IndexedReuse" => (2, vec![w(address, 1), w(address, 2), r(address)]),
+            _ => panic!("Unknown indexed shape {shape}"),
+        };
+        return (value, events.join(","));
+    }
     let both = |a: u8, b: u8| u32::from(a) * 256 + u32::from(b);
     let (value, events) = match shape {
         "Adjacent" | "Call" => (u32::from(b), vec![w(0xc020, a), w(0xc020, b), r(0xc020)]),
