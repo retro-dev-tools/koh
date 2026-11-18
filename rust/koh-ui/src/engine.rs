@@ -56,7 +56,7 @@ pub struct Palettes {
     pub obj_colors: Vec<Color>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 pub struct Vram {
     #[serde(deserialize_with = "base64_bytes")]
     pub rgba: Vec<u8>,

@@ -21,7 +21,7 @@ The bar counts completed checkpoints, not estimated effort.
 | 5 | Producers, consumers and KDBG removal | Done: CLI/SDK/editor/sample/fixture cutover; old writer/reader/builder removed; seven SDK sidecars verified |
 | 6 | Real DWARF debugging acceptance | Done: 37 compiler/debugger integration cases; Debug/Release SDK 2048, source breakpoints, framework stack recovery and machine state |
 | 7 | Windowless engine session | Done: copied coherent snapshots, frame-boundary commands while paused, persistence, DAP coordination; nine NativeAOT process tests and real SDK 2048 run |
-| 8 | Complete GPUI Kit interface | In progress: real connected LCD, controls, picker code, CPU inspector; palette/tile/memory inspectors, full input/accessibility and polish remain |
+| 8 | Complete GPUI Kit interface | In progress: connected LCD, controls, picker code and four inspectors; full input/accessibility and polish remain |
 | 9 | Complete KohUI removal and integration | Pending: both backends/demo/tests/dependencies/references; launch/package/CI |
 | 10 | Final native acceptance | Pending: real-game visual/input/audio, headless regressions and platform validation |
 
@@ -86,6 +86,40 @@ output. Full picker, shortcut/focus, inspector, theme, resize, accessibility,
 Wayland and cross-platform acceptance remain open. KohUI still exists until
 the replacement reaches parity. New GUI dependency notices and packaging are
 part of the removal/integration checkpoint.
+
+### Inspector increment
+
+CPU, Palettes, Tiles and Memory tabs read coherent engine snapshots. Detailed
+snapshots are requested while a non-CPU inspector is visible. Unchanged tile
+images retain their texture; replaced textures are explicitly released.
+Memory shows 256 bytes in hex and ASCII, accepts 1–4 hexadecimal digits and
+supports wrapping PgUp/PgDn navigation and Home. Address entry retains text
+focus until submitted; invalid input preserves the current memory window.
+The memory pane is wider at normal size, with horizontal overflow at small
+sizes. Inspector content scrolls vertically.
+
+- Focused Rust tests including the published-engine case: 8 passed, zero
+  ignored, exit 0. `/tmp/koh-gpui-inspectors-tests-final.log`.
+- Native build and focused Clippy with warnings denied: exit 0.
+  `/tmp/koh-gpui-inspectors-build-final.log` and
+  `/tmp/koh-gpui-inspectors-clippy.log`.
+- Native DMG window: palette swatch RGB and all 384 tile pixels exactly match
+  a second native engine restored from the UI's saved state. Existing LCD,
+  Start, pause, save and clean-close assertions still pass. Exit 0:
+  `/tmp/koh-gpui-inspectors-dmg-final.log`.
+- Reviewed actual captures: memory page wrap, FFF0 entry and wrapped rows,
+  invalid input feedback, and the 680×480 minimum window. These are bounded
+  Linux/X11 checks; complete keyboard/accessibility and platform acceptance
+  remain open.
+- CGB fixture writes distinct patterns into both VRAM banks. Both banks'
+  complete tile images match restored native snapshots, including bank 1
+  after vertical scrolling. The native session supplies eight BG and eight
+  OBJ palettes. Exit 0: `/tmp/koh-gpui-inspectors-cgb-pattern.log` and
+  `/tmp/koh-gpui-inspectors-cgb-bank1.log`.
+
+![Native memory inspector showing FFF0 and wrapped addresses](images/gpui-memory.png)
+
+The full checkpoint stays at 7/10 until interface acceptance is complete.
 
 ## Required outcome
 

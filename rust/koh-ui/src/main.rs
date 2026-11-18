@@ -1,14 +1,21 @@
 use gpui_kit::{
-    component::{ActiveTheme, Disableable, Theme, button::*},
+    component::{
+        ActiveTheme, Disableable, Theme,
+        button::*,
+        input::{InputEvent, InputState},
+    },
     prelude::*,
     *,
 };
 use koh_ui::{
     engine::{self, Engine, Snapshot},
+    inspector::navigate_memory,
     pixels::nearest_bgra,
 };
 use serde_json::{Value, json};
 use std::{ffi::OsString, path::Path, sync::Arc, time::Duration};
+mod panels;
+use panels::Inspector;
 
 struct Desktop {
     engine: Option<Engine>,
@@ -18,6 +25,15 @@ struct Desktop {
     focus: FocusHandle,
     open_focus: FocusHandle,
     show_inspector: bool,
+    inspector: Inspector,
+    memory_address: u16,
+    memory_input: Entity<InputState>,
+    memory_focus: FocusHandle,
+    memory_error: Option<String>,
+    tiles: Option<Arc<RenderImage>>,
+    tiles_dirty: bool,
+    tiles_scale: u32,
+    tiles_height: u32,
     lcd: Option<Arc<RenderImage>>,
     lcd_scale: u32,
     lcd_dirty: bool,
@@ -41,6 +57,7 @@ impl Desktop {
         };
         let focus = cx.focus_handle();
         focus.focus(window, cx);
+        let memory_input = cx.new(|cx| InputState::new(window, cx).default_value("0000"));
         let subscriptions = vec![
             cx.observe_window_activation(window, |this, window, _| {
                 if !window.is_window_active() {
@@ -57,6 +74,11 @@ impl Desktop {
             cx.observe_window_appearance(window, |_, window, cx| {
                 Theme::sync_system_appearance(Some(window), cx)
             }),
+            cx.subscribe_in(&memory_input, window, |this, _, event, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.jump_memory(window, cx);
+                }
+            }),
         ];
         cx.spawn(async move |view, cx| {
             loop {
@@ -72,6 +94,8 @@ impl Desktop {
                         let mut changed = false;
                         if let Some(snapshot) = update.snapshot {
                             let old = this.snapshot.as_ref();
+                            this.tiles_dirty |=
+                                old.and_then(|s| s.vram.as_ref()) != snapshot.vram.as_ref();
                             if old.is_none() && snapshot.rom_path.is_some() {
                                 this.status = "ROM loaded".into();
                             }
@@ -129,6 +153,15 @@ impl Desktop {
             focus,
             open_focus: cx.focus_handle(),
             show_inspector: true,
+            inspector: Inspector::Cpu,
+            memory_address: 0,
+            memory_input,
+            memory_focus: cx.focus_handle(),
+            memory_error: None,
+            tiles: None,
+            tiles_dirty: true,
+            tiles_scale: 0,
+            tiles_height: 0,
             lcd: None,
             lcd_scale: 0,
             lcd_dirty: true,
@@ -199,6 +232,15 @@ impl Desktop {
             cx.stop_propagation();
             return;
         }
+        if self.show_inspector
+            && self.inspector == Inspector::Memory
+            && (self.memory_focus.is_focused(window) || self.focus.is_focused(window))
+            && let Some(address) = navigate_memory(self.memory_address, key)
+        {
+            self.set_memory_address(address, window, cx);
+            cx.stop_propagation();
+            return;
+        }
         if !self.focus.is_focused(window)
             || event.is_held
             || event.keystroke.modifiers.control
@@ -213,7 +255,7 @@ impl Desktop {
             "r" => self.send(json!({"command": "reset"})),
             "f5" => self.send(json!({"command": "save"})),
             "f9" => self.send(json!({"command": "restore"})),
-            "d" => { self.show_inspector = !self.show_inspector; cx.notify(); },
+            "d" => { self.toggle_inspector(); cx.notify(); },
             key => if let Some(button) = joypad(key) { self.send(json!({"command": "joypad", "button": button, "down": true})); }
                 else { return; },
         }
@@ -230,21 +272,12 @@ impl Desktop {
     }
 
     fn cpu_panel(&self, cx: &Context<Self>) -> Div {
-        let mut panel = div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_4()
-            .w(px(256.))
-            .flex_shrink_0()
-            .border_l_1()
-            .border_color(cx.theme().border)
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("CPU"),
-            );
+        let mut panel = div().flex().flex_col().gap_3().p_4().w_full().child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("CPU"),
+        );
         if let Some(cpu) = self.snapshot.as_ref().and_then(|s| s.cpu.as_ref()) {
             for (name, value) in [
                 ("PC", format!("{:04X}", cpu.pc)),
@@ -315,10 +348,21 @@ impl Render for Desktop {
         let connected = self.engine.as_ref().is_some_and(Engine::is_alive);
         let viewport = window.viewport_size();
         let dpi = window.scale_factor();
-        let available_width =
-            (f32::from(viewport.width) - if self.show_inspector { 256. } else { 0. } - 64.)
-                .max(160.);
-        let available_height = (f32::from(viewport.height) - 184.).max(144.);
+        let inspector_width = (if self.inspector == Inspector::Memory {
+            592.0f32
+        } else {
+            336.0f32
+        })
+        .min((f32::from(viewport.width) - 216.).max(0.));
+        let available_width = (f32::from(viewport.width)
+            - if self.show_inspector {
+                inspector_width
+            } else {
+                0.
+            }
+            - 64.)
+            .max(160.);
+        let available_height = (f32::from(viewport.height) - 256.).max(144.);
         let scale = ((available_width * dpi / 160.)
             .min(available_height * dpi / 144.)
             .floor() as u32)
@@ -384,6 +428,9 @@ impl Render for Desktop {
             .and_then(|p| Path::new(p).file_name())
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "No ROM loaded".into());
+        let inspector = self
+            .show_inspector
+            .then(|| self.inspector_panel(inspector_width, window, cx));
         div().id("desktop").track_focus(&self.focus).size_full().flex().flex_col()
             .bg(cx.theme().background).text_color(cx.theme().foreground).font_family(cx.theme().font_family.clone())
             .on_key_down(cx.listener(Self::key_down)).on_key_up(cx.listener(|this, event, _, _| this.key_up(event)))
@@ -396,12 +443,12 @@ impl Render for Desktop {
                 .child(Button::new("step").label("Step").disabled(!loaded || !paused || !connected).on_click(cx.listener(|this, _, _, _| this.send(json!({"command":"step"})))))
                 .child(Button::new("save").label("Save").tooltip("Save state · F5").disabled(!loaded || !connected).on_click(cx.listener(|this, _, _, _| this.send(json!({"command":"save"})))))
                 .child(Button::new("restore").label("Load").tooltip("Load state · F9").disabled(!loaded || !connected).on_click(cx.listener(|this, _, _, _| this.send(json!({"command":"restore"})))))
-                .child(Button::new("inspector").label("Inspector").on_click(cx.listener(|this, _, _, cx| { this.show_inspector = !this.show_inspector; cx.notify(); }))))
+                .child(Button::new("inspector").label("Inspector").on_click(cx.listener(|this, _, _, cx| { this.toggle_inspector(); cx.notify(); }))))
             .child(div().flex().flex_1().min_h_0()
                 .child(div().flex().flex_col().flex_1().min_w_0().items_center().justify_center().gap_4().p_4()
                     .child(div().p_3().rounded_lg().bg(rgb(0x17212d)).child(lcd))
                     .child(div().text_xs().text_color(cx.theme().muted_foreground).child("Arrows move · X A · Z B · Enter Start · Tab fast-forward · Esc controls")))
-                .children(self.show_inspector.then(|| self.cpu_panel(cx))))
+                .children(inspector))
             .child(div().id("status").role(Role::Status).flex().flex_col().gap_1().px_4().py_2().border_t_1().border_color(cx.theme().border)
                 .child(div().flex().justify_between().gap_3().text_sm().child(path)
                     .child(if loaded { format!("{} · Frame {}{}", if paused { "Paused" } else { "Running" }, self.snapshot.as_ref().map_or(0, |s| s.frame), if self.snapshot.as_ref().is_some_and(|s| s.fast_forward) { " · Fast-forward" } else { "" }) } else { "Ready".into() }))

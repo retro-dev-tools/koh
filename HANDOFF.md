@@ -8,6 +8,19 @@ progress, preview commands and full parity/removal acceptance are in
 `docs/gpui-migration.md`; the wire contract is in `docs/engine-session.md`.
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
+Inspector increment: CPU/Palettes/Tiles/Memory tabs, conditional detailed snapshots,
+integer-scale cached tile images with explicit release, validated hex entry,
+wrapping PageUp/PageDown/Home. Normal memory pane fits hex+ASCII; small windows
+scroll. Focused tests incl NativeAOT client8/8, build/Clippy/format exit0.
+Native DMG palette/tile pixels match restored native snapshot; CGB fixture's
+distinct bank0/bank1 images match too, including scrolled bank1. Reviewed memory
+FFF0 wrap, invalid entry and680x480 layout. Logs /tmp/koh-gpui-inspectors-*.log;
+bounded harnesses /tmp/koh-gpui-preview/run_inspectors_oracle.py and
+run_cgb_inspectors.py. Curated docs/images/gpui-memory.png is actual capture.
+Still7/10 checkpoints: full input/accessibility/picker/theme polish, complete
+KohUI deletion/package/notices and final platform/audio/DAP acceptance remain.
+Hosted PR checks pass at3642a44, run44413679545. No full-suite rerun required for
+inspector-only Rust change; earlier workspace1484/1484 remains prior evidence.
 Production now emits and consumes DWARF: -d/--debug, SDK/editor/sample .elf
 sidecars, neutral records, managed native-reader binding, updated fixtures.
 KDBG writer/reader/format/kind/builder removed, no fallback retained. Range
@@ -55,7 +68,8 @@ overlong commands without ending the current session. Shutdown waits for the
 engine's completed persistence; no automatic forced kill. The renderer copies
 RGBA to BGRA and scales to integer physical pixels. Replaced images are
 explicitly released from GPUI's sprite atlas. CPU inspector and transport/
-picker code exist; remaining inspectors and polish are still pending.
+picker code exist; all four inspectors now render real snapshots. Full input,
+accessibility and polish are still pending.
 Preview: KOH_ENGINE=/tmp/koh-gpui-engine-native/Koh.Emulator.App
 CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 cargo run -p koh-ui -- <ROM>.
 Default engine lookup is relative to the UI executable; packaging is not done.

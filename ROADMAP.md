@@ -24,8 +24,10 @@ breakpoints, input, DMG/CGB and persistence. A real native SDK 2048 run reached
 123 frames, saved/restored state and exited cleanly. The Rust GPUI window now
 runs a real ROM, displays CPU state, pauses/resumes, saves from the keyboard and
 closes its engine cleanly. Workspace fast Rust tests pass 1484/1484 with the
-published-engine UI test separately executed. Palette/tile/memory inspectors,
-full UI parity/polish, KohUI removal and desktop/platform acceptance remain open.
+published-engine UI test separately executed. All four inspectors now render
+real snapshots; memory navigation/address validation and exact DMG palette/tile
+pixels have focused/native evidence. Full UI parity/polish, KohUI removal and
+desktop/platform acceptance remain open.
 
 Serve Game Boy hobbyists who want to write assembly or constrained C#, build a ROM, and diagnose problems without stitching together unrelated editor and debugger integrations. The differentiator is the connected development workflow: semantic assembly tooling plus C# compilation, sample games, and an emulator/debugger in one repository.
 
