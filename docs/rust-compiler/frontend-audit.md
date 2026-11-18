@@ -209,13 +209,13 @@ Referenced SoftFloat code must be discoverable, lower transitively and produce c
 
 Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilLinqTests.cs`. Future Rust test group: `cil_linq`.
 
-Where/Select/Sum and direct-array Max must compute correct reductions and reject unsupported chains clearly. Preserve this useful source API; old fused-loop IR and provenance restrictions are not mandatory.
+Where/Select/Sum and direct-array Max must compute correct reductions. Pipeline Max rejection is an implementation restriction, not a language contract; replace it with correct execution. Preserve this useful source API; old fused-loop IR and provenance restrictions are not mandatory. All five methods remain outstanding. See the [native probe and semantic audit](linq-audit.md).
 
 - **PORT** `WhereSelectSum_VerifiesCleanAndComputesExpectedValue`.
-- **PORT** `WhereSelectSum_DebugAndReleaseProduceIdenticalObservableState`.
+- **REPLACE** `WhereSelectSum_DebugAndReleaseProduceIdenticalObservableState` — independently assert 24 in each mode.
 - **PORT** `MaxDirectlyOnArray_VerifiesCleanAndComputesExpectedValue`.
-- **PORT** `MaxDirectlyOnArray_DebugAndReleaseProduceIdenticalObservableState`.
-- **PORT** `MaxAfterPipeline_IsDiagnosedNotThrown`.
+- **REPLACE** `MaxDirectlyOnArray_DebugAndReleaseProduceIdenticalObservableState` — independently assert 9 in each mode.
+- **REPLACE** `MaxAfterPipeline_IsDiagnosedNotThrown` — execute the valid query and assert 3; retain explicit diagnostics for deliberately unsupported overloads.
 
 ### CilLiteralTests.cs
 

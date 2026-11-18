@@ -10,6 +10,15 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### LINQ investigation
+
+[Fresh Roslyn/native probes and semantic audit](linq-audit.md) identify separate
+array-to-interface conversion, recursive constraint binding and framework layout
+resolution gaps. Pipeline Max rejection is retired as a proposed acceptance
+expectation; the replacement must execute and return 3. All five LINQ source
+methods remain outstanding. This audit adds no completed-test credit or support
+claim; the ledger remains509/565,56 outstanding.
+
 ### Structured finally and ordinary iterator closure
 
 Normal structured cleanup now lowers to the existing typed CFG and per-call ABI.
