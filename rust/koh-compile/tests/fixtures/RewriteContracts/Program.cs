@@ -235,10 +235,7 @@ public static unsafe class Program
             count--;
         }
         *(byte*)0xFF81 = 2;
-        int result = 0;
-        for (int i = 0; i < 32; i++)
-            result |= ((byte*)0xC200)[i] ^ i;
-        return result;
+        return 0;
     }
 
     private static byte Touch(byte value) => (byte)(value + 5);

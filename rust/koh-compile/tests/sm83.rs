@@ -10,6 +10,8 @@ mod compare_branch;
 mod control_flow_scalars;
 #[path = "support/liveness.rs"]
 mod liveness;
+#[path = "support/local_flow.rs"]
+mod local_flow;
 #[path = "support/loop_contracts.rs"]
 mod loop_contracts;
 #[path = "support/narrowing.rs"]
@@ -28,6 +30,380 @@ mod rewrites;
 mod sum_loop;
 mod support;
 use support::{Host, dotnet};
+
+#[rstest::rstest]
+#[case("invariant")]
+#[case("variant")]
+#[case("alias")]
+fn loop_local_flow_preserves_initial_values_backedges_and_alias_writes(
+    host: &Host,
+    #[case] shape: &str,
+) {
+    let original = local_flow::pointer_loop(shape);
+    let mut optimized = original.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    let mut cases = Vec::new();
+    for pointer in [0xffu16, 0xc300, 0xffff] {
+        for count in [0u16, 1, 2, 9] {
+            let expected = if shape == "invariant" {
+                pointer
+            } else {
+                pointer.wrapping_add(count)
+            };
+            for function in [&original, &optimized] {
+                cases.push((
+                    function.clone(),
+                    vec![u64::from(count), u64::from(pointer)],
+                    Ok(u64::from(expected)),
+                ));
+            }
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+#[case("plain", 0xc100)]
+#[case("plain", 0xc1f0)]
+#[case("constant", 0xc100)]
+#[case("constant", 0xc1f0)]
+#[case("local-change", 0xc1f0)]
+#[case("index-escape", 0xc1f0)]
+#[case("address-escape", 0xc1f0)]
+#[case("different-value", 0xc1f0)]
+fn indexed_byte_stores_preserve_pages_values_snapshots_and_escaping_operands(
+    host: &Host,
+    #[case] shape: &str,
+    #[case] base: u16,
+    #[values(false, true)] large: bool,
+) {
+    let value = |id, ty, op| Instruction {
+        result: Some((id, ty)),
+        op,
+        il_offset: id,
+    };
+    let local = if large { 65 } else { 0 };
+    let mut instructions = vec![
+        value(
+            2,
+            Type::I32,
+            Op::Convert {
+                value: 1,
+                bits: 8,
+                signed: false,
+            },
+        ),
+        value(
+            3,
+            Type::Native,
+            Op::Convert {
+                value: 2,
+                bits: 16,
+                signed: false,
+            },
+        ),
+        value(
+            11,
+            Type::Native,
+            Op::Binary {
+                op: Binary::Add,
+                left: 0,
+                right: 3,
+            },
+        ),
+        value(12, Type::I32, Op::Constant(0xa7)),
+        Instruction {
+            result: None,
+            op: Op::StoreMemory {
+                address: 11,
+                value: 12,
+                bits: 8,
+            },
+            il_offset: 12,
+        },
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local, value: 0 },
+            il_offset: 0,
+        },
+        value(
+            4,
+            Type::Native,
+            if shape == "constant" {
+                Op::Constant(u64::from(base))
+            } else {
+                Op::LoadLocal(local)
+            },
+        ),
+        value(
+            5,
+            Type::Native,
+            Op::Binary {
+                op: Binary::Add,
+                left: 4,
+                right: 3,
+            },
+        ),
+    ];
+    if shape == "local-change" {
+        instructions.extend([
+            value(14, Type::Native, Op::Constant(0x100)),
+            value(
+                15,
+                Type::Native,
+                Op::Binary {
+                    op: Binary::Add,
+                    left: 0,
+                    right: 14,
+                },
+            ),
+            Instruction {
+                result: None,
+                op: Op::StoreLocal { local, value: 15 },
+                il_offset: 15,
+            },
+        ]);
+    }
+    let stored = if shape == "different-value" {
+        instructions.extend([
+            value(16, Type::I32, Op::Constant(1)),
+            value(
+                17,
+                Type::I32,
+                Op::Binary {
+                    op: Binary::Add,
+                    left: 2,
+                    right: 16,
+                },
+            ),
+        ]);
+        17
+    } else {
+        2
+    };
+    instructions.extend([
+        value(
+            6,
+            Type::I32,
+            Op::Convert {
+                value: stored,
+                bits: 8,
+                signed: false,
+            },
+        ),
+        Instruction {
+            result: None,
+            op: Op::StoreMemory {
+                address: 5,
+                value: 6,
+                bits: 8,
+            },
+            il_offset: 6,
+        },
+        value(
+            8,
+            Type::I32,
+            Op::LoadMemory {
+                address: 11,
+                bits: 8,
+                signed: false,
+            },
+        ),
+    ]);
+    let returned = if matches!(shape, "index-escape" | "address-escape") {
+        instructions.extend([
+            value(
+                9,
+                Type::I32,
+                Op::Convert {
+                    value: if shape == "index-escape" { 3 } else { 5 },
+                    bits: 32,
+                    signed: false,
+                },
+            ),
+            value(
+                10,
+                Type::I32,
+                Op::Binary {
+                    op: Binary::Add,
+                    left: 8,
+                    right: 9,
+                },
+            ),
+        ]);
+        10
+    } else {
+        8
+    };
+    let f = Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![Type::Native, Type::I32],
+        returns: Some(Type::I32),
+        locals: vec![Type::Native; local as usize + 1],
+        blocks: vec![Block {
+            parameters: vec![(0, Type::Native), (1, Type::I32)],
+            instructions,
+            terminator: Terminator {
+                kind: Control::Return(Some(returned)),
+                il_offset: 20,
+            },
+        }],
+    };
+    let mut optimized = f.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    let mut cases = Vec::new();
+    for input in [0u32, 1, 127, 128, 255, 0x1234ff80] {
+        let byte = u32::from(input as u8);
+        let expected = if shape == "different-value" {
+            (byte + 1) & 255
+        } else {
+            byte
+        } + match shape {
+            "index-escape" => byte,
+            "address-escape" => u32::from(base) + byte,
+            _ => 0,
+        };
+        for function in [&f, &optimized] {
+            cases.push((
+                function.clone(),
+                vec![u64::from(base), u64::from(input)],
+                Ok(u64::from(expected)),
+            ));
+        }
+    }
+    run(host, &cases);
+}
+
+#[rstest::rstest]
+#[case("plain")]
+#[case("old-escapes")]
+#[case("sum-escapes")]
+#[case("alias-write")]
+fn native_local_updates_preserve_carry_borrow_aliases_and_large_offsets(
+    host: &Host,
+    #[case] shape: &str,
+    #[values(false, true)] subtract: bool,
+    #[values(false, true)] large: bool,
+) {
+    let value = |id, op| Instruction {
+        result: Some((id, Type::Native)),
+        op,
+        il_offset: id,
+    };
+    let local = if large { 65 } else { 0 };
+    let mut instructions = vec![
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local, value: 0 },
+            il_offset: 0,
+        },
+        value(1, Op::LoadLocal(local)),
+    ];
+    if shape == "alias-write" {
+        instructions.extend([
+            Instruction {
+                result: Some((20, Type::ByRef(Scalar::NativeUnsigned))),
+                op: Op::LocalAddress {
+                    local,
+                    storage: FieldStorage::Value(Storage::Scalar(Scalar::NativeUnsigned)),
+                },
+                il_offset: 1,
+            },
+            value(21, Op::Constant(20)),
+            Instruction {
+                result: None,
+                op: Op::StoreMemory {
+                    address: 20,
+                    value: 21,
+                    bits: 16,
+                },
+                il_offset: 1,
+            },
+        ]);
+    }
+    instructions.extend([
+        value(2, Op::Constant(1)),
+        value(
+            3,
+            Op::Binary {
+                op: if subtract {
+                    Binary::Subtract
+                } else {
+                    Binary::Add
+                },
+                left: 1,
+                right: 2,
+            },
+        ),
+        Instruction {
+            result: None,
+            op: Op::StoreLocal { local, value: 3 },
+            il_offset: 3,
+        },
+        value(4, Op::LoadLocal(local)),
+    ]);
+    let escaped = match shape {
+        "old-escapes" => Some(1),
+        "sum-escapes" => Some(3),
+        _ => None,
+    };
+    let returned = if let Some(left) = escaped {
+        instructions.push(value(
+            5,
+            Op::Binary {
+                op: Binary::Add,
+                left,
+                right: 4,
+            },
+        ));
+        5
+    } else {
+        4
+    };
+    let f = Function {
+        identity: Definition {
+            assembly: 0,
+            token: 0x06000001,
+        },
+        parameters: vec![Type::Native],
+        returns: Some(Type::Native),
+        locals: vec![Type::Native; local as usize + 1],
+        blocks: vec![Block {
+            parameters: vec![(0, Type::Native)],
+            instructions,
+            terminator: Terminator {
+                kind: Control::Return(Some(returned)),
+                il_offset: 6,
+            },
+        }],
+    };
+    let mut optimized = f.clone();
+    koh_compile::optimize::simplify(&mut optimized).unwrap();
+    let mut cases = Vec::new();
+    for input in [0u16, 1, 0xff, 0x100, 0x7fff, 0x8000, 0xff00, 0xffff] {
+        let sum = if subtract {
+            input.wrapping_sub(1)
+        } else {
+            input.wrapping_add(1)
+        };
+        let expected = sum.wrapping_add(match escaped {
+            Some(1) => input,
+            Some(3) => sum,
+            _ => 0,
+        });
+        for function in [&f, &optimized] {
+            cases.push((
+                function.clone(),
+                vec![u64::from(input)],
+                Ok(u64::from(expected)),
+            ));
+        }
+    }
+    run(host, &cases);
+}
 
 #[rstest::rstest]
 #[case(false)]
@@ -614,6 +990,23 @@ fn real_loop_cost_baselines(
     let cycles: u64 = fields[5].parse().unwrap();
     let window: u64 = fields[6].parse().unwrap();
     assert!(window > 0 && window < cycles, "{text}");
+    assert_eq!(fields[9], "A7C9B8", "timing memory extent guards");
+    if name == "CopyCost" {
+        let expected: String = (0..32).map(|byte| format!("{byte:02X}")).collect();
+        assert_eq!(fields[7], expected, "initialized source bytes");
+        assert_eq!(fields[8], expected, "every copied destination byte");
+        let segments: Vec<u64> = fields[10]
+            .split(':')
+            .map(|part| part.parse().unwrap())
+            .collect();
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments.iter().sum::<u64>(), window);
+        assert!(
+            cycles <= 740 * iterations,
+            "{cycles}T exceeds740-dot initialized-copy ceiling"
+        );
+        println!("CopyCost before/after last initializer write: {segments:?}T");
+    }
     if name == "CountedCost" {
         assert!(
             cycles <= 190 * iterations,

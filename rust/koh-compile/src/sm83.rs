@@ -9,6 +9,12 @@ struct Slot {
     bytes: u16,
 }
 
+#[derive(Clone, Copy)]
+enum IndexedBase {
+    Constant(u16),
+    Local(u16),
+}
+
 pub fn symbol(identity: Definition) -> String {
     format!("__koh_a{}_m{:08x}", identity.assembly, identity.token)
 }
@@ -1317,6 +1323,115 @@ impl Layout {
     }
 }
 
+fn indexed_byte_stores(
+    block: &Block,
+    layout: &Layout,
+    uses: &BTreeMap<u32, usize>,
+    constants: &BTreeMap<u32, u64>,
+) -> (BTreeMap<usize, (IndexedBase, u32)>, BTreeSet<u32>) {
+    let definitions: BTreeMap<_, _> = block
+        .instructions
+        .iter()
+        .enumerate()
+        .filter_map(|(position, i)| i.result.map(|r| (r.0, (position, i))))
+        .collect();
+    let root = |mut id| {
+        for _ in 0..8 {
+            match definitions.get(&id).map(|(_, i)| &i.op) {
+                Some(Op::Convert { value, .. }) => id = *value,
+                _ => return Some(id),
+            }
+        }
+        None
+    };
+    let mut stores = BTreeMap::new();
+    let mut omitted = BTreeSet::new();
+    for (position, instruction) in block.instructions.iter().enumerate() {
+        let Op::StoreMemory {
+            address,
+            value,
+            bits: 8,
+        } = instruction.op
+        else {
+            continue;
+        };
+        if layout.values[&address].1 != Type::Native || uses.get(&address) != Some(&1) {
+            continue;
+        }
+        let Some(&(address_position, definition)) = definitions.get(&address) else {
+            continue;
+        };
+        let Op::Binary {
+            op: Binary::Add,
+            left,
+            right,
+        } = definition.op
+        else {
+            continue;
+        };
+        for (index, base) in [(left, right), (right, left)] {
+            let Some(&(_, conversion)) = definitions.get(&index) else {
+                continue;
+            };
+            let Op::Convert {
+                value: scalar,
+                bits: 16,
+                ..
+            } = conversion.op
+            else {
+                continue;
+            };
+            if layout.values[&index].1 != Type::Native
+                || layout.values[&scalar].1 != Type::I32
+                || layout.values[&scalar].2 != 1
+                || layout.values[&base].1 != Type::Native
+                || root(scalar).is_none()
+                || root(scalar) != root(value)
+            {
+                continue;
+            }
+            let mut consumed = BTreeSet::from([address]);
+            if uses.get(&index) == Some(&1) {
+                consumed.insert(index);
+            }
+            let (base, first) = if let Some(&bits) = constants.get(&base) {
+                if uses.get(&base) == Some(&1) && definitions.contains_key(&base) {
+                    consumed.insert(base);
+                }
+                (IndexedBase::Constant(bits as u16), address_position)
+            } else if let Some(&(
+                first,
+                Instruction {
+                    op: Op::LoadLocal(local),
+                    ..
+                },
+            )) = definitions.get(&base)
+            {
+                if uses.get(&base) != Some(&1) {
+                    continue;
+                }
+                consumed.insert(base);
+                (IndexedBase::Local(layout.locals[*local as usize]), first)
+            } else {
+                continue;
+            };
+            if block.instructions[first..position].iter().any(|i| {
+                !i.result.is_some_and(|r| consumed.contains(&r.0))
+                    && !matches!(
+                        i.op,
+                        Op::Constant(_) | Op::LoadLocal(_) | Op::Convert { .. }
+                    )
+            }) {
+                continue;
+            }
+            omitted.extend(consumed);
+            stores.insert(position, (base, value));
+            break;
+        }
+    }
+    (stores, omitted)
+}
+
 fn byte_local_read(
     block: &Block,
     mut value: u32,
@@ -1358,12 +1473,12 @@ fn byte_local_read(
     None
 }
 
-fn byte_local_updates(
+fn local_updates(
     block: &Block,
     layout: &Layout,
     uses: &BTreeMap<u32, usize>,
     constants: &BTreeMap<u32, u64>,
-) -> (BTreeMap<usize, (u16, u8)>, BTreeSet<u32>) {
+) -> (BTreeMap<usize, (u16, u8, u16)>, BTreeSet<u32>) {
     let definitions: BTreeMap<_, _> = block
         .instructions
         .iter()
@@ -1372,18 +1487,30 @@ fn byte_local_updates(
             instruction.result.map(|r| (r.0, (position, instruction)))
         })
         .collect();
-    let peel = |mut id, consumed: &mut BTreeSet<u32>| -> Option<u32> {
+    let peel = |mut id, ty, consumed: &mut BTreeSet<u32>| -> Option<u32> {
         loop {
             let instruction = definitions.get(&id)?.1;
-            if uses.get(&id) != Some(&1) || instruction.result?.1 != Type::I32 {
+            if uses.get(&id) != Some(&1) || instruction.result?.1 != ty {
                 return None;
             }
-            if let Op::Convert {
-                value,
-                bits: 8,
-                signed: false,
-            } = instruction.op
-            {
+            let next = match (ty, &instruction.op) {
+                (
+                    Type::I32,
+                    Op::Convert {
+                        value,
+                        bits: 8,
+                        signed: false,
+                    },
+                )
+                | (
+                    Type::Native,
+                    Op::Convert {
+                        value, bits: 16, ..
+                    },
+                ) => Some(*value),
+                _ => None,
+            };
+            if let Some(value) = next {
                 if !consumed.insert(id) {
                     return None;
                 }
@@ -1399,14 +1526,16 @@ fn byte_local_updates(
         let Op::StoreLocal { local, value } = instruction.op else {
             continue;
         };
-        if layout.local_widths[local as usize] != 1 {
+        let ty = layout.values[&value].1;
+        let bytes = layout.local_widths[local as usize];
+        if !matches!((ty, bytes), (Type::I32, 1) | (Type::Native, 2)) {
             continue;
         }
         let mut consumed = BTreeSet::new();
-        let Some(sum) = peel(value, &mut consumed) else {
+        let Some(sum) = peel(value, ty, &mut consumed) else {
             continue;
         };
-        if consumed.is_empty() {
+        if ty == Type::I32 && consumed.is_empty() {
             continue;
         }
         let Op::Binary { op, left, right } = definitions[&sum].1.op else {
@@ -1419,7 +1548,7 @@ fn byte_local_updates(
             _ => continue,
         };
         consumed.insert(sum);
-        let Some(input) = peel(input, &mut consumed) else {
+        let Some(input) = peel(input, ty, &mut consumed) else {
             continue;
         };
         if !matches!(definitions[&input].1.op, Op::LoadLocal(index) if index == local) {
@@ -1429,14 +1558,14 @@ fn byte_local_updates(
         if uses.get(&one) == Some(&1) && definitions.contains_key(&one) {
             consumed.insert(one);
         }
-        let first = consumed.iter().map(|id| definitions[id].0).min().unwrap();
+        let first = definitions[&input].0;
         if block.instructions[first..position].iter().any(|i| {
             !i.result.is_some_and(|r| consumed.contains(&r.0)) && !matches!(i.op, Op::Constant(_))
         }) {
             continue;
         }
         omitted.extend(consumed);
-        updates.insert(position, (layout.locals[local as usize], opcode));
+        updates.insert(position, (layout.locals[local as usize], opcode, bytes));
     }
     (updates, omitted)
 }
@@ -1667,7 +1796,8 @@ pub(crate) fn emit_with_stack_reserve(
         .collect();
     for (index, block) in function.blocks.iter().enumerate() {
         code.mark(labels[index]);
-        let (updates, omitted) = byte_local_updates(block, &layout, &uses, &constants);
+        let (updates, omitted) = local_updates(block, &layout, &uses, &constants);
+        let (indexed, indexed_omitted) = indexed_byte_stores(block, &layout, &uses, &constants);
         let fused = match (&block.terminator.kind, block.instructions.last()) {
             (
                 Control::Branch { condition, .. },
@@ -1707,9 +1837,53 @@ pub(crate) fn emit_with_stack_reserve(
         for (position, instruction) in block.instructions.iter().enumerate() {
             code.mark_unwind(layout.size, banked);
             code.mark_il(instruction.il_offset);
-            if let Some(&(offset, opcode)) = updates.get(&position) {
+            if let Some(&(base, value)) = indexed.get(&position) {
+                code.address(layout.values[&value].0);
+                code.bytes(&[0x7e]);
+                match base {
+                    IndexedBase::Constant(base) if base & 255 == 0 => {
+                        code.bytes(&[0x6f, 0x26, (base >> 8) as u8, 0x77])
+                    }
+                    IndexedBase::Constant(base) => code.bytes(&[
+                        0x5f,
+                        0xc6,
+                        base as u8,
+                        0x6f,
+                        0x3e,
+                        (base >> 8) as u8,
+                        0xce,
+                        0,
+                        0x67,
+                        0x7b,
+                        0x77,
+                    ]),
+                    IndexedBase::Local(offset) => {
+                        code.bytes(&[0xf5]);
+                        code.indirect(offset + 2);
+                        code.bytes(&[0xf1, 0x5f, 0x81, 0x6f, 0x78, 0xce, 0, 0x67, 0x7b, 0x77]);
+                    }
+                }
+                continue;
+            }
+            if instruction
+                .result
+                .is_some_and(|r| indexed_omitted.contains(&r.0))
+            {
+                continue;
+            }
+            if let Some(&(offset, opcode, bytes)) = updates.get(&position) {
                 code.address(offset);
-                code.bytes(&[opcode]);
+                if bytes == 2 && opcode == 0x35 {
+                    code.bytes(&[0x7e, opcode, 0xb7]);
+                } else {
+                    code.bytes(&[opcode]);
+                }
+                if bytes == 2 {
+                    let done = code.label();
+                    code.jump(0xc2, done);
+                    code.bytes(&[0x23, opcode]);
+                    code.mark(done);
+                }
                 continue;
             }
             if instruction.result.is_some_and(|r| omitted.contains(&r.0)) {

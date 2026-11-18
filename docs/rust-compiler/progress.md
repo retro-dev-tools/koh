@@ -10,6 +10,21 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Pointer-copy740-dot targeted acceptance
+
+[Native local updates, indexed byte stores and loop-local forwarding](copy-loop-selection.md)
+reduce the real initialization/copy fixture to23312 total T-cycles,728.5 per
+byte against the unchanged740 ceiling. Rust/test-host observations check all32
+source and32 destination bytes plus surrounding sentinels outside generated CIL.
+The measurement-only baseline is58640 total/57780 marked-window cycles; removing
+the former compiled observer is not counted as a code-generation improvement.
+Thirty-eight new cases execute520 original/optimized ROM observations, covering
+carry/borrow, page crossings, escaping values, changed bases, alias writes,
+large frame offsets and loop backedges. Targeted41/41 passed13.648s, exit0.
+The permanent740-cycle assertion is included in the active unfiltered2239-case
+workspace run; separate doctests are queued. Full results remain pending, so the
+source ledger remains564/565 and final migration gates remain open.
+
 ### Private FlushRun disposition closure
 
 Three [private allocation/compare methods](flushrun-contracts.md) now have REPLACE

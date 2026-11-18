@@ -189,28 +189,31 @@ fn forward_locals(function: &Function) -> BTreeMap<u32, u32> {
             predecessors[edge.block].push(index);
         }
     }
-    let incoming = |block: usize, states: &[Vec<Option<u32>>]| {
-        let mut values = vec![None; count];
-        if block != 0 {
-            if let Some((&first, rest)) = predecessors[block].split_first() {
-                values.clone_from(&states[first]);
-                for &previous in rest {
-                    for (value, other) in values.iter_mut().zip(&states[previous]) {
-                        if value != other {
-                            *value = None;
-                        }
-                    }
+    let incoming = |block: usize, states: &[Option<Vec<Option<u32>>>]| {
+        if block == 0 {
+            return Some(vec![None; count]);
+        }
+        let mut previous = predecessors[block]
+            .iter()
+            .filter_map(|&index| states[index].as_ref());
+        let mut values = previous.next()?.clone();
+        for state in previous {
+            for (value, other) in values.iter_mut().zip(state) {
+                if value != other {
+                    *value = None;
                 }
             }
         }
-        values
+        Some(values)
     };
-    let mut outgoing = vec![vec![None; count]; function.blocks.len()];
+    let mut outgoing = vec![None; function.blocks.len()];
     let mut pending: VecDeque<_> = (0..function.blocks.len()).collect();
     let mut queued = vec![true; function.blocks.len()];
     while let Some(index) = pending.pop_front() {
         queued[index] = false;
-        let mut values = incoming(index, &outgoing);
+        let Some(mut values) = incoming(index, &outgoing) else {
+            continue;
+        };
         for i in &function.blocks[index].instructions {
             if let Op::StoreLocal { local, value } = i.op {
                 if eligible[local as usize] {
@@ -218,8 +221,8 @@ fn forward_locals(function: &Function) -> BTreeMap<u32, u32> {
                 }
             }
         }
-        if values != outgoing[index] {
-            outgoing[index] = values;
+        if outgoing[index].as_ref() != Some(&values) {
+            outgoing[index] = Some(values);
             for edge in function.blocks[index].terminator.kind.edges() {
                 if !queued[edge.block] {
                     pending.push_back(edge.block);
@@ -229,7 +232,9 @@ fn forward_locals(function: &Function) -> BTreeMap<u32, u32> {
         }
     }
     for (index, block) in function.blocks.iter().enumerate() {
-        let mut values = incoming(index, &outgoing);
+        let Some(mut values) = incoming(index, &outgoing) else {
+            continue;
+        };
         for i in &block.instructions {
             match i.op {
                 Op::StoreLocal { local, value } if eligible[local as usize] => {

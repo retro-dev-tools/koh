@@ -113,7 +113,18 @@ foreach (
     var observed = new ObservedMemory();
     var loopTiming = new LoopTiming(gb);
     if (loopCost)
+    {
+        for (ushort offset = 0; offset < 32; offset++)
+            if (
+                !gb.Mmu.DebugWrite((ushort)(0xC100 + offset), 0xD2)
+                || !gb.Mmu.DebugWrite((ushort)(0xC200 + offset), 0xE3)
+            )
+                throw new InvalidOperationException("Cannot poison copy timing memory");
+        gb.Mmu.DebugWrite(0xC120, 0xA7);
+        gb.Mmu.DebugWrite(0xC1FF, 0xC9);
+        gb.Mmu.DebugWrite(0xC220, 0xB8);
         gb.Mmu.Hook = loopTiming;
+    }
     if (cgbHal || sprites || lifecycle)
     {
         gb.Mmu.DebugWrite(0xff40, 0);
@@ -542,6 +553,11 @@ foreach (
         $"{gb.Mmu.DebugRead(0xC000):X2} {gb.Mmu.DebugRead(0xC001):X2} {Convert.ToHexString(result)} {gb.Cpu.Registers.Sp:X4} {(guard ? "OK" : "CORRUPT")}"
             + (cost ? $" {gb.Cpu.TotalTCycles}" : "")
             + (loopCost ? $" {gb.Cpu.TotalTCycles} {loopTiming.Elapsed()}" : "")
+            + (
+                loopCost
+                    ? $" {Convert.ToHexString(Enumerable.Range(0xC100, 32).Select(a => gb.Mmu.DebugRead((ushort)a)).ToArray())} {Convert.ToHexString(Enumerable.Range(0xC200, 32).Select(a => gb.Mmu.DebugRead((ushort)a)).ToArray())} {gb.Mmu.DebugRead(0xC120):X2}{gb.Mmu.DebugRead(0xC1FF):X2}{gb.Mmu.DebugRead(0xC220):X2} {loopTiming.Segments()}"
+                    : ""
+            )
             + (observe ? $" {string.Join(',', observed.Events.DefaultIfEmpty("-"))}" : "")
     );
 }
@@ -551,11 +567,14 @@ sealed class LoopTiming(GameBoySystem gb) : Koh.Emulator.Debug.MemoryHook
     int count;
     ulong start;
     ulong end;
+    ulong? initialized;
 
     public override void OnRead(ushort address, byte value) { }
 
     public override void OnWrite(ushort address, byte value)
     {
+        if (count == 1 && address == 0xC11F && value == 31 && initialized is null)
+            initialized = gb.Cpu.TotalTCycles;
         if (address == 0xFF81)
         {
             if (count >= 2 || value != count + 1)
@@ -573,6 +592,8 @@ sealed class LoopTiming(GameBoySystem gb) : Koh.Emulator.Debug.MemoryHook
             throw new InvalidOperationException("Expected exactly one ordered loop timing window");
         return end - start;
     }
+
+    public string Segments() => initialized is ulong tick ? $"{tick - start}:{end - tick}" : "-";
 }
 
 sealed class ObservedMemory : Koh.Emulator.Debug.MemoryHook

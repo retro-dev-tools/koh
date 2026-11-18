@@ -9,6 +9,28 @@ use rstest::rstest;
 mod accumulator_recursion;
 #[path = "ir/float32.rs"]
 mod float32;
+#[path = "support/local_flow.rs"]
+mod local_flow;
+
+#[rstest]
+#[case("invariant", true)]
+#[case("variant", false)]
+#[case("alias", false)]
+fn loop_local_flow_eliminates_only_invariant_unaliased_pointer_reads(
+    #[case] shape: &str,
+    #[case] forwarded: bool,
+) {
+    let mut function = local_flow::pointer_loop(shape);
+    verify(&function).unwrap();
+    koh_compile::optimize::simplify(&mut function).unwrap();
+    verify(&function).unwrap();
+    let loads = function
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .any(|i| matches!(i.op, Op::LoadLocal(0)));
+    assert_eq!(!loads, forwarded);
+}
 
 #[rstest]
 #[case(Type::I32, Type::I32, 0x180, 8, false, 0x80)]
