@@ -6,6 +6,65 @@ use koh_compile::{
 };
 use rstest::rstest;
 
+#[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn framework_interface_without_base_binds(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "FrameworkContracts");
+    let (facade, core) = runtime_images();
+    let resolver = Resolver::new(&[&images[0], &images[1], &facade, &core]).unwrap();
+    let error = compile::object(&resolver, Some("IteratorRules::Sum")).unwrap_err();
+    assert!(
+        error.contains("variance-aware binding") && error.contains("IteratorRules::Sum"),
+        "{error}"
+    );
+    let object = compile::object(&resolver, Some("IteratorRules::InterfaceNull")).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: if color {
+                koh_link::CgbMode::Compatible
+            } else {
+                koh_link::CgbMode::Preserve
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let text = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-heap",
+    );
+    let fields: Vec<_> = text.split_whitespace().collect();
+    assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"]);
+}
+
+fn runtime_images() -> (Vec<u8>, Vec<u8>) {
+    let listing = super::dotnet().arg("--list-runtimes").output().unwrap();
+    assert!(listing.status.success());
+    let listing = String::from_utf8(listing.stdout).unwrap();
+    let runtime = listing
+        .lines()
+        .find(|line| line.starts_with("Microsoft.NETCore.App 10."))
+        .unwrap();
+    let version = runtime.split_whitespace().nth(1).unwrap();
+    let root = std::path::Path::new(runtime.rsplit_once('[').unwrap().1.trim_end_matches(']'))
+        .join(version);
+    let facade = std::fs::read(root.join("System.Runtime.dll")).unwrap();
+    let core = std::fs::read(root.join("System.Private.CoreLib.dll")).unwrap();
+    (facade, core)
+}
+
 fn ready_to_run_offsets(bytes: &[u8]) -> (usize, usize) {
     macro_rules! offsets {
         ($image:ty) => {{
@@ -41,18 +100,7 @@ fn resolved_bcl_integer_max_has_correct_semantics(
     #[case] color: bool,
 ) {
     let (directory, images) = gameboy_images(host, configuration, "FrameworkContracts");
-    let listing = super::dotnet().arg("--list-runtimes").output().unwrap();
-    assert!(listing.status.success());
-    let listing = String::from_utf8(listing.stdout).unwrap();
-    let runtime = listing
-        .lines()
-        .find(|line| line.starts_with("Microsoft.NETCore.App 10."))
-        .unwrap();
-    let version = runtime.split_whitespace().nth(1).unwrap();
-    let root = std::path::Path::new(runtime.rsplit_once('[').unwrap().1.trim_end_matches(']'))
-        .join(version);
-    let facade = std::fs::read(root.join("System.Runtime.dll")).unwrap();
-    let core = std::fs::read(root.join("System.Private.CoreLib.dll")).unwrap();
+    let (facade, core) = runtime_images();
     let (cli, header) = ready_to_run_offsets(&core);
     for (offset, bytes, diagnostic) in [
         (cli + 16, vec![0x1c, 0, 0, 0], "Native-entry"),

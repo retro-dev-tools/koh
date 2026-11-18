@@ -113,10 +113,12 @@ impl Resolver<'_> {
             Some(clrmeta::TableId::TypeRef) => {
                 crate::resolve::framework_type(metadata, crate::resolve::coded(row.extends)?)?
             }
-            Some(clrmeta::TableId::TypeDef) => self.framework_definition(Definition {
-                assembly: raw.assembly,
-                token: 0x02000000 | row.extends.row,
-            })?,
+            Some(clrmeta::TableId::TypeDef) if row.extends.row != 0 => {
+                self.framework_definition(Definition {
+                    assembly: raw.assembly,
+                    token: 0x02000000 | row.extends.row,
+                })?
+            }
             _ => None,
         };
         let value = matches!(base, Some(("System", "ValueType" | "Enum")));

@@ -250,3 +250,24 @@ public static unsafe class StringTables
 
     public static int NegativeIndex() => First(lines, -1);
 }
+
+public static class IteratorRules
+{
+    private static System.Collections.Generic.IEnumerable<byte> Steps(byte n)
+    {
+        for (byte i = 0; i < n; i++)
+            yield return i;
+    }
+
+    private static bool IsNull(System.IDisposable value) => value is null;
+
+    public static int InterfaceNull() => IsNull(null) ? 42 : 0;
+
+    public static int Sum()
+    {
+        int sum = 0;
+        foreach (byte value in Steps(5))
+            sum += value;
+        return sum;
+    }
+}

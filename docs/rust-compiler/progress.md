@@ -10,6 +10,20 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Null interface base classification
+
+Iterator investigation exposed a real resolver bug: a valid null Extends index
+was treated as TypeDef02000000 while classifying a framework interface.
+The shared type binding now skips null bases, retaining non-null resolution and
+layout validation. Four new Debug/Release × DMG/CGB cases execute a framework
+IDisposable parameter/null check through ELF and ROM. The original iterator
+fixture now reaches an explicit unsupported-variance diagnostic; it does not yet
+execute. All three iterator methods remain outstanding, with no additional source
+ledger credit. [Evidence and next gaps](iterator-gaps.md).
+Expanded compiler/reference/interface/generic validation passed296/296 in98.178s,
+exit0;485 explicitly unselected. Fresh discovery1963 workspace/1786 compiler,
+zero ignored. Final current-head hosted validation remains open.
+
 ### Retained-IL reference support
 
 The reader now accepts bounded standalone ReadyToRun version16 references with

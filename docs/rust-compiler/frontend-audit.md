@@ -187,6 +187,10 @@ Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilIteratorTests.cs`. Futur
 
 Generated yield state machines and independent foreach consumers retain their own state and dispose on normal structured exit. C# iteration behavior justifies observable sequences; concrete-type tracking is optional.
 
+[Current investigation](iterator-gaps.md) fixes null interface base classification;
+variant generic binding and structured cleanup still block actual execution.
+None of these three methods is counted complete.
+
 - **PORT** `ForeachOverIterator_VerifiesCleanAndComputesExpectedValue`.
 - **PORT** `ForeachOverIterator_DebugAndReleaseProduceIdenticalObservableState`.
 - **PORT** `TwoIndependentForeachLoops_VerifiesCleanAndComputesExpectedValue`.
