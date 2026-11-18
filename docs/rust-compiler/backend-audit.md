@@ -587,11 +587,11 @@ Complete native replacement: [comparison/conversion contracts](optimizer-scalar-
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `DoubleNegationChain_CollapsesToSingleNegatedCompare` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `NeAgainstZero_IsIdentity_ReplacedByInnerCompare` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `EqAgainstZero_IsNegation_ReplacedByFlippedPredicate` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `EqAgainstOne_IsIdentity_ReplacedByInnerCompare` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `NonBooleanOperand_IsLeftAlone` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DoubleNegationChain_CollapsesToSingleNegatedCompare` | Mixed | REPLACE complete | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `NeAgainstZero_IsIdentity_ReplacedByInnerCompare` | Mixed | REPLACE complete | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `EqAgainstZero_IsNegation_ReplacedByFlippedPredicate` | Mixed | REPLACE complete | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `EqAgainstOne_IsIdentity_ReplacedByInnerCompare` | Mixed | REPLACE complete | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `NonBooleanOperand_IsLeftAlone` | Mixed | REPLACE complete | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
 
 ### Ir/RedundantConversionEliminationPassTests.cs (6)
 
@@ -602,12 +602,12 @@ Complete native replacement: [comparison/conversion contracts](optimizer-scalar-
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
-| `TruncOfZext_FoldsToTheOriginalValue` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `TruncOfSext_FoldsToTheOriginalValue` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `TruncOfZext_FoldsAtI16TooNotJustI8` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `DoesNotFold_WhenTruncWidthDiffersFromTheOriginalValueWidth` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `DoesNotFold_ZextOfTrunc` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
-| `Optimize_WiresThePassIntoTheDefaultPipelineAfterNarrowPass` | Mixed | REPLACE | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `TruncOfZext_FoldsToTheOriginalValue` | Mixed | REPLACE complete | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `TruncOfSext_FoldsToTheOriginalValue` | Mixed | REPLACE complete | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `TruncOfZext_FoldsAtI16TooNotJustI8` | Mixed | REPLACE complete | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DoesNotFold_WhenTruncWidthDiffersFromTheOriginalValueWidth` | Mixed | REPLACE complete | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `DoesNotFold_ZextOfTrunc` | Mixed | REPLACE complete | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
+| `Optimize_WiresThePassIntoTheDefaultPipelineAfterNarrowPass` | Mixed | REPLACE complete | Preserve the named algebra, escape, CFG or mapper boundary using before/after semantic checks; do not require node identity or pass order. |
 
 ### Sm83/DisassemblerLengthTests.cs (1)
 

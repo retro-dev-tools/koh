@@ -19,15 +19,15 @@ Each file forms a coherent group under the stated behavioral requirement. Every 
 
 ### CilBgWinTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilBgWinTests.cs`. Future Rust test group: `cil_bg_win`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilBgWinTests.cs`. Native Rust test group: `driver::bg_win`; [source dispositions and independent hardware evidence](bg-win-maps.md).
 
 Background/window map coordinates, fill/draw byte contents, CGB bank-1 attributes, DMG no-op behavior and safe LCD-on batched writes. Justification comes from authored graphics intent and hardware memory layout. The existing Bg/Win API is evidence of that intent, not a contract or design convention to preserve.
 
-- **PORT** `BgFillAndDrawMap_WriteExpectedMapBytes`.
-- **PORT** `WinFillAndDrawMap_WriteExpectedMapBytes`.
-- **PORT** `SetAttrFillAttr_OnCgb_WriteVramBank1NotTileIndexMap`.
-- **PORT** `SetAttrFillAttr_OnDmg_IsTrueNoOp`.
-- **PORT** `BatchedFullBoardRedraw_WithLcdOn_ProducesZeroMode3Violations`.
+- **PORT, complete** `BgFillAndDrawMap_WriteExpectedMapBytes` — full-bank native memory, explicit LCD/register state and mode3 safety checks in Debug/Release × DMG/CGB.
+- **PORT, complete** `WinFillAndDrawMap_WriteExpectedMapBytes` — full-bank native memory, explicit LCD/register state and mode3 safety checks in Debug/Release × DMG/CGB.
+- **PORT, complete** `SetAttrFillAttr_OnCgb_WriteVramBank1NotTileIndexMap` — full-bank native memory, explicit LCD/register state and mode3 safety checks in Debug/Release × DMG/CGB.
+- **REPLACE, complete** `SetAttrFillAttr_OnDmg_IsTrueNoOp` — actual DMG VRAM and unavailable-register behavior replace the emulator-only phantom-bank assertion; [rationale](bg-win-maps.md).
+- **PORT, complete** `BatchedFullBoardRedraw_WithLcdOn_ProducesZeroMode3Violations` — full-bank native memory, explicit LCD/register state and mode3 safety checks in Debug/Release × DMG/CGB.
 
 ### CilCanvasTests.cs
 

@@ -10,6 +10,18 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Background/window graphics acceptance
+
+All five [Bg/Win source methods](bg-win-maps.md),50 assertion sites, now have
+native replacements:16 Debug/Release × DMG/CGB ROMs compare every available VRAM
+byte, original fills/blits/attributes,64 board cells, LCD/palette state, OAM and
+mode3 safety. DMG phantom second-bank assertions are replaced by actual hardware
+VRAM/no-op/register observations. Expanded300/300 passed27.286s, exit0,
+812 explicitly unselected (/tmp/koh-bg-win-final.log). Stale completion markers
+for11 already-counted comparison/conversion methods were reconciled after fresh
+native checks; no duplicate credit. Ledger481/565 (480 replacements, one DELETE),
+84 outstanding. No production/API changes; final full hosted acceptance remains open.
+
 ### Pointer and multi-loop behavioral closure
 
 Eleven [loop memory-flow methods](loop-memory-flows.md) now have native PORT
@@ -568,7 +580,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-476/565 dispositions complete (475 native replacements, one DELETE),89 outstanding,
+481/565 dispositions complete (480 native replacements, one DELETE),84 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,
