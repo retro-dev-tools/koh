@@ -3,6 +3,19 @@ using Koh.GameBoy.Graphics;
 
 public static unsafe class Program
 {
+    public static int BankedFrame()
+    {
+        Video.Init();
+        Video.Start();
+        *(byte*)0xFF70 = 2;
+        Bg.SetTile(0, 0, 42);
+        Win.SetTile(31, 31, 77);
+        Video.EndFrame();
+        *(byte*)0xDF00 = 0xA3;
+        Hardware.BGP = (byte)(*(byte*)0xFF70 & 7);
+        return 42;
+    }
+
     public static int CanvasPixels()
     {
         Video.Init();

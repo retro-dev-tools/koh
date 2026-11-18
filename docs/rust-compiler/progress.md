@@ -10,6 +10,16 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### CGB prepared-map source ownership
+
+Debug and Release reproduced GDMA reading bank2 poison instead of the authored
+bank1 shadow when the caller selected SVBK2. Prepared commits now retain their
+shadow pin through the hardware transfer and restore the caller mapping afterward.
+Affected24/24 passed91.148s, including all four real graphics showcase cases.
+[Root cause, physical-bank assertions and evidence](bg-win-maps.md#cgb-commit-source-bank-lifetime).
+No new source-method credit: ledger521/565,44 outstanding. General bank/capacity
+and final full acceptance remain open.
+
 ### Sprite and palette acceptance
 
 Seven remaining source methods now have native replacements for57 assertion sites.

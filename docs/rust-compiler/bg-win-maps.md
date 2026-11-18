@@ -1,5 +1,45 @@
 # Background/window map acceptance
 
+## CGB commit source-bank lifetime
+
+The prepared GDMA source is a bus address, not a retained managed pin. Previously
+PrepareFlush derived it while selecting the shadow's WRAM bank, then released the
+pin before FlushBg/FlushWin used it. A game entering EndFrame with SVBK2 therefore
+transferred bank2 bytes instead of the bank1 shadow. Both Debug and Release
+reproduced6B at tile0 instead of authored42, despite retaining the caller's bank
+(`/tmp/koh-banked-map-red.log`, two failures, exit100).
+
+Each prepared commit now pins its owning shadow through register setup, the
+VBlank wait and the blocking GDMA trigger. Pin cleanup restores the caller's bank.
+The existing compiler pin lifetime/effects machinery supplies this behavior in
+both modes even though the local pointer is otherwise unused. Preparation,
+transfer length, source offsets, public APIs and the late-trigger timing guard
+remain unchanged. There is no new intrinsic, compiler fallback or bank1-only
+caller restriction.
+
+`driver::bg_win::cgb_frame_reads_the_pinned_shadow_bank_and_restores_the_caller`
+builds real Roslyn DLLs and checks canonical ELF/linker/emulator execution. The
+fixture selects bank2, queues background tile42 and last window tile77, then runs
+EndFrame. Full VRAM maps and OAM must match the bank1 shadows; VRAM1 remains
+poisoned. Register readback and a post-frame raw store independently verify the
+restored caller mapping: A3 must appear only at bank2 DF00, with bank1's corresponding
+packet untouched and every other bank2 byte still6B. These are actual physical-bank
+snapshots, not merely agreement between compiled reads and writes.
+
+The first focused fix passed2/2 in9.971s. The affected graphics/pin selection then
+passed24/24 in91.148s, exit0,593 explicitly unselected
+(`/tmp/koh-banked-map-regression.log`), including the real showcase in all four
+Debug/Release × DMG/CGB cases. Final physical-store assertions are recorded below.
+The strengthened physical-store cases passed2/2 in8.516s, exit0
+(`/tmp/koh-banked-map-final.log`). Rust formatting, CSharpier on the changed C#
+files and `git diff --check` passed. Results are local Linux evidence, not a
+current-head full-workspace or three-platform claim.
+This corrects a runtime bank-lifetime bug; no additional original source-method
+disposition is claimed. The ledger remains521/565 with44 outstanding. Broader
+banked-data and capacity acceptance remain open.
+
+## Original source-method replacements
+
 All five methods in `Frontends/CilBgWinTests.cs` (50 lexical assertion sites)
 now have native replacements. `tests/driver/bg_win.rs` builds the ordinary
 Roslyn `MapTransfers` fixture and resolves the actual Koh.GameBoy library.

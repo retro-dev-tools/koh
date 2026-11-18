@@ -3,6 +3,52 @@ use koh_compile::{compile, resolve::Resolver};
 use rstest::rstest;
 
 #[rstest]
+#[case("Debug")]
+#[case("Release")]
+fn cgb_frame_reads_the_pinned_shadow_bank_and_restores_the_caller(
+    host: &Host,
+    #[case] configuration: &str,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "MapTransfers");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    let object = compile::object(&resolver, Some("Program::BankedFrame")).unwrap();
+    let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+    let linked = koh_link::link(
+        &[object],
+        &koh_link::LinkOptions {
+            cgb: koh_link::CgbMode::Compatible,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let text = execute_mode(
+        host,
+        directory.path(),
+        &linked,
+        "__koh_exit",
+        "--native-sprites",
+    );
+    let fields: Vec<_> = text.split_whitespace().collect();
+    assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"]);
+    assert_eq!(&fields[10][2..4], "02", "caller WRAM bank restored");
+    let mut caller = [0x6bu8; 4096];
+    caller[0xf00] = 0xa3;
+    assert_heap_snapshot(fields[5], &caller, "physical post-frame caller bank");
+    assert_heap_snapshot(
+        &fields[4][0xf00 * 2..],
+        &[0x5a; 256],
+        "post-frame store must not reach bank1",
+    );
+    let mut indices = [0xa7u8; 8192];
+    indices[0x1800..].fill(0);
+    indices[0x1800] = 42;
+    indices[0x1fff] = 77;
+    assert_heap_snapshot(fields[6], &indices, "bank1 shadow reaches VRAM");
+    assert_heap_snapshot(fields[7], &[0xb8; 8192], "untouched VRAM1");
+    assert_heap_snapshot(fields[9], &[0; 160], "bank1 OAM shadow reaches hardware");
+}
+
+#[rstest]
 #[case("Debug", false)]
 #[case("Release", false)]
 #[case("Debug", true)]
