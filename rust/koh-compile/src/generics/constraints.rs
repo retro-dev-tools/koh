@@ -207,20 +207,26 @@ pub(crate) fn validate(
     } else {
         (arguments, declaring_arguments)
     };
-    for (index, parameter) in parameters {
-        if parameter.flags & !0x3c != 0 || parameter.flags & 0x0c == 0x0c {
-            if owner_table == TableId::TypeDef {
-                if metadata.type_defs[(method.token & 0xffffff) as usize - 1].flags & 0x20 != 0
-                    && matches!(parameter.flags & 3, 1 | 2)
-                    && parameter.flags & !0x3f == 0
-                    && parameter.flags & 0x0c != 0x0c
-                {
-                    return Err("Generic type variance requires variance-aware binding".into());
-                }
-                return Err("Invalid generic type parameter flags".into());
+    let interface = owner_table == TableId::TypeDef
+        && metadata.type_defs[(method.token & 0xffffff) as usize - 1].flags & 0x20 != 0;
+    for (_, parameter) in &parameters {
+        let allowed = if interface { 0x3f } else { 0x3c };
+        if parameter.flags & !allowed != 0
+            || parameter.flags & 3 == 3
+            || parameter.flags & 0x0c == 0x0c
+        {
+            return Err(if owner_table == TableId::TypeDef {
+                "Invalid generic type parameter flags"
+            } else {
+                "Invalid generic method parameter flags"
             }
-            return Err("Invalid generic method parameter flags".into());
+            .into());
         }
+    }
+    if interface {
+        super::variance::validate(resolver, method)?;
+    }
+    for (index, parameter) in parameters {
         if parameter.flags & 0x20 != 0 {
             return Err("Byref-like generic parameters require ref-safety validation".into());
         }

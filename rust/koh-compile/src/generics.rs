@@ -2,6 +2,7 @@ use crate::resolve::{Definition, ResolvedMethod, Resolver};
 use clrmeta::{MethodSig, TableId, TypeSig};
 pub(crate) mod constraints;
 mod construction;
+pub(crate) mod variance;
 pub(crate) use constraints::assignable;
 pub(crate) use construction::Construction;
 

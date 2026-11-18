@@ -16,7 +16,7 @@ feature associated with it.
 
 Valid exact nominal calls on `Producer<out T>` and `Consumer<in T>` already
 worked; they are preserved. This does not add conversion between different type
-arguments, interface variance, delegate-as-generic-method-argument binding,
+arguments, cross-instantiation interface variance, delegate-as-generic-method-argument binding,
 boxing or other unsupported runtime shapes. A type-definition lookup is also
 not an instantiation/constraint check. The initial suspected malformed-metadata
 diagnostic on valid delegates was not reproduced on those actual binding paths;
@@ -67,3 +67,6 @@ KOH_DOTNET=/path/to/dotnet cargo nextest run -p koh-compile \
 
 These new regressions close no additional legacy test disposition. Full migration
 and final current-head hosted validation remain incomplete.
+
+Subsequent [exact variant interface binding](exact-variance.md) admits valid nominal
+interface calls; it does not add cross-instantiation variance conversions.

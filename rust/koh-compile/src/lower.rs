@@ -659,6 +659,14 @@ impl Builder<'_, '_> {
                     .transpose()?
                     .unwrap_or(false);
                 if !assignable {
+                    if crate::generics::variance::parameters(resolver, target.identity().unwrap())?
+                        .iter()
+                        .any(|&flag| flag != 0)
+                    {
+                        return Err(
+                            "Variant interface conversion requires variance-aware binding".into(),
+                        );
+                    }
                     return Err("Object reference does not implement requested interface".into());
                 }
                 return self.value(
@@ -1669,6 +1677,17 @@ fn translate(
             let Type::Object(class) = bound_type(resolver, operand.assembly, &operand.ty)? else {
                 return Err("castclass requires a supported reference class".into());
             };
+            if let Some(identity) = class.identity() {
+                if class.is_interface()
+                    && crate::generics::variance::parameters(resolver, identity)?
+                        .iter()
+                        .any(|&flag| flag != 0)
+                {
+                    return Err(
+                        "Variant interface casts require variance-aware runtime tests".into(),
+                    );
+                }
+            }
             let object = b.pop()?;
             let result = b.value(
                 Type::Object(class),

@@ -21,7 +21,8 @@ fn framework_interface_without_base_binds(
     let resolver = Resolver::new(&[&images[0], &images[1], &facade, &core]).unwrap();
     let error = compile::object(&resolver, Some("IteratorRules::Sum")).unwrap_err();
     assert!(
-        error.contains("variance-aware binding") && error.contains("IteratorRules::Sum"),
+        error.contains("Byref-like generic parameters require ref-safety validation")
+            && error.contains("IteratorRules::Sum"),
         "{error}"
     );
     let object = compile::object(&resolver, Some("IteratorRules::InterfaceNull")).unwrap();

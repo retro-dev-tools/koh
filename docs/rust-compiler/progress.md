@@ -10,6 +10,23 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Exact variant interface binding
+
+Valid exact nominal instantiations of covariant/contravariant interfaces now bind
+and dispatch, including reference and integer returns. Declaration validation
+checks return/parameter positions, nested variance, arrays, byrefs, inherited
+interfaces and static virtual signatures against ECMA-335/.NET rules. Existing
+invalid flags and constraints still diagnose. Cross-instantiation coercions and
+variant runtime cast/type tests reject explicitly pending variance-aware matching.
+Four new rstest cases execute24 Debug/Release × DMG/CGB ROMs across six entries;
+existing shape/flag and callback tests remain checked. The Steps iterator probe
+now reaches AllowByRefLike/ref-safety rather than blanket variance rejection.
+[Contract, evidence and limitations](exact-variance.md). Expanded300/300 passed
+99.675s, exit0;485 explicitly unselected. Source ledger unchanged506/565,59 open;
+all three iterator source methods remain outstanding. Full hosted validation and
+legacy compiler deletion remain open. Fresh discovery1967 workspace/1790 compiler,
+zero ignored.
+
 ### Null interface base classification
 
 Iterator investigation exposed a real resolver bug: a valid null Extends index

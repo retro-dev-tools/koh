@@ -5,11 +5,100 @@ use rstest::rstest;
 mod metadata;
 
 #[rstest]
+#[case("Debug", false)]
+#[case("Release", false)]
+#[case("Debug", true)]
+#[case("Release", true)]
+fn exact_variant_interface_calls_execute(
+    host: &Host,
+    #[case] configuration: &str,
+    #[case] color: bool,
+) {
+    let (directory, images) = gameboy_images(host, configuration, "Variance");
+    let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
+    for entry in [
+        "ExactProducer",
+        "ExactIntProducer",
+        "ExactConsumer",
+        "ComplexShape",
+        "StaticShape",
+        "RefShape",
+    ] {
+        let object = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap();
+        let object = koh_objects::read_elf(&koh_objects::write_elf(&object).unwrap()).unwrap();
+        let linked = koh_link::link(
+            &[object],
+            &koh_link::LinkOptions {
+                cgb: if color {
+                    koh_link::CgbMode::Compatible
+                } else {
+                    koh_link::CgbMode::Preserve
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let report = execute_mode(
+            host,
+            directory.path(),
+            &linked,
+            "__koh_exit",
+            "--native-heap",
+        );
+        let fields: Vec<_> = report.split_whitespace().collect();
+        assert_eq!(&fields[..4], &["00", "0000002A", "D000", "OK"], "{entry}");
+    }
+    let data = resolver.assembly(0).unwrap().metadata();
+    for (name, entry, flags) in [
+        ("IRef`1", "RefShape", vec![1u16, 2]),
+        ("IStatic`1", "StaticShape", vec![2u16]),
+    ] {
+        let owner = data
+            .type_defs
+            .iter()
+            .position(|r| data.strings.get(r.type_name).unwrap() == name)
+            .unwrap() as u32
+            + 1;
+        let parameter = data
+            .generic_params
+            .iter()
+            .position(|p| p.owner.table == Some(clrmeta::TableId::TypeDef) && p.owner.row == owner)
+            .unwrap();
+        for variance in flags {
+            let mut bytes = images[0].clone();
+            let (offset, _) =
+                metadata::table_row(&bytes, clrmeta::TableId::GenericParam, parameter);
+            bytes[offset + 2..offset + 4].copy_from_slice(&variance.to_le_bytes());
+            let changed = Resolver::new(&[&bytes, &images[1]]).unwrap();
+            let error = compile::object(&changed, Some(&format!("Program::{entry}"))).unwrap_err();
+            assert!(
+                error.contains("Invalid variance position") && error.contains("IL_"),
+                "{error}"
+            );
+        }
+    }
+    for (entry, diagnostic) in [
+        (
+            "CovariantConversion",
+            "Variant interface conversion requires variance-aware binding",
+        ),
+        ("CovariantTypeTest", "variance-aware runtime tests"),
+        ("CovariantCast", "variance-aware runtime tests"),
+    ] {
+        let error = compile::object(&resolver, Some(&format!("Program::{entry}"))).unwrap_err();
+        assert!(
+            error.contains(diagnostic) && error.contains("IL_"),
+            "{entry}: {error}"
+        );
+    }
+}
+
+#[rstest]
 #[case("Debug", "IProducer`1")]
 #[case("Release", "IProducer`1")]
 #[case("Debug", "IConsumer`1")]
 #[case("Release", "IConsumer`1")]
-fn variance_is_unsupported_but_contradictory_flags_are_invalid(
+fn exact_variant_interface_shapes_validate_flags_and_positions(
     host: &Host,
     #[case] configuration: &str,
     #[case] name: &str,
@@ -43,16 +132,26 @@ fn variance_is_unsupported_but_contradictory_flags_are_invalid(
         .position(|r| r.owner.table == Some(clrmeta::TableId::TypeDef) && r.owner.row == owner)
         .unwrap();
     let entry = format!("Program::{}Shape", name.trim_end_matches("`1"));
-    let error = compile::object(&resolver, Some(&entry)).unwrap_err();
-    assert!(error.contains("variance-aware binding"), "{name}: {error}");
-    let reference_variance = data.generic_params[parameter].flags | 4;
-    for flags in [0u16, reference_variance, 3, 0x0c, 0x0d, 0x0e, 0x40, 0x41] {
+    let original = data.generic_params[parameter].flags;
+    let reference_variance = original | 4;
+    for flags in [
+        0u16,
+        original,
+        reference_variance,
+        if original == 1 { 2 } else { 1 },
+        3,
+        0x0c,
+        0x0d,
+        0x0e,
+        0x40,
+        0x41,
+    ] {
         let mut changed = images[0].clone();
         let (offset, _) = metadata::table_row(&changed, clrmeta::TableId::GenericParam, parameter);
         changed[offset + 2..offset + 4].copy_from_slice(&flags.to_le_bytes());
         let resolver = Resolver::new(&[&changed, &images[1]]).unwrap();
         let result = compile::object(&resolver, Some(&entry));
-        if flags == 0 {
+        if flags == 0 || flags == original || flags == reference_variance {
             let object = result.unwrap();
             let linked = koh_link::link(&[object], &Default::default()).unwrap();
             let report = execute_mode(
@@ -67,8 +166,8 @@ fn variance_is_unsupported_but_contradictory_flags_are_invalid(
             super::assert_heap_snapshot(fields[4], &[0x5a; 4096], &entry);
         } else {
             let error = result.unwrap_err();
-            let expected = if flags == reference_variance {
-                "variance-aware binding"
+            let expected = if flags == 1 || flags == 2 {
+                "Invalid variance position"
             } else {
                 "Invalid generic type parameter flags"
             };

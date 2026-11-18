@@ -131,8 +131,10 @@ current full-workspace pass.
 
 Variance-aware assignability and boxing-dependent fallback remain unfinished.
 
-Generic-parameter diagnostics distinguish unsupported interface variance from
-invalid special-constraint combinations. The variance diagnostic cannot mask
+[Exact variant interface binding](exact-variance.md) now supports nominal calls;
+cross-instantiation variance conversions and runtime tests remain unsupported.
+The historical checks below originally distinguished unsupported declarations from
+invalid special-constraint combinations; their valid-declaration cases now execute. The variance diagnostic cannot mask
 simultaneous reference-type and nonnullable-value-type constraints.
 [ECMA-335 II.10.1.7 and II.23.1.7](https://www.ecma-international.org/wp-content/uploads/ECMA-335_6th_edition_june_2012.pdf)
 define the incompatible constraints and their flag encoding; II.9.5 permits
