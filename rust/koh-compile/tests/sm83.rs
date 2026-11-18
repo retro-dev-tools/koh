@@ -149,6 +149,19 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
     {
         let original = koh_compile::lower::assembly_method(&resolver, identity(shape)).unwrap();
         let inputs: Vec<_> = match shape {
+            _ if shape.starts_with("Flow") => {
+                let inputs = if shape.ends_with("Choice") {
+                    rewrites::FLOW_CHOICE_INPUTS
+                } else if shape == "FlowOverlap" {
+                    rewrites::FLOW_OVERLAP_INPUTS
+                } else {
+                    rewrites::FLOW_INPUTS
+                };
+                inputs
+                    .iter()
+                    .map(|&(x, y)| (u64::from(x), u64::from(y)))
+                    .collect()
+            }
             _ if shape.starts_with("Loop") => {
                 let inputs = if shape == "LoopNested" {
                     rewrites::NESTED_INPUTS
@@ -212,6 +225,7 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
             ] {
                 let mut functions = vec![root];
                 for helper in match shape {
+                    "FlowCall" => &["IncrementOne"][..],
                     "LoopCall" => &["Touch"][..],
                     "GuardedCopy" | "SequentialCopy" => &["Drip"][..],
                     "Call" => &["Change"][..],
@@ -241,7 +255,7 @@ fn machine_rewrites_preserve_carry_control_and_observed_memory(
         executions += cases.len();
         run_roms_observed(host, &cases, 0xd000, Some(&observed));
     }
-    assert_eq!(executions, 1224);
+    assert_eq!(executions, 1536);
 }
 
 #[rstest::rstest]

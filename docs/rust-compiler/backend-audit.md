@@ -666,7 +666,7 @@ Three behavioral methods now run through [guarded/sequential native copies](guar
 
 Classification: Observable loop values, aliasing and target cycle budgets. Exited induction values, old SSA values, nested/sequential loops and overlapping forward copies must retain their language meaning.
 
-Six exit/saved-value methods have [native real-CIL replacements](loop-exit-values.md). The [counted baseline](loop-costs.md) is also complete. The other13 methods, including timing ceilings, remain open.
+Six exit/saved-value methods have [native real-CIL replacements](loop-exit-values.md). The [counted baseline](loop-costs.md) is also complete. Eleven [pointer/multi-loop methods](loop-memory-flows.md) are now complete too. Only the two timing-ceiling methods remain open.
 
 | Existing [Test] method | Assertion class | Disposition | Native acceptance |
 |---|---|---|---|
@@ -678,18 +678,18 @@ Six exit/saved-value methods have [native real-CIL replacements](loop-exit-value
 | `EarlyBreakExitEdge` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
 | `InductionValueSavedBeforeIncrement_UsedAfterIt` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
 | `InductionValueSavedBeforeIncrement_ReadAfterLoopExit` | Requirement | PORT complete | [Exact exit values, live counters and ordered stores in real-CIL ROMs](loop-exit-values.md). |
-| `PointerCopyLoop_RegressionSafe` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `PointerCopyLoop_RegressionSafe` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
 | `TwoPointerCopyLoop_MeetsCeiling` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `SinglePointerFillLoop` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `PointerUsedAfterLoopExit` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `NonQualifyingMiddleInstruction_NegativeAdmission_StillCorrect` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `OverlappingRegionCopy_ForwardSemanticsPreserved` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `TwoSequentialI8CountedLoops_DistinctCounters` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `TwoI8CountedLoopsInIfElseBranches` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `TwoSequentialFillLoops_DistinctBuffers` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `TwoLoopsInIfElseBranches` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `TwoSequentialCopyLoops_DistinctBuffers` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
-| `CopyLoopFollowedByFillLoop` | Requirement | PORT | Retain this fixture's observable result/boundary; adapt harness and ABI observation to Rust output. |
+| `SinglePointerFillLoop` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
+| `PointerUsedAfterLoopExit` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
+| `NonQualifyingMiddleInstruction_NegativeAdmission_StillCorrect` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
+| `OverlappingRegionCopy_ForwardSemanticsPreserved` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
+| `TwoSequentialI8CountedLoops_DistinctCounters` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
+| `TwoI8CountedLoopsInIfElseBranches` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
+| `TwoSequentialFillLoops_DistinctBuffers` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
+| `TwoLoopsInIfElseBranches` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
+| `TwoSequentialCopyLoops_DistinctBuffers` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
+| `CopyLoopFollowedByFillLoop` | Requirement | PORT complete | [Real-CIL exact memory traces, both arms, aliases and final pointers](loop-memory-flows.md). |
 
 ### Sm83/Sm83SymbolAddressTests.cs (3)
 

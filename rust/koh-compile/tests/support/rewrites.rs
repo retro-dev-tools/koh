@@ -1,4 +1,15 @@
 pub const SHAPES: &[&str] = &[
+    "FlowCopy",
+    "FlowCall",
+    "FlowFill",
+    "FlowFillExit",
+    "FlowOverlap",
+    "FlowCounters",
+    "FlowCounterChoice",
+    "FlowFills",
+    "FlowCopyChoice",
+    "FlowCopies",
+    "FlowCopyFill",
     "LoopExit",
     "LoopCall",
     "LoopNested",
@@ -34,6 +45,26 @@ pub const SHAPES: &[&str] = &[
     "WalkLinear",
     "WalkStore",
 ];
+pub const FLOW_INPUTS: &[(u32, u32)] = &[
+    (0, 0),
+    (1, 1),
+    (10, 10),
+    (10, 20),
+    (16, 20),
+    (20, 10),
+    (32, 32),
+];
+pub const FLOW_CHOICE_INPUTS: &[(u32, u32)] = &[
+    (0, 0),
+    (0, 1),
+    (1, 0),
+    (1, 1),
+    (10, 0),
+    (10, 1),
+    (16, 0),
+    (16, 1),
+];
+pub const FLOW_OVERLAP_INPUTS: &[(u32, u32)] = &[(0, 0), (1, 0), (4, 2), (4, 1), (8, 2), (16, 4)];
 pub const LOOP_INPUTS: &[(u32, u32)] = &[(0, 0), (1, 0), (10, 10), (50, 5), (100, 42), (16, 16)];
 pub const NESTED_INPUTS: &[(u32, u32)] = &[(0, 10), (10, 0), (1, 1), (10, 10), (16, 16), (17, 17)];
 pub const GUARD_INPUTS: &[(u32, u32)] = &[
@@ -99,6 +130,114 @@ pub fn expected(shape: &str, x: u32, y: u32) -> (u64, String) {
     let b = y as u8;
     let w = |address: u16, value: u8| format!("W{address:04X}:{value:02X}");
     let r = |address: u16| format!("R{address:04X}");
+    if shape.starts_with("Flow") {
+        let mut events = Vec::new();
+        let seed = |events: &mut Vec<String>, address, count, base: u8| {
+            for i in 0..count {
+                events.push(w(address + i, base.wrapping_add(i as u8)));
+            }
+        };
+        let copy =
+            |events: &mut Vec<String>, source, destination, count, base: u8, increment: u8| {
+                for i in 0..count {
+                    events.extend([
+                        r(source + i),
+                        w(
+                            destination + i,
+                            base.wrapping_add(i as u8).wrapping_add(increment),
+                        ),
+                    ]);
+                }
+            };
+        let fill = |events: &mut Vec<String>, address, count, byte| {
+            for i in 0..count {
+                events.push(w(address + i, byte));
+            }
+        };
+        let pair = |first: u16, second: u16| (u64::from(first) << 32) | u64::from(second);
+        let n = x as u16;
+        let m = y as u16;
+        let value = match shape {
+            "FlowCopy" | "FlowCall" => {
+                if shape == "FlowCopy" {
+                    events.push(w(0xc100, 0));
+                }
+                seed(&mut events, 0xc100, n, 0);
+                copy(
+                    &mut events,
+                    0xc100,
+                    0xc200,
+                    n,
+                    0,
+                    u8::from(shape == "FlowCall"),
+                );
+                pair(0xc100 + n, 0xc200 + n)
+            }
+            "FlowFill" | "FlowFillExit" => {
+                fill(&mut events, 0xc100, n, 0xaa);
+                if shape == "FlowFillExit" {
+                    events.push(w(0xc100 + n, 0xff));
+                }
+                u64::from(0xc100 + n)
+            }
+            "FlowOverlap" => {
+                let mut memory = vec![0u8; 40];
+                for i in 0..20u16 {
+                    memory[i as usize] = 10 * (i as u8 + 1);
+                    events.push(w(0xc100 + i, memory[i as usize]));
+                }
+                for i in 0..n {
+                    let byte = memory[i as usize];
+                    memory[(m + i) as usize] = byte;
+                    events.extend([r(0xc100 + i), w(0xc100 + m + i, byte)]);
+                }
+                pair(0xc100 + n, 0xc100 + m + n)
+            }
+            "FlowCounters" => {
+                events.extend([w(0xc100, a), w(0xc200, b)]);
+                (u64::from(a) << 16) | u64::from(b)
+            }
+            "FlowCounterChoice" => {
+                let total = if y != 0 { a } else { a.wrapping_mul(2) };
+                events.extend([w(0xc020, b), r(0xc020), w(0xc300, total)]);
+                u64::from(total)
+            }
+            "FlowFills" => {
+                fill(&mut events, 0xc100, n, 0x11);
+                fill(&mut events, 0xc200, m, 0x22);
+                pair(0xc100 + n, 0xc200 + m)
+            }
+            "FlowCopyChoice" => {
+                events.extend([w(0xc020, b), r(0xc020)]);
+                let (source, base) = if y != 0 { (0xc100, 0x80) } else { (0xc200, 1) };
+                seed(&mut events, source, n, base);
+                copy(&mut events, source, source + 16, n, base, 0);
+                pair(source + n, source + 16 + n)
+            }
+            "FlowCopies" => {
+                seed(&mut events, 0xc100, n, 0);
+                copy(&mut events, 0xc100, 0xc200, n, 0, 0);
+                seed(&mut events, 0xc300, m, 100);
+                copy(&mut events, 0xc300, 0xc400, m, 100, 0);
+                pair(0xc200 + n, 0xc400 + m)
+            }
+            "FlowCopyFill" => {
+                seed(&mut events, 0xc100, n, 0);
+                copy(&mut events, 0xc100, 0xc200, n, 0, 0);
+                fill(&mut events, 0xc300, m, 0x33);
+                pair(0xc200 + n, 0xc300 + m)
+            }
+            _ => panic!("Unknown flow contract"),
+        };
+        return (
+            value,
+            if events.is_empty() {
+                "-".into()
+            } else {
+                events.join(",")
+            },
+        );
+    }
     if shape.starts_with("Loop") {
         let count = x as u8;
         let (value, events) = match shape {

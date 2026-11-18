@@ -10,6 +10,19 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Pointer and multi-loop behavioral closure
+
+Eleven [loop memory-flow methods](loop-memory-flows.md) now have native PORT
+replacements for19 source assertion sites.624 added Debug/Release ROMs check
+original buffers/values, all copied/filled bytes, calls, forward overlap, both
+branch arms, zero trips, unequal lengths and final pointers. Runtime/bound inputs
+run before/after optimization; whole rewrite fixture3072 ROMs. Observer expansion
+throughC4FF/cap256 accommodates the longest192-event trace; strict full equality
+remains. Expanded233/233 passed48.951s, exit0,207 explicitly unselected
+(/tmp/koh-loop-flows-final.log). Ledger476/565 (475 replacements, one DELETE),
+89 outstanding.18/20 LoopCodegen methods complete; the two190/740-dot timing
+methods remain open. No production or API changes.
+
 ### Direct terminal comparison branches
 
 The backend now [branches directly from terminal single-use comparisons](comparison-branches.md).
@@ -555,7 +568,7 @@ native replacements (74 original parameter-expanded cases,504 explicit expanded
 assertions). Five [IR construction/verifier methods](ir-construction.md) now have
 native replacements. The [IR round-trip group](ir-roundtrip.md) adds six native
 replacements and one obsolete private-parser decision. The current ledger is
-465/565 dispositions complete (464 native replacements, one DELETE),100 outstanding,
+476/565 dispositions complete (475 native replacements, one DELETE),89 outstanding,
 including four [live-value preservation replacements](liveness.md).
 The23 [allocation-independent backend methods](allocation-contracts.md) now
 replace private register/slot/byte-shape expectations with executable arithmetic,

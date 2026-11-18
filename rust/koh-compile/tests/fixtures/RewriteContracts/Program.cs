@@ -1,5 +1,208 @@
 public static unsafe class Program
 {
+    private static byte IncrementOne(byte value) => (byte)(value + 1);
+
+    public static ulong FlowCopy(int count, int other)
+    {
+        byte* source = (byte*)0xC100;
+        byte* destination = (byte*)0xC200;
+        *source = 0;
+        for (byte i = 0; i < count; i++)
+            source[i] = i;
+        byte left = (byte)count;
+        while (left != 0)
+        {
+            *destination++ = *source++;
+            left--;
+        }
+        return ((ulong)(ushort)source << 32) | (ushort)destination;
+    }
+
+    public static ulong FlowCall(int count, int other)
+    {
+        byte* source = (byte*)0xC100;
+        byte* destination = (byte*)0xC200;
+        for (byte i = 0; i < count; i++)
+            source[i] = i;
+        byte left = (byte)count;
+        while (left != 0)
+        {
+            *destination++ = IncrementOne(*source++);
+            left--;
+        }
+        return ((ulong)(ushort)source << 32) | (ushort)destination;
+    }
+
+    public static int FlowFill(int count, int other)
+    {
+        byte* destination = (byte*)0xC100;
+        byte left = (byte)count;
+        while (left != 0)
+        {
+            *destination++ = 0xAA;
+            left--;
+        }
+        return (ushort)destination;
+    }
+
+    public static int FlowFillExit(int count, int other)
+    {
+        byte* destination = (byte*)0xC100;
+        byte left = (byte)count;
+        while (left != 0)
+        {
+            *destination++ = 0xAA;
+            left--;
+        }
+        *destination = 0xFF;
+        return (ushort)destination;
+    }
+
+    public static ulong FlowOverlap(int count, int offset)
+    {
+        byte* source = (byte*)0xC100;
+        for (int i = 0; i < 20; i++)
+            source[i] = (byte)(10 * (i + 1));
+        byte* destination = source + offset;
+        byte left = (byte)count;
+        while (left != 0)
+        {
+            *destination++ = *source++;
+            left--;
+        }
+        return ((ulong)(ushort)source << 32) | (ushort)destination;
+    }
+
+    public static int FlowCounters(int count, int other)
+    {
+        byte first = 0;
+        for (byte i = 0; i < count; i++)
+            first = (byte)(first + 1);
+        *(byte*)0xC100 = first;
+        byte second = 0;
+        for (byte i = 0; i < other; i++)
+            second = (byte)(second + 1);
+        *(byte*)0xC200 = second;
+        return (first << 16) | second;
+    }
+
+    public static int FlowCounterChoice(int count, int pick)
+    {
+        *(byte*)0xC020 = (byte)pick;
+        byte total = 0;
+        if (*(byte*)0xC020 != 0)
+        {
+            for (byte i = 0; i < count; i++)
+                total = (byte)(total + 1);
+        }
+        else
+        {
+            for (byte i = 0; i < count * 2; i++)
+                total = (byte)(total + 1);
+        }
+        *(byte*)0xC300 = total;
+        return total;
+    }
+
+    public static ulong FlowFills(int count, int other)
+    {
+        byte* first = (byte*)0xC100;
+        byte left = (byte)count;
+        while (left != 0)
+        {
+            *first++ = 0x11;
+            left--;
+        }
+        byte* second = (byte*)0xC200;
+        byte remaining = (byte)other;
+        while (remaining != 0)
+        {
+            *second++ = 0x22;
+            remaining--;
+        }
+        return ((ulong)(ushort)first << 32) | (ushort)second;
+    }
+
+    public static ulong FlowCopyChoice(int count, int pick)
+    {
+        *(byte*)0xC020 = (byte)pick;
+        if (*(byte*)0xC020 != 0)
+        {
+            byte* source = (byte*)0xC100;
+            byte* destination = (byte*)0xC110;
+            for (byte i = 0; i < count; i++)
+                source[i] = (byte)(0x80 + i);
+            byte left = (byte)count;
+            while (left != 0)
+            {
+                *destination++ = *source++;
+                left--;
+            }
+            return ((ulong)(ushort)source << 32) | (ushort)destination;
+        }
+        else
+        {
+            byte* source = (byte*)0xC200;
+            byte* destination = (byte*)0xC210;
+            for (byte i = 0; i < count; i++)
+                source[i] = (byte)(i + 1);
+            byte left = (byte)count;
+            while (left != 0)
+            {
+                *destination++ = *source++;
+                left--;
+            }
+            return ((ulong)(ushort)source << 32) | (ushort)destination;
+        }
+    }
+
+    public static ulong FlowCopies(int count, int other)
+    {
+        byte* firstSource = (byte*)0xC100;
+        byte* firstDestination = (byte*)0xC200;
+        for (byte i = 0; i < count; i++)
+            firstSource[i] = i;
+        byte left = (byte)count;
+        while (left != 0)
+        {
+            *firstDestination++ = *firstSource++;
+            left--;
+        }
+        byte* secondSource = (byte*)0xC300;
+        byte* secondDestination = (byte*)0xC400;
+        for (byte i = 0; i < other; i++)
+            secondSource[i] = (byte)(i + 100);
+        byte remaining = (byte)other;
+        while (remaining != 0)
+        {
+            *secondDestination++ = *secondSource++;
+            remaining--;
+        }
+        return ((ulong)(ushort)firstDestination << 32) | (ushort)secondDestination;
+    }
+
+    public static ulong FlowCopyFill(int count, int other)
+    {
+        byte* source = (byte*)0xC100;
+        byte* destination = (byte*)0xC200;
+        for (byte i = 0; i < count; i++)
+            source[i] = i;
+        byte left = (byte)count;
+        while (left != 0)
+        {
+            *destination++ = *source++;
+            left--;
+        }
+        byte* fill = (byte*)0xC300;
+        byte remaining = (byte)other;
+        while (remaining != 0)
+        {
+            *fill++ = 0x33;
+            remaining--;
+        }
+        return ((ulong)(ushort)destination << 32) | (ushort)fill;
+    }
+
     public static int EmptyCost()
     {
         *(byte*)0xFF81 = 1;
