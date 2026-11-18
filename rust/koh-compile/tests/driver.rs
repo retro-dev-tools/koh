@@ -51,6 +51,8 @@ mod generic_types;
 mod generics;
 #[path = "driver/interfaces.rs"]
 mod interfaces;
+#[path = "driver/linq.rs"]
+mod linq;
 #[path = "driver/mono.rs"]
 mod mono;
 #[path = "driver/native_stop.rs"]

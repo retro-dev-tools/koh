@@ -11,6 +11,7 @@ enum Kind {
 }
 
 pub(crate) enum Intrinsic {
+    Fault(crate::ir::RuntimeFault),
     Allocate,
     ResetArena,
     MemoryFill,
@@ -470,14 +471,15 @@ fn runtime_declaration(
     }
     if method.flags & 0x10 == 0
         || method.flags & 0x400 != 0
-        || signature.calling_convention.0 != 0
+        || signature.calling_convention.0
+            != if signature.generic_param_count == 0 {
+                0
+            } else {
+                0x10
+            }
         || signature.sentinel.is_some()
-        || signature.generic_param_count != 0
     {
-        return Err(
-            "KohRuntime requires a nongeneric static method with standard calling convention"
-                .into(),
-        );
+        return Err("KohRuntime requires a static method with standard calling convention".into());
     }
     resolver
         .check_arity(
@@ -492,6 +494,7 @@ fn runtime_declaration(
         assembly,
         token: 0x06000000 | attribute.parent.row,
     };
+    resolver.check_arity(definition, signature.generic_param_count as usize)?;
     let key = runtime_payload(
         metadata
             .blobs
@@ -537,7 +540,10 @@ fn discover_runtime(resolver: &Resolver<'_>) -> Result<(), String> {
     Ok(())
 }
 
-fn runtime_method(resolver: &Resolver<'_>, key: &str) -> Result<Definition, String> {
+pub(crate) fn runtime_implementation(
+    resolver: &Resolver<'_>,
+    key: &str,
+) -> Result<Definition, String> {
     discover_runtime(resolver)?;
     let definition = resolver
         .runtime_methods
@@ -553,6 +559,21 @@ fn runtime_method(resolver: &Resolver<'_>, key: &str) -> Result<Definition, Stri
     if method.rva == 0 || method.impl_flags & 7 != 0 {
         return Err(format!(
             "KohRuntime {key} {definition:?} has no CIL body; supply its implementation assembly"
+        ));
+    }
+    Ok(definition)
+}
+
+fn runtime_method(resolver: &Resolver<'_>, key: &str) -> Result<Definition, String> {
+    let definition = runtime_implementation(resolver, key)?;
+    if resolver
+        .assembly(definition.assembly)?
+        .method_signature(definition.token)?
+        .generic_param_count
+        != 0
+    {
+        return Err(format!(
+            "KohRuntime {key} requires a nongeneric runtime implementation"
         ));
     }
     Ok(definition)
@@ -744,6 +765,23 @@ pub(crate) fn intrinsic(
             .any(|p| p.owner.table == Some(TableId::TypeDef) && p.owner.row == owner)
     {
         return Err("Koh intrinsic requires a static non-generic method".into());
+    }
+    if matches!(kind, "failnull" | "failempty") {
+        if address != -1
+            || signature.calling_convention.0 != 0
+            || signature.sentinel.is_some()
+            || signature.return_type != TypeSig::Primitive(clrmeta::ElementType::Void)
+            || !signature.params.is_empty()
+        {
+            return Err(format!(
+                "{kind} requires an addressless static void() signature"
+            ));
+        }
+        return Ok(Some(Intrinsic::Fault(if kind == "failnull" {
+            crate::ir::RuntimeFault::Null
+        } else {
+            crate::ir::RuntimeFault::EmptySequence
+        })));
     }
     if kind == "hblankstream" {
         use clrmeta::ElementType;

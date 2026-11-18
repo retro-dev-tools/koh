@@ -523,7 +523,7 @@ pub fn simplify(function: &mut Function) -> Result<(), String> {
                 value(condition);
             }
             Control::Switch { selector, .. } => value(selector),
-            Control::Jump(_) | Control::TypeFault => {}
+            Control::Jump(_) | Control::TypeFault | Control::RuntimeFault(_) => {}
             Control::Return(result) => {
                 if let Some(id) = result {
                     value(id);

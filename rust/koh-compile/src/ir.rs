@@ -717,8 +717,15 @@ pub struct Edge {
     pub arguments: Vec<u32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeFault {
+    Null,
+    EmptySequence,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Control {
+    RuntimeFault(RuntimeFault),
     TypeFault,
     Jump(Edge),
     Branch {
@@ -740,7 +747,7 @@ impl Control {
             Self::Jump(edge) => (Some(edge), None, &[]),
             Self::Branch { yes, no, .. } => (Some(yes), Some(no), &[]),
             Self::Switch { cases, default, .. } => (Some(default), None, cases),
-            Self::Return(_) | Self::TypeFault => (None, None, &[]),
+            Self::Return(_) | Self::TypeFault | Self::RuntimeFault(_) => (None, None, &[]),
         };
         first.into_iter().chain(second).chain(cases)
     }
@@ -750,7 +757,7 @@ impl Control {
             Self::Jump(edge) => (Some(edge), None, &mut []),
             Self::Branch { yes, no, .. } => (Some(yes), Some(no), &mut []),
             Self::Switch { cases, default, .. } => (Some(default), None, cases),
-            Self::Return(_) | Self::TypeFault => (None, None, &mut []),
+            Self::Return(_) | Self::TypeFault | Self::RuntimeFault(_) => (None, None, &mut []),
         };
         first.into_iter().chain(second).chain(cases)
     }

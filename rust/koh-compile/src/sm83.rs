@@ -1157,7 +1157,7 @@ impl Layout {
             }
             let end = body.instructions.len();
             match &body.terminator.kind {
-                Control::TypeFault => {}
+                Control::TypeFault | Control::RuntimeFault(_) => {}
                 Control::Return(value) => {
                     if let Some(id) = value {
                         record(*id, end);
@@ -2629,6 +2629,14 @@ pub(crate) fn emit_with_stack_reserve(
             Control::TypeFault => {
                 let fault = code.import("__koh_trap_type".into());
                 code.jump(0xc3, fault);
+            }
+            Control::RuntimeFault(fault) => {
+                let name = match fault {
+                    crate::ir::RuntimeFault::Null => "__koh_trap_null",
+                    crate::ir::RuntimeFault::EmptySequence => "__koh_trap_empty_sequence",
+                };
+                let target = code.import(name.into());
+                code.jump(0xc3, target);
             }
             Control::Return(value) => {
                 if !layout.pins.is_empty() {

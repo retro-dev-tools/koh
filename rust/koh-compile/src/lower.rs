@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 mod checked;
 mod finally;
 mod int128;
+mod linq;
 mod spans;
 
 fn primitive_type(ty: &clrmeta::TypeSig) -> Result<Type, String> {
@@ -2246,6 +2247,12 @@ fn translate(
                 &b.method_arguments,
                 &b.type_arguments,
             )?;
+            if let Some(runtime) = linq::target(resolver, b, &target)? {
+                if i.opcode != 0x28 || constrained.is_some() {
+                    return Err("LINQ operators require an ordinary static call".into());
+                }
+                target = runtime;
+            }
             if crate::contracts::managed_thread_id(resolver, &target)? {
                 if i.opcode != 0x28 || constrained.is_some() {
                     return Err("CurrentManagedThreadId requires an ordinary static call".into());
@@ -2442,6 +2449,7 @@ fn translate(
                         )?;
                         b.stack.push(copied);
                     }
+                    Intrinsic::Fault(fault) => return Ok(Control::RuntimeFault(fault)),
                     Intrinsic::Allocate => {
                         let pointer = b.value(Type::Native, Op::ArenaAllocate(arguments[0]))?;
                         b.stack.push(pointer);

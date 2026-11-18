@@ -212,6 +212,7 @@ fn startup(
         ("__koh_trap_pin", 8),
         ("__koh_trap_hardware", 9),
         ("__koh_trap_type", 10),
+        ("__koh_trap_empty_sequence", 11),
     ] {
         symbols.push(symbol(name.into(), 1, data.len()));
         data.extend_from_slice(&[0xf3, 0x3e, code, 0xc3]);

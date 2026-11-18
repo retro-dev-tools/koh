@@ -1,8 +1,10 @@
 # LINQ semantic audit and current blockers
 
-Status: implementation incomplete. No source-test closure or executable LINQ
-support is claimed by this audit. All five original methods remain outstanding;
-the source ledger stays 509/565, with 56 outstanding.
+Status: this audit records the original blockers. The subsequent
+[native target runtime](linq-runtime.md) executes the supported queries and
+numeric reductions. Its remaining acceptance checks are explicit there. All five
+original methods remain outstanding until that unit completes; the source ledger
+stays 509/565, with 56 outstanding.
 
 ## Original assertions
 

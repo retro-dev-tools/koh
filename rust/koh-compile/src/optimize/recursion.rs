@@ -23,7 +23,10 @@ fn candidate(function: &Function) -> Option<Function> {
     }
     let mut site = None;
     for (block, body) in function.blocks.iter().enumerate() {
-        if matches!(body.terminator.kind, Control::TypeFault) {
+        if matches!(
+            body.terminator.kind,
+            Control::TypeFault | Control::RuntimeFault(_)
+        ) {
             return None;
         }
         for (index, instruction) in body.instructions.iter().enumerate() {

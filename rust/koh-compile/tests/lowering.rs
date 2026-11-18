@@ -142,7 +142,7 @@ fn nonzeroed_locals_require_assignment_on_every_path(
                     }
                     remap(default);
                 }
-                Control::Return(_) | Control::TypeFault => {}
+                Control::Return(_) | Control::TypeFault | Control::RuntimeFault(_) => {}
             }
         }
         verify(&function).unwrap();
@@ -637,7 +637,7 @@ fn cfg_simplification_preserves_loops_across_block_order(#[case] reverse: bool) 
                     yes.block = inverse[yes.block];
                     no.block = inverse[no.block];
                 }
-                Control::Return(_) | Control::TypeFault => {}
+                Control::Return(_) | Control::TypeFault | Control::RuntimeFault(_) => {}
                 Control::Switch { cases, default, .. } => {
                     for edge in cases.iter_mut().chain(std::iter::once(default)) {
                         edge.block = inverse[edge.block];
@@ -838,7 +838,9 @@ fn execute_checked_with(f: &Function, arguments: &[u64]) -> Result<u64, u8> {
             }
         }
         let edge = match &f.blocks[block].terminator.kind {
-            Control::TypeFault => panic!("Unexpected runtime type fault in integer interpreter"),
+            Control::TypeFault | Control::RuntimeFault(_) => {
+                panic!("Unexpected runtime fault in integer interpreter")
+            }
             Control::Return(value) => return Ok(value.map(|id| values[&id]).unwrap_or(0)),
             Control::Jump(edge) => edge,
             Control::Switch {

@@ -1,5 +1,9 @@
 public static class Library
 {
+    public static System.Collections.Generic.IEnumerable<T> QueryForward<T>(
+        System.Collections.Generic.IEnumerable<T> source
+    ) => System.Linq.Enumerable.Where(source, _ => true);
+
     static T Identity<T>(T value) => value;
 
     public static T Forward<T>(T value) => Identity(value);

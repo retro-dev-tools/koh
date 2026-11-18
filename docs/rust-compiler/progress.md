@@ -10,6 +10,19 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Deferred LINQ runtime
+
+Rust redirects exact trusted Enumerable signatures to metadata-selected ordinary
+target CIL in Koh.GameBoy. Real deferred query objects replace the legacy
+placeholder model. Where/Select, Count/Any/All, checked numeric Sum and primitive
+Min/Max execute through ELF and the Rust linker. Twelve rstest cases passed with
+120 Debug/Release × DMG/CGB ROM executions and16 unsupported-overload checks in
+69.522s, exit0. Full result packets cover effects, disposal, repeat enumeration,
+foreign types, numeric widths and distinct failure traps.
+[Contract, evidence and remaining validation](linq-runtime.md).
+LINQ-specific PDB/SDK/metadata mutation and floating edge cases remain open;
+ledger509/565,56 outstanding, no source closure credited yet.
+
 ### Cross-assembly callback arguments
 
 Delegates now share canonical closed-type binding with an assembly scope per
