@@ -5222,3 +5222,5 @@ fn nested_entry_owners_are_unambiguous(host: &Host) {
     }
     assert!(compile::object(&resolver, Some("Program::Main")).is_err());
 }
+#[path = "driver/narrowing.rs"]
+mod narrowing;

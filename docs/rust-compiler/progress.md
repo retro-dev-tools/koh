@@ -10,6 +10,21 @@ acceptance, test-disposition closure, performance comparison and final hosted
 validation remain required. The current public API is evidence, not a design
 baseline; authoring needs and hardware constraints determine the new contract.
 
+### Roslyn narrowing and calibrated cost closure
+
+All six [CIL narrowing source methods](cil-narrowing-contracts.md) now have
+native replacements for11 assertion sites/16 expanded assertions. Four Rust
+configurations execute16 compiler-produced ROMs and eight known-cost calibration
+ROMs. Dynamic200/50 comparison yields0, original accumulation150, and wrap600→88.
+Equivalent byte/int32 accumulator kernels retain strict reductions:66 initialized
+section bytes and14544 T-cycles in Debug and Release, on both devices. This is a
+source-kernel comparison, not a private pass-on/off claim. Final13/13 passed49.897s,
+exit0,862 explicitly unselected, including the3224-ROM width/narrowing acceptance
+and float/integer conversion neighbors. Fresh discovery lists2151 workspace cases,
+1974 compiler-owned, zero ignored. Formatting and diff checks pass.
+Ledger560/565, five backend methods remain
+outstanding. Final runtime/SDK/hosted acceptance and C# compiler removal remain open.
+
 ### Scattered map commit closure
 
 Both [map-commit source methods](map-commit-contracts.md) now have native

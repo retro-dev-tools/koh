@@ -81,8 +81,9 @@ legalization may safely narrow physical work while preserving every observation.
 
 No source method here measures ROM size or CPU cycles. This acceptance does not
 claim a performance win or close the separately inventoried measured
-`CilNarrowingEndToEndTests` benchmark. That compiler-owned group remains pending;
-it needs its own production C# and calibrated cost evidence.
+`CilNarrowingEndToEndTests` benchmark. That group now has separate
+[production C# and calibrated cost acceptance](cil-narrowing-contracts.md),
+including strict emitted-byte and T-cycle reductions for equivalent kernels.
 
 ## Evidence
 

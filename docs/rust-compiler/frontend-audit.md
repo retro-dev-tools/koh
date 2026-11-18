@@ -269,16 +269,16 @@ Rank-2 array construction/indexing, ROM-initializer and heap paths, dimension he
 
 ### CilNarrowingEndToEndTests.cs
 
-Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilNarrowingEndToEndTests.cs`. Future Rust test group: `cil_narrowing_end_to_end`.
+Source: `tests/Compiler/Koh.Compiler.Tests/Frontends/CilNarrowingEndToEndTests.cs`. Native group: `driver::narrowing`; all six methods complete. See [numeric contracts and calibrated cost comparison](cil-narrowing-contracts.md).
 
 Unsigned byte ordering and wrapping accumulation must survive optimization in Debug/Release. ROM-size and cycle improvements merit a separately calibrated optimization benchmark, not semantic coupling to an old pass.
 
-- **PORT** `ByteCompare_UnsignedOrderingIsCorrectThroughNarrowing`.
-- **PORT** `ByteCompare_DebugAndReleaseAgree`.
-- **REPLACE** `ByteCompare_NarrowPassActuallyFiredOnTheCompare` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
-- **PORT** `ByteAccumulateLoop_ProducesTheCorrectSum`.
-- **PORT** `ByteAccumulateLoop_DebugAndReleaseAgree`.
-- **REPLACE** `ByteAccumulateLoop_NarrowingReducesRomSizeAndCycles_MeasuredDelta` — retain its behavior; replace representation/pass-name/allocation/helper-name assertions with result, relocation/alignment or measured performance checks.
+- **PORT, complete** `ByteCompare_UnsignedOrderingIsCorrectThroughNarrowing`.
+- **PORT, complete** `ByteCompare_DebugAndReleaseAgree`.
+- **REPLACE, complete** `ByteCompare_NarrowPassActuallyFiredOnTheCompare` — high-bit comparison and native width semantics replace private node/pass structure.
+- **PORT, complete** `ByteAccumulateLoop_ProducesTheCorrectSum`.
+- **PORT, complete** `ByteAccumulateLoop_DebugAndReleaseAgree`.
+- **REPLACE, complete** `ByteAccumulateLoop_NarrowingReducesRomSizeAndCycles_MeasuredDelta` — retain strict size/cycle reductions for equivalent byte/int32 source kernels, calibrated with known machine-code costs; no private optimization-off mode.
 
 ### CilPalettesRgbTests.cs
 

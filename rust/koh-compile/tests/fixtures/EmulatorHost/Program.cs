@@ -3,6 +3,7 @@ using Koh.Emulator.Cartridge;
 using Koh.Emulator.Joypad;
 
 bool cost = args.Length > 0 && args[0] == "--cost";
+bool narrowingCost = args.Length > 0 && args[0] == "--native-narrowing-cost";
 bool region = args.Length > 0 && args[0].StartsWith("--native-region:", StringComparison.Ordinal);
 int arenaStart = region ? Convert.ToInt32(args[0].Split(':')[1], 16) : 0xD000;
 if (arenaStart < 0xC100 || arenaStart > 0xD000)
@@ -61,7 +62,8 @@ bool heap =
     || raster
     || (args.Length > 0 && args[0] == "--native-heap");
 bool native =
-    args.Length > 0 && (args[0] == "--native" || args[0] == "--native-poison" || heap || cpu);
+    args.Length > 0
+    && (args[0] == "--native" || args[0] == "--native-poison" || heap || cpu || narrowingCost);
 string[] stopParts = native ? args[1].Split(':') : [];
 if (native && stopParts.Length != 2)
     throw new InvalidOperationException("Native stop requires bank:address");
@@ -404,6 +406,8 @@ foreach (
     if (native)
     {
         string snapshot = "";
+        if (narrowingCost)
+            snapshot = $" {gb.Mmu.DebugRead(0xFF47):X2} {gb.Cpu.TotalTCycles}";
         if (cpu)
             snapshot =
                 $" {(controlIme is false ? 0 : 1)}:{(gb.KeyOne.DoubleSpeed ? 1 : 0)}:{(gb.KeyOne.SwitchArmed ? 1 : 0)}:{(gb.Cpu.Stopped ? 1 : 0)}:{gb.Mmu.DebugRead(0xff4d):X2} {cpuEnables}:{cpuHalts}";
