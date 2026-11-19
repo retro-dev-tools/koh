@@ -220,6 +220,13 @@ jobs:
           path: ${{ runner.temp }}/gpui-native
           if-no-files-found: ignore
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.rid }}
+          path: src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish/
+          if-no-files-found: error
+          retention-days: 7
+
   # VS Code extension tests run under a headless VS Code instance via
   # @vscode/test-cli. Linux needs xvfb-run because VS Code's test host
   # always opens a window even in "headless" mode; Windows and macOS
