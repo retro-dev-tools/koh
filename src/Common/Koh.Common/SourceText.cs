@@ -40,16 +40,6 @@ public sealed class SourceText
 
     public override string ToString() => _text;
 
-    public SourceText WithChanges(TextChange change)
-    {
-        var newText = string.Concat(
-            _text.AsSpan(0, change.Span.Start),
-            change.NewText,
-            _text.AsSpan(change.Span.End)
-        );
-        return new SourceText(newText, FilePath);
-    }
-
     private static TextLine[] ParseLines(string text)
     {
         var lines = new List<TextLine>();

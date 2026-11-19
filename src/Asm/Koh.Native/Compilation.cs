@@ -17,7 +17,6 @@ public sealed class Compilation
     private readonly Dictionary<string, SyntaxTree> documents = new(
         StringComparer.OrdinalIgnoreCase
     );
-    private NativeResponse? analysis;
     private EmitModel? emitted;
     private readonly List<NativeResolution> resolutions = [];
     private readonly List<NativeSearchRoots> searchRoots = [];
@@ -104,37 +103,6 @@ public sealed class Compilation
                 searchRoots
             );
     }
-
-    internal NativeResponse Analysis
-    {
-        get
-        {
-            lock (gate)
-            {
-                if (analysis != null)
-                    return analysis;
-                analysis = Request("analyze");
-                foreach (var document in analysis.Documents)
-                    if (!documents.ContainsKey(document.Path) && resolver.FileExists(document.Path))
-                        documents[document.Path] = new SyntaxTree(
-                            SourceText.From(resolver.ReadAllText(document.Path), document.Path),
-                            document,
-                            analysis.Diagnostics
-                        );
-                return analysis;
-            }
-        }
-    }
-    internal IReadOnlyDictionary<string, SyntaxTree> Documents
-    {
-        get
-        {
-            _ = Analysis;
-            return documents;
-        }
-    }
-
-    public SemanticModel GetSemanticModel(SyntaxTree tree) => new(this, tree);
 
     public byte[] EmitBytes(string format)
     {
