@@ -9,8 +9,7 @@ three-platform PR validation replaces overlapping CI/LSP workflows. Package task
 produce archives, installers and checksums locally; tag workflows only create
 drafts. MSRV, audits, formatting, native GUI/audio/editor and packaged-tool checks
 remain. Public publication requires license/notice review; repository protection
-is unchanged. See [build, test and release](docs/ci-validation.md). Validation of
-this refactoring is tracked on PR #60.
+is unchanged. See [build, test and release](docs/ci-validation.md).
 
 Active user-requested LSP migration (2026-11-19): replace the managed language
 server with native Rust while retaining the `koh-asm --serve-json` worker.

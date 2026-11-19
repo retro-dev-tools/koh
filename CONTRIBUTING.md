@@ -36,7 +36,7 @@ cargo test --workspace --all-features --doc --locked
 The committed nextest configuration limits Roslyn/emulator concurrency and uses
 zero retries. `just ci` runs full acceptance on Linux, Windows and macOS in CI.
 Remaining .NET tests belong to live emulator, debugger, LSP, object/SDK bridge
-and standalone tool components. `build.proj -t:TestAll` runs both test ecosystems.
+and standalone tool components. `just test` runs both test ecosystems.
 
 Desktop publication requires Rust 1.92+, Python 3.11+ and the [GPUI native dependencies](docs/gpui-migration.md).
 `dotnet msbuild build.proj -t:PublishEmulatorApp` publishes the Rust UI and

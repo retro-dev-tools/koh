@@ -4,21 +4,10 @@ Current work: simplify PR #60 on `ci/maintainable-automation`, master `0814e2f`.
 One justfile, three workflows, eight scripts removed; PR #60 owns this work.
 Plan/evidence: docs/superpowers/plans/2026-11-19-ci-maintenance.md.
 Developer interface: docs/ci-validation.md. Final results are recorded on PR #60.
-Root agent owns implementation, local tests, hosted runs and PR updates.
-Read-only review identified stale outputs; cleanup and Windows argument forwarding
-are fixed. No extra framework or helper modules were needed.
-PR review follow-up separates lint/test/verify, replaces production assertions,
-and documents four required contexts. Protection was inspected, never changed.
 Verify using `just ci`, `just msrv`, `just package tools-v0.1.6-rc.1`,
 `just extension ext-v0.1.5`; inspect actual completed logs and archive contents.
-Local logs: /tmp/koh-simplify-{lint,test,actionlint}.log. Local SDK/tools under
-/tmp/koh-simplify-{dotnet,tools}; set DOTNET_ROOT and a fresh NUGET_SCRATCH.
-Never run concurrent builds in this checkout. Recheck active processes first.
-Hosted results: https://github.com/retro-dev-tools/koh/pull/60 (test results in
-the PR description; original increment extension44581083691 passed, downloaded
-VSIX checksum verified). Verify the current head before reusing these results.
-Push and workflow execution are authorized. No merge, protection changes,
-release tags or public publication. Licensing remains a release blocker.
+No merge, protection changes, release tags or public publication.
+Licensing remains a release blocker.
 Earlier handoffs below are historical and require fresh verification.
 
 # Rust LSP review handoff

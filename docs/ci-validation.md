@@ -6,20 +6,8 @@ or a compatible newer .NET 10 SDK, Node 22, Python 3.11+ and
 Python must be available as `python`; the task file uses its standard library
 for platform handling, without Bash or PowerShell on Windows.
 
-Run `just` to list tasks:
-
-| Command | Purpose |
-| --- | --- |
-| `just fmt` | Format Rust and C# |
-| `just lint` | Check formatting, workflows and installer shell syntax |
-| `just build` | Build managed projects and host native binaries in artifacts/bin |
-| `just test` | Build, native Clippy, Rust/doctest and managed tests |
-| `just verify` | Verify built packages, GUI/audio and editor/debugger integration |
-| `just ci` | Lint and full acceptance, exactly as CI |
-| `just msrv` | Check core production crates on Rust 1.88.0 |
-| `just run [ROM/options...]` | Publish and launch the desktop |
-| `just package tools-v0.1.6-rc.1` | Build, smoke-test and archive the host toolchain |
-| `just extension ext-v0.1.5` | Audit, compile and package the VSIX |
+Run `just` to list tasks. Tasks with arguments: `just run [ROM/options...]`,
+`just package tools-v0.1.6-rc.1`, `just extension ext-v0.1.5`.
 
 MSBuild retains SDK integration, publishing and focused .NET targets.
 Cargo and npm remain usable directly for focused development.

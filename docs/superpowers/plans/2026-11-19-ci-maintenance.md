@@ -48,21 +48,10 @@ at package boundaries. Manual archive installers and cache fingerprints are
 removed. Native package setup is shared locally. Dependency security repairs,
 temporary editor profiles, installer cleanup and Windows fixture repairs remain.
 
-Initial verification: actionlint exit 0; just parsing/listing exit 0; local lint exit 0
-(CSharpier 310 files; Clippy finished). Bad/injected toolchain and mismatched
-extension versions exit 1 before builds, including with PYTHONOPTIMIZE=1.
-Fourteen boundary/fresh-output assertions pass. Local VSIX packaging exits 0;
-the obsolete seeded VSIX is removed, and production audit finds 0 vulnerabilities.
-These checks alone are not hosted acceptance.
+Invalid toolchain tags and mismatched extension versions must fail before builds.
+Seven obsolete required contexts remain; an administrator must replace them before merge.
 
-PR review follow-up: lint/test/verify are separate named CI phases; independent
-lint runs once on Linux, native Clippy remains on every platform. Production
-recipe checks raise explicit errors; 13 real corrupt/missing-fixture cases pass
-with PYTHONOPTIMIZE=1. Required-context documentation names all three platform
-checks and MSRV, app15368, strict:true. Live read-only inspection still shows
-seven obsolete contexts; an administrator must replace them before merge.
-Corrupt IDAT CRC fixtures demonstrate that Pillow load alone is insufficient;
-retain verify plus one decode. Compiler outputs reuse the SDK target directory.
+Pillow load alone misses corrupt IDAT CRCs; keep verify plus one decode.
 
-Hosted acceptance, downloaded artifact integrity and final limitations:
+Verification, hosted acceptance, downloaded artifact integrity and final limitations:
 https://github.com/retro-dev-tools/koh/pull/60

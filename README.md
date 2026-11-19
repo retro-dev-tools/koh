@@ -140,12 +140,11 @@ dotnet msbuild build.proj -t:Test
 
 ### Common build targets
 
-Invoke as `dotnet msbuild build.proj -t:<Target>`. `TestAll` delegates to `just test`.
+Invoke as `dotnet msbuild build.proj -t:<Target>`. `just test` runs all native and .NET tests.
 
 | Target                | Description                                                 |
 | --------------------- | ----------------------------------------------------------- |
 | `Test`                | Run the .NET component tests |
-| `TestAll`             | Run all native tests, Rust doctests and .NET component tests |
 | `BuildSample2048`     | Build the assembly 2048 sample ROM                          |
 | `Benchmark`           | Run benchmarks                                              |
 | `PublishDev`          | Publish the LSP server for local VS Code debugging          |

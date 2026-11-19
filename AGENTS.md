@@ -11,7 +11,7 @@ Koh is a Rust and .NET 10 Game Boy development toolchain. The Cargo workspace co
 - `dotnet build` builds the default solution, including the native assembler bridge.
 - `dotnet restore Koh.Ci.slnf` and `dotnet build Koh.Ci.slnf --configuration Release` mirror CI's main build.
 - `dotnet msbuild build.proj -t:Test` runs live .NET component tests (`Koh.Fast.slnf`).
-- `dotnet msbuild build.proj -t:TestAll` runs all native tests, separate Rust doctests and .NET component tests. Native compiler tests invoke Roslyn and the existing C# emulator; nextest limits their concurrency with zero retries.
+- `just test` runs all native tests, separate Rust doctests and .NET component tests. Native compiler tests invoke Roslyn and the existing C# emulator; nextest limits their concurrency with zero retries.
 - `dotnet msbuild build.proj -t:PublishDev` publishes binaries for VS Code debugging.
 - `dotnet msbuild build.proj -t:PublishLanguageServer` publishes native `koh-lsp` and its assembler worker; `LanguageServerRuntimeIdentifier` and `LanguageServerPublishDir` override the target and destination.
 - `cd editors/vscode; npm ci; npm test` installs and runs the extension test harness.

@@ -1,10 +1,9 @@
 <!--
   Repo-level build targets. Invoke with `dotnet msbuild build.proj -t:<Target>`.
-  Requirements: .NET 10 SDK, Rust/Cargo, Python 3.11+; just for TestAll
+  Requirements: .NET 10 SDK, Rust/Cargo, Python 3.11+
 
   Quick reference:
     dotnet msbuild build.proj -t:Test      (.NET component tests)
-    dotnet msbuild build.proj -t:TestAll   (Rust and .NET tests)
     dotnet msbuild build.proj -t:Benchmark
     dotnet msbuild build.proj -t:PublishDev
     dotnet msbuild build.proj -t:PublishEmulatorApp
@@ -20,10 +19,6 @@
 
   <Target Name="Test">
     <Exec Command="dotnet test --solution Koh.Fast.slnf" />
-  </Target>
-
-  <Target Name="TestAll">
-    <Exec Command="just test" />
   </Target>
 
   <Target Name="Benchmark">
