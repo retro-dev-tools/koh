@@ -184,6 +184,11 @@ impl Desktop {
     }
 
     fn send(&mut self, request: Value) {
+        if self.snapshot.as_ref().is_none_or(|s| s.rom_path.is_none())
+            && !matches!(request["command"].as_str(), Some("load" | "releaseInput"))
+        {
+            return;
+        }
         if !self
             .engine
             .as_ref()

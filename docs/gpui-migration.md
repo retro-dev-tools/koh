@@ -325,3 +325,41 @@ First-party licensing and unresolved upstream notice questions still block relea
 Remaining checkpoint 10 gates: Wayland/HiDPI, audible output, watched editor
 coexistence/source debugging and Windows/macOS native-window behavior. Hosted
 checks on the next pushed head remain to be read before claiming CI success.
+
+## Final acceptance progress
+
+The native empty-startup regression initially failed on P: its shortcut sent a
+pause command despite disabled transport controls. The desktop now ignores
+game commands until a loaded snapshot exists. The same native check then passed
+for P/R/F5/F9, all joypad keys, both Shift keys and Tab; loaded-game rendering,
+Start, pause, save and close still passed. Red and green logs:
+`/tmp/koh-ui-empty-shortcuts-red2.log`, `/tmp/koh-ui-empty-shortcuts-green.log`.
+Focused Rust tests: 8/8, including the actual published engine, zero ignored;
+Clippy with warnings denied and formatting passed.
+
+A real VS Code extension-host session launched the desktop through the installed
+factory, verified a C# source breakpoint at Program.cs:10, stopped there, stepped
+to a different PC and read 16 memory bytes. Both editor and GPUI windows were
+mapped simultaneously and captured. Completed run: one passing test, exit 0,
+`/tmp/koh-gpui-vscode-coexistence.log`; structured replies:
+`/tmp/koh-gpui-vscode-native-evidence.json`. This is automated native editor
+acceptance; no human viewing or physical display transition is claimed.
+
+![Real VS Code source debugging alongside the GPUI desktop](images/gpui-vscode.png)
+
+Native Wayland under an owned nested Weston compositor at scale 1 passed exact
+title-oracle pixels, integer scaling, Start and pause. Log:
+`/tmp/koh-gpui-wayland-native1h.log`. This does not establish physical monitor
+DPI transitions.
+
+Hosted run 44432391455 exposed Windows checkout line-ending conversion in the
+exact-byte notice corpus. `.gitattributes` now preserves those files as binary
+text. A Windows-style checkout of all 383 files retains every original byte;
+Windows hosted verification of this fix remains pending. The macOS composite
+desktop/NativeAOT publish and headless smoke already passed at 5a0b04b.
+The PR fast workflow at that head also completed successfully.
+
+Separate pre-existing protocol proposal: VS Code sends setExceptionBreakpoints
+even without exception filters; the current adapter reports it unsupported.
+Source breakpoints, stepping and memory still work. No unrelated DAP expansion
+is included in this UI increment.

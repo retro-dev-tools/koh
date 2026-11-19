@@ -128,25 +128,29 @@ def main():
         connection = x.XOpenDisplay(environment["DISPLAY"].encode())
         assert connection
         root = x.XDefaultRootWindow(connection)
-        with (output / "desktop.log").open("w") as log:
-            app = subprocess.Popen([str(desktop), str(rom)], env=environment, stdout=log, stderr=log)
-        window, deadline = None, time.monotonic() + 30
-        while window is None:
-            assert app.poll() is None, "desktop exited before mapping"
-            parent, unused, children, count = c.c_ulong(), c.c_ulong(), c.POINTER(c.c_ulong)(), c.c_uint()
-            x.XQueryTree(connection, root, c.byref(unused), c.byref(parent), c.byref(children), c.byref(count))
-            for index in range(count.value):
-                name = c.c_char_p()
-                x.XFetchName(connection, children[index], c.byref(name))
-                attributes = Attributes()
-                if name.value == b"Koh Emulator" and x.XGetWindowAttributes(connection, children[index], c.byref(attributes)) and attributes.map_state == 2:
-                    window = children[index]
-                if name:
-                    x.XFree(name)
-            x.XFree(children)
-            assert time.monotonic() < deadline, "window mapping timed out"
-            time.sleep(.05)
+        def spawn_window(arguments, log_name):
+            nonlocal app
+            with (output / log_name).open("w") as log:
+                app = subprocess.Popen([str(desktop), *arguments], env=environment, stdout=log, stderr=log)
+            window, deadline = None, time.monotonic() + 30
+            while window is None:
+                assert app.poll() is None, "desktop exited before mapping"
+                parent, unused, children, count = c.c_ulong(), c.c_ulong(), c.POINTER(c.c_ulong)(), c.c_uint()
+                x.XQueryTree(connection, root, c.byref(unused), c.byref(parent), c.byref(children), c.byref(count))
+                for index in range(count.value):
+                    name = c.c_char_p()
+                    x.XFetchName(connection, children[index], c.byref(name))
+                    attributes = Attributes()
+                    if name.value == b"Koh Emulator" and x.XGetWindowAttributes(connection, children[index], c.byref(attributes)) and attributes.map_state == 2:
+                        window = children[index]
+                    if name:
+                        x.XFree(name)
+                x.XFree(children)
+                assert time.monotonic() < deadline, "window mapping timed out"
+                time.sleep(.05)
+            return window
 
+        window = spawn_window([str(rom)], "desktop.log")
         def capture(name):
             image = x.XGetImage(connection, root, 0, 0, 1280, 800, 0xffffffffffffffff, 2)
             assert image
@@ -221,7 +225,17 @@ def main():
         x.XFlush(connection)
         assert app.wait(timeout=10) == 0, "desktop close failed"
         assert all(not Path("/proc", pid).exists() for pid in children), "engine child survived close"
-        print("PASS packaged GPUI: exact LCD, integer scaling, Start, pause, save, clean child exit")
+        window = spawn_window([], "empty-desktop.log")
+        time.sleep(.5)
+        empty = capture("empty.png")
+        for name in ["p", "r", "F5", "F9", "Return", "x", "z", "Left", "Right", "Up", "Down", "Shift_L", "Shift_R", "Tab"]:
+            key(name)
+            assert capture("empty-after-keys.png") == empty, f"{name} changed the empty desktop"
+        event.client.window = window
+        assert x.XSendEvent(connection, window, 0, 0, c.byref(event))
+        x.XFlush(connection)
+        assert app.wait(timeout=10) == 0, "empty desktop close failed"
+        print("PASS packaged GPUI: exact LCD, integer scaling, Start, pause, save, clean child exit, inactive empty shortcuts")
     finally:
         if app is not None and app.poll() is None:
             app.terminate()
