@@ -25,6 +25,9 @@
     <KohNativeEngineName>koh-engine</KohNativeEngineName>
     <KohNativeEngineName Condition="('$(RuntimeIdentifier)' == '' and '$(OS)' == 'Windows_NT') or $(RuntimeIdentifier.StartsWith('win-'))">koh-engine.exe</KohNativeEngineName>
     <KohNativeEngine>$([System.IO.Path]::Combine($([System.IO.Path]::GetDirectoryName('$(KohNativeAssembler)')), '$(KohNativeEngineName)'))</KohNativeEngine>
+    <KohNativeLanguageServerName>koh-lsp</KohNativeLanguageServerName>
+    <KohNativeLanguageServerName Condition="('$(RuntimeIdentifier)' == '' and '$(OS)' == 'Windows_NT') or $(RuntimeIdentifier.StartsWith('win-'))">koh-lsp.exe</KohNativeLanguageServerName>
+    <KohNativeLanguageServer>$([System.IO.Path]::Combine($([System.IO.Path]::GetDirectoryName('$(KohNativeAssembler)')), '$(KohNativeLanguageServerName)'))</KohNativeLanguageServer>
     <KohNativeHostRid>$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</KohNativeHostRid>
     <KohNativeNeedsHostTool Condition="'$(RuntimeIdentifier)' != '' and '$(RuntimeIdentifier)' != '$(KohNativeHostRid)'">true</KohNativeNeedsHostTool>
     <KohNativeHostExecutableName>koh-asm</KohNativeHostExecutableName>
@@ -53,6 +56,16 @@
   <Target Name="GetNativeHostAssemblerPath" DependsOnTargets="BuildRustAssembler" Returns="$(KohNativeHostAssembler)" />
   <Target Name="GetNativeLinkerPath" DependsOnTargets="BuildRustAssembler" Returns="$(KohNativeLinker)" />
   <Target Name="GetNativeHostLinkerPath" DependsOnTargets="BuildRustAssembler" Returns="$(KohNativeHostLinker)" />
+  <Target Name="BuildRustLanguageServer">
+    <Error Condition="'$(RuntimeIdentifier)' != '' and '$(KohNativeTargetTriple)' == ''" Text="No Rust target mapping for RuntimeIdentifier '$(RuntimeIdentifier)'." />
+    <Exec WorkingDirectory="$(KohRepositoryRoot)" Command="cargo build --release --package koh-lsp --package koh-asm --package koh-link --locked --target-dir &quot;$(KohNativeCargoTargetDir)&quot; $(KohNativeTargetArgument)" />
+    <Error Condition="!Exists('$(KohNativeLanguageServer)') or !Exists('$(KohNativeAssembler)') or !Exists('$(KohNativeLinker)')" Text="Native language server, assembler worker or linker was not produced." />
+  </Target>
+  <Target Name="GetNativeLanguageServerFiles" DependsOnTargets="BuildRustLanguageServer" Returns="@(KohNativeLanguageServerFiles)">
+    <ItemGroup>
+      <KohNativeLanguageServerFiles Include="$(KohNativeLanguageServer);$(KohNativeAssembler);$(KohNativeLinker)" />
+    </ItemGroup>
+  </Target>
   <Target Name="VerifyRustUiNotices">
     <Exec WorkingDirectory="$(KohRepositoryRoot)" Command="python &quot;$(KohRepositoryRoot)scripts/verify-rust-ui-notices.py&quot; --target $(KohNativeTargetTriple)" Condition="'$(KohNativeTargetTriple)' != ''" />
     <Exec WorkingDirectory="$(KohRepositoryRoot)" Command="python &quot;$(KohRepositoryRoot)scripts/verify-rust-ui-notices.py&quot;" Condition="'$(KohNativeTargetTriple)' == ''" />

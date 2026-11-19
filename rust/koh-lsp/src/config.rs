@@ -1,5 +1,5 @@
 use crate::paths::{key, normalize};
-use serde_json::Value;
+use serde::Deserialize;
 use std::{
     collections::BTreeSet,
     io,
@@ -19,6 +19,18 @@ pub enum Configuration {
     Invalid(Vec<String>),
 }
 
+#[derive(Deserialize)]
+struct ConfigYaml {
+    version: Option<String>,
+    projects: Option<Vec<ProjectYaml>>,
+}
+
+#[derive(Deserialize)]
+struct ProjectYaml {
+    name: Option<String>,
+    entrypoint: Option<String>,
+}
+
 impl Configuration {
     pub fn load(folder: &Path) -> Self {
         match std::fs::read_to_string(folder.join("koh.yaml")) {
@@ -29,43 +41,40 @@ impl Configuration {
     }
 
     pub fn parse(text: &str, folder: &Path) -> Self {
-        let yaml: Value = match serde_yaml_ng::from_str(text) {
-            Ok(value) => value,
+        let yaml: ConfigYaml = match serde_yaml_ng::from_str(text) {
+            Ok(Some(value)) => value,
+            Ok(None) => return Self::Invalid(vec!["Config file is empty.".into()]),
             Err(error) => return Self::Invalid(vec![format!("Invalid YAML syntax: {error}")]),
         };
-        if yaml.is_null() {
-            return Self::Invalid(vec!["Config file is empty.".into()]);
-        }
         let mut errors = Vec::new();
-        match yaml.get("version") {
-            None | Some(Value::Null) => errors.push("Missing required field: 'version'.".into()),
-            Some(version) if version != 1 => errors.push(format!(
+        match yaml.version.as_deref() {
+            None => errors.push("Missing required field: 'version'.".into()),
+            Some(version) if version.trim().parse::<i32>() != Ok(1) => errors.push(format!(
                 "Unsupported config version: {version}. Only version 1 is supported."
             )),
             _ => {}
         }
-        let entries = match yaml.get("projects") {
-            None | Some(Value::Null) => {
+        let entries = match yaml.projects {
+            None => {
                 errors.push("Missing required field: 'projects'.".into());
                 None
             }
-            Some(Value::Array(entries)) if entries.is_empty() => {
+            Some(entries) if entries.is_empty() => {
                 errors.push("'projects' must not be empty.".into());
                 None
             }
-            Some(Value::Array(entries)) => Some(entries),
-            _ => {
-                errors.push("'projects' must be a list.".into());
-                None
-            }
+            Some(entries) => Some(entries),
         };
         let mut projects = Vec::new();
         let mut names = BTreeSet::new();
         let mut paths = BTreeSet::new();
         for (index, entry) in entries.into_iter().flatten().enumerate() {
             let mut fields = Vec::new();
-            for field in ["name", "entrypoint"] {
-                let value = entry[field].as_str().filter(|s| !s.trim().is_empty());
+            for (field, value) in [
+                ("name", entry.name.as_deref()),
+                ("entrypoint", entry.entrypoint.as_deref()),
+            ] {
+                let value = value.filter(|s| !s.trim().is_empty());
                 if value.is_none() {
                     errors.push(format!(
                         "projects[{index}]: Missing required field '{field}'."
@@ -76,7 +85,12 @@ impl Configuration {
             let (Some(name), Some(path)) = (fields[0], fields[1]) else {
                 continue;
             };
-            if Path::new(path).has_root() {
+            if Path::new(path).has_root()
+                || matches!(
+                    Path::new(path).components().next(),
+                    Some(std::path::Component::Prefix(_))
+                )
+            {
                 errors.push(format!("Entrypoint must be a relative path: '{path}'."));
                 continue;
             }

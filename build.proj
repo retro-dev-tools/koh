@@ -17,6 +17,8 @@
     <EmulatorPublishDir Condition="'$(EmulatorPublishDir)' == ''">$(MSBuildThisFileDirectory)artifacts/emulator/$(EmulatorRuntimeIdentifier)</EmulatorPublishDir>
     <EmulatorExecutableName>koh-emulator</EmulatorExecutableName>
     <EmulatorExecutableName Condition="$(EmulatorRuntimeIdentifier.StartsWith('win-'))">koh-emulator.exe</EmulatorExecutableName>
+    <LanguageServerRuntimeIdentifier Condition="'$(LanguageServerRuntimeIdentifier)' == ''">$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</LanguageServerRuntimeIdentifier>
+    <LanguageServerPublishDir Condition="'$(LanguageServerPublishDir)' == ''">$(MSBuildThisFileDirectory)artifacts/language-server/$(LanguageServerRuntimeIdentifier)</LanguageServerPublishDir>
   </PropertyGroup>
 
   <Target Name="Test">
@@ -36,13 +38,27 @@
   </Target>
 
   <Target Name="PublishDev" DependsOnTargets="PublishEmulatorApp">
-    <Exec Command="dotnet publish src/Asm/Koh.Lsp -c Debug -o editors/vscode/server" />
+    <MSBuild Projects="$(MSBuildThisFileFullPath)" Targets="PublishLanguageServer" Properties="LanguageServerPublishDir=$(MSBuildThisFileDirectory)editors/vscode/server" />
     <ItemGroup>
       <RetiredDevEngineOutputs Include="editors/vscode/server/Koh.Emulator.App*;editors/vscode/server/Koh.Emulator.dll;editors/vscode/server/Koh.Debugger.dll;editors/vscode/server/Koh.Boot.dll;editors/vscode/server/Silk.NET.OpenAL.dll;editors/vscode/server/Silk.NET.Core.dll" />
       <DesktopPublishFiles Include="$(EmulatorPublishDir)/**/*" Exclude="$(EmulatorPublishDir)/**/*.pdb" />
     </ItemGroup>
     <Delete Files="@(RetiredDevEngineOutputs)" />
     <Copy SourceFiles="@(DesktopPublishFiles)" DestinationFiles="@(DesktopPublishFiles->'$(MSBuildThisFileDirectory)editors/vscode/server/%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+  <Target Name="PublishLanguageServer">
+    <MSBuild Projects="src/Asm/Koh.Native/Koh.Native.csproj" Targets="GetNativeLanguageServerFiles" Properties="Configuration=Release;RuntimeIdentifier=$(LanguageServerRuntimeIdentifier)">
+      <Output TaskParameter="TargetOutputs" ItemName="LanguageServerFiles" />
+    </MSBuild>
+    <Copy SourceFiles="@(LanguageServerFiles)" DestinationFolder="$(LanguageServerPublishDir)" />
+    <ItemGroup>
+      <LanguageServerNotices Include="licenses/rust-ui/**/*;licenses/rust-assembler/**/*;licenses/rust-lsp/**/*;licenses/rust-assembler-dependencies.md" />
+      <RetiredLanguageServerFiles Include="$(LanguageServerPublishDir)/koh-lsp.dll;$(LanguageServerPublishDir)/koh-lsp.pdb;$(LanguageServerPublishDir)/koh-lsp.deps.json;$(LanguageServerPublishDir)/koh-lsp.runtimeconfig.json" />
+    </ItemGroup>
+    <Delete Files="@(RetiredLanguageServerFiles)" />
+    <Copy SourceFiles="@(LanguageServerNotices)" DestinationFiles="@(LanguageServerNotices->'$(LanguageServerPublishDir)/%(Identity)')" />
+    <Exec Command="python &quot;$(MSBuildThisFileDirectory)scripts/stage-rust-notices.py&quot; &quot;$(LanguageServerPublishDir)/licenses/rust-runtime&quot;" />
   </Target>
 
   <Target Name="BuildRustDesktop">

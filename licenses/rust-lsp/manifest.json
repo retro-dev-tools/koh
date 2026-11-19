@@ -1,0 +1,23 @@
+{
+  "format_version": 1,
+  "packages": [
+    {
+      "name": "serde_yaml_ng",
+      "version": "0.10.0",
+      "license": "MIT",
+      "archive_sha256": "7b4db627b98b36d4203a7b458cf3573730f2bb591b28871d916dfa9efabfd41f",
+      "upstream_path": "LICENSE",
+      "notice_file": "serde_yaml_ng-0.10.0-LICENSE.txt",
+      "notice_sha256": "4cb6f99bc6158a9feba329a21ac24020c3b2cc6b6597645023adb8ae1371bd74"
+    },
+    {
+      "name": "unsafe-libyaml",
+      "version": "0.2.11",
+      "license": "MIT",
+      "archive_sha256": "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861",
+      "upstream_path": "LICENSE-MIT",
+      "notice_file": "unsafe-libyaml-0.2.11-LICENSE.txt",
+      "notice_sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+    }
+  ]
+}

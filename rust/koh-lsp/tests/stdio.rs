@@ -6,12 +6,19 @@ use std::{
 };
 mod common;
 
+fn server() -> Command {
+    Command::new(
+        std::env::var_os("KOH_LSP_TEST_BINARY")
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_koh-lsp").into()),
+    )
+}
+
 #[test]
 fn real_stdio_publishes_diagnostics_and_serves_symbol_hover() {
     let fixture = common::Fixture::new();
     let path = fixture.write("main.asm", "");
     let uri = koh_lsp::paths::to_uri(&path).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_koh-lsp"))
+    let mut child = server()
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -53,7 +60,7 @@ fn real_stdio_publishes_diagnostics_and_serves_symbol_hover() {
 
 #[test]
 fn initialize_shutdown_and_exit_use_framed_stdio() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_koh-lsp"))
+    let mut child = server()
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -83,7 +90,7 @@ fn initialize_shutdown_and_exit_use_framed_stdio() {
 
 #[test]
 fn exit_without_shutdown_is_unsuccessful() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_koh-lsp"))
+    let mut child = server()
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .spawn()
@@ -98,7 +105,7 @@ fn exit_without_shutdown_is_unsuccessful() {
 
 #[test]
 fn eof_after_shutdown_preserves_successful_exit() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_koh-lsp"))
+    let mut child = server()
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()

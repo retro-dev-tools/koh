@@ -68,7 +68,12 @@ fn worker_eof_bad_version_and_timeout_fail_without_hanging() {
     ] {
         let mut command = Command::new("sh");
         command.args(["-c", script]);
-        let mut worker = Worker::start(command, Duration::from_millis(200)).unwrap();
+        let timeout = if kind == std::io::ErrorKind::TimedOut {
+            Duration::from_millis(200)
+        } else {
+            Duration::from_secs(5)
+        };
+        let mut worker = Worker::start(command, timeout).unwrap();
         assert_eq!(
             worker.request(&json!({"version":1})).unwrap_err().kind(),
             kind

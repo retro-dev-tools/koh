@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Koh is a Rust and .NET 10 Game Boy development toolchain. The Cargo workspace contains `rust/koh-asm`, `rust/koh-link`, `rust/koh-compile`, the canonical ELF32/SM83 model in `rust/koh-objects`, and the GPUI Kit desktop in `rust/koh-ui`. C# projects under `src/` provide common diagnostics/opcodes/debug readers, the native-service bridge and LSP, Koh.GameBoy, minimal SDK/build tasks, and the windowless emulator/debugger/boot/verification tools. Native compiler tests live in `rust/koh-compile/tests`; remaining .NET tests mirror their live component areas. VS Code sources are under `editors/vscode`, tools under `tools/`, and samples under `samples/{asm,csharp}`.
+Koh is a Rust and .NET 10 Game Boy development toolchain. The Cargo workspace contains `rust/koh-asm`, `rust/koh-link`, `rust/koh-compile`, `rust/koh-lsp`, the canonical ELF32/SM83 model in `rust/koh-objects`, and the GPUI Kit desktop in `rust/koh-ui`. C# projects under `src/` provide common diagnostics/opcodes/debug readers, the native-service bridge, Koh.GameBoy, minimal SDK/build tasks, and the retained emulator/boot/verification tools. Native compiler tests live in `rust/koh-compile/tests`; remaining .NET tests mirror their live component areas. VS Code sources are under `editors/vscode`, tools under `tools/`, and samples under `samples/{asm,csharp}`.
 
 ## Build, Test, and Development Commands
 
@@ -13,6 +13,7 @@ Koh is a Rust and .NET 10 Game Boy development toolchain. The Cargo workspace co
 - `dotnet msbuild build.proj -t:Test` runs live .NET component tests (`Koh.Fast.slnf`).
 - `dotnet msbuild build.proj -t:TestAll` runs all native tests, separate Rust doctests and .NET component tests. Native compiler tests invoke Roslyn and the existing C# emulator; nextest limits their concurrency with zero retries.
 - `dotnet msbuild build.proj -t:PublishDev` publishes binaries for VS Code debugging.
+- `dotnet msbuild build.proj -t:PublishLanguageServer` publishes native `koh-lsp` and its assembler worker; `LanguageServerRuntimeIdentifier` and `LanguageServerPublishDir` override the target and destination.
 - `cd editors/vscode; npm ci; npm test` installs and runs the extension test harness.
 - `./scripts/run-emulator.ps1` or `./scripts/run-emulator.sh` publishes and launches the emulator locally.
 

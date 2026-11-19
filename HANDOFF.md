@@ -1,3 +1,10 @@
+# Rust LSP review handoff
+
+Current work: native LSP migration in feat/rust-lsp. Fresh whole-branch review
+complete; local checks pass. Commit and hosted platform checks remain.
+State, boundaries and verification: docs/rust-lsp/handoff.md.
+The engine handoff below describes separate prior work.
+
 # Rust engine migration handoff
 
 Updated 2026-11-19. Goal remains active: emulator engine and debugger rewritten

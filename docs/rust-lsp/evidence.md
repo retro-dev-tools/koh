@@ -165,3 +165,81 @@ adapter, zero pending. The navigation increment had173 mappings (earlier notes
 mistakenly stated169); the table itself had all173 mappings.
 This is implementation/test parity, not packaged VS Code or platform proof.
 Tasks1–3 complete; Task4 publishing, retirement and acceptance remain open.
+
+## Native publishing and managed retirement
+
+Root PublishLanguageServer now builds native koh-lsp, koh-asm and koh-link,
+using existing RID mapping. PublishDev and release staging retain the linker.
+CI and releases use native publishing and run packaged stdio checks; CI also
+selects that package for real VS Code acceptance. Managed LSP source/tests,
+solution entries and its three otherwise-unused package references are removed.
+Other native bridge consumers remain.
+
+After retirement, dotnet build Koh.Ci.slnf -c Release -m:1 exited0:
+"0 Warning(s)", "0 Error(s)" (/tmp/koh-lsp-managed-build.log).
+Retained managed tests exited0: "total: 297", "succeeded: 297", zero failed or
+skipped (/tmp/koh-lsp-managed-tests.log). All seven C# samples built.
+
+Scalar compatibility was checked against the actual managed parser:
+numeric project name2048, quoted version'1', uppercase TRUE and numeric
+entrypoint are accepted with original spelling. Native regression failed
+before typed YAML deserialization, passed after:
+/tmp/koh-lsp-config-scalar-oracle.log, /tmp/koh-lsp-scalars-red.log,
+/tmp/koh-lsp-scalars-green.log. Final native60/60 and strict Clippy exited0
+(/tmp/koh-lsp-final-clippy.log).
+
+Rust1.88 compiler and worker build succeeded. Native60/60 tests and doctest
+invocation exited0 in /tmp/koh-lsp-rust188-final.log. An initial separate-target
+run could not discover the worker; final run explicitly selected the freshly
+Rust1.88-built /tmp/koh-lsp-rust188/debug/koh-asm.
+
+Actual VSCode1.147.0/Xvfb tests exercised ToolchainResolver, LanguageClient and
+packaged ELF executables from a path with spaces. All46 extension tests passed
+before review fixes (/tmp/koh-lsp-final-vscode.log, VSCODE_EXIT=0), including all
+LSP editor methods, Unicode URI, unsaved diagnostics and orderly shutdown.
+The DAP regression reused the separate engine worktree's existing native
+artifact; this is unchanged extension-contract proof, not this branch's engine
+build proof. Client lifetime now keeps logging alive until server process close.
+
+New YAML dependency notices match the exact crate archives and Cargo.lock
+checksums. Linux LSP/worker dependency closure has50 external packages, covered
+by existing notice catalogs plus rust-lsp's serde_yaml_ng and unsafe-libyaml.
+This does not resolve existing whole-toolchain first-party licensing questions.
+
+Whole-branch fresh review found missing linker staging, YAML save forwarding,
+Windows drive-relative entrypoints and asynchronous launch-error handling.
+All four are addressed. Missing-linker assertion failed before staging fix;
+packaged koh-link --version now exits0 (/tmp/koh-lsp-linker-{red,green}.log).
+Actual client tests reproduced unhandled ENOENT and unchanged config completions
+before the corresponding fixes (/tmp/koh-lsp-review-editor-red.log,
+/tmp/koh-lsp-config-reload-red.log). Client now awaits spawn, handles launch
+failure and process cleanup, and forwards root koh.yaml saves. The real-editor
+suite passes47/47 (/tmp/koh-lsp-reviewed-editor-green.log, VSCODE_EXIT=0).
+Windows-only regression rejects a path prefix even without a root; it requires
+Windows CI execution and is not represented as a local passing test.
+
+Final root publish exits0 (/tmp/koh-lsp-reviewed-publish.log); packaged stdio
+checks pass4/4 (/tmp/koh-lsp-reviewed-package-stdio.log). Final artifact hashes:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| koh-lsp | e507ed7d48c2f8928fe838bc03fa2126f687cb636d032a1f302a7912e6ab6284 |
+| koh-asm | dada8cc5636644f390d6f58b50d61f9b2360552a62df547a771e95ea82e5f65c |
+| koh-link | 5e701a29d22ba7d48982b150fd4c7edf988f84fe7d226d801d126ddcb3197c15 |
+
+The final LSP/assembler/linker closure contains52 external packages. Exact
+archive checksums and1167 catalog notice references plus the2 new YAML notices
+were verified (/tmp/koh-lsp-notice-final.log, exit0).
+Workflow YAML and build XML parse successfully; hosted workflow execution is
+separate evidence. A broad workspace nextest build was intentionally interrupted
+(exit130) when it saturated this15GiB host; no workspace-suite success is claimed.
+Affected-package nextest regression exited0 with two build jobs/test threads:
+"249 tests run: 249 passed, 0 skipped" (/tmp/koh-lsp-affected-nextest.log).
+Final editor rerun after launch-cleanup hardening exited0,47 passing,
+VSCODE_EXIT=0 (/tmp/koh-lsp-final-reviewed-vscode.log).
+Final strict Clippy exited0 (/tmp/koh-lsp-reviewed-clippy.log). Separate
+affected-package doctest invocation exited0 with zero doctests present
+(/tmp/koh-lsp-affected-doctests.log). Rust1.88 rerun after path-prefix fix
+also passes60/60 (/tmp/koh-lsp-rust188-reviewed.log).
+Windows/macOS runtime and hosted workflows have not run; no platform claim,
+push, merge or release is implied by local Linux evidence.

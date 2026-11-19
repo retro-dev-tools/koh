@@ -45,10 +45,7 @@ jobs:
           bin=staging/bin
           rm -rf staging
           mkdir -p "$bin"
-          # koh-lsp is managed .NET + can't AOT yet (StreamJsonRpc +
-          # YamlDotNet use runtime reflection); ship self-contained so
-          # users don't need .NET 10 on PATH.
-          dotnet publish src/Asm/Koh.Lsp          -c Release -r ${{ matrix.rid }} --self-contained -o "$bin"
+          dotnet msbuild build.proj -t:PublishLanguageServer -p:LanguageServerRuntimeIdentifier=${{ matrix.rid }} "-p:LanguageServerPublishDir=$PWD/$bin"
           dotnet msbuild build.proj -t:PublishEmulatorApp -p:EmulatorRuntimeIdentifier=${{ matrix.rid }} "-p:EmulatorPublishDir=$PWD/$bin"
 
           case "${{ matrix.rid }}" in
@@ -60,6 +57,13 @@ jobs:
           rustup target add "$compiler_target"
           cargo build --release --package koh-compile --locked --target "$compiler_target"
           cp "target/$compiler_target/release/koh-compile$compiler_suffix" "$bin/"
+
+      - name: Smoke-test packaged native language server
+        shell: bash
+        run: |
+          server="$PWD/staging/bin/koh-lsp"
+          if [[ "${{ matrix.rid }}" == win-* ]]; then server="$(cygpath -m "$server.exe")"; fi
+          KOH_LSP_TEST_BINARY="$server" cargo test -p koh-lsp --test stdio --locked
 
       - name: Smoke-test packaged C# tools
         shell: bash
@@ -94,6 +98,7 @@ jobs:
           test -d staging/bin/licenses/rust-assembler
           test -f staging/bin/licenses/rust-runtime/COPYRIGHT-library.html
           test -f staging/bin/licenses/rust-ui/manifest.json
+          test -f staging/bin/licenses/rust-lsp/manifest.json
           desktop=staging/bin/koh-emulator
           if [[ '${{ matrix.rid }}' == win-* ]]; then desktop="$desktop.exe"; fi
           test -f "$desktop"

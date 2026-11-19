@@ -1,58 +1,44 @@
 # Rust LSP handoff
 
-User approved design and selected assembler worker process. Goal active.
-Worktree `/home/minorum/projekty/koh-rust-lsp`, branch `feat/rust-lsp`,
-base master `065cf05`. No push/merge authorization. No agents requested.
+Updated 2026-11-19. Goal active; local implementation and review complete.
+Worktree /home/minorum/projekty/koh-rust-lsp, branch feat/rust-lsp,
+base065cf05. No push/merge/release authorization.
 
-Native Cargo target, bounded LSP framing, stdio lifecycle and persistent
-worker client implemented. Worker I/O runs on an exchange thread so blocked
-writes and reads are covered by the request deadline. Protocol failures stop
-and reap the child. Stderr inherits server stderr, never LSP stdout.
+Rust koh-lsp owns all original editor methods, configuration, include ownership,
+overlays, diagnostics and stdio lifecycle. It invokes the persistent
+koh-asm --serve-json worker. Managed LSP source/tests, solution/filter entries
+and three unused package references are retired. Shared Koh.Native remains.
 
-Configuration, file URI/UTF16 positions, graph/discovery and core workspace now
-implemented. Configured/heuristic/invalid modes, unsaved overlays, isolation,
-deterministic shared ownership and root-first nested includes have native checks.
-INCBIN always uses disk; source path identity comparisons normalize ../ without
-rewriting native provenance. Workspace recreates a worker after protocol failure.
+Root PublishLanguageServer stages native koh-lsp, koh-asm and koh-link plus
+notices. PublishDev/release retain the linker. CI/release use native publishing
+and packaged stdio tests; CI selects the package for actual VS Code acceptance.
 
-59/59 native tests pass, strict Clippy exit0. Completed logs in evidence.md.
-Managed oracle207/207 pass.206 disposition rows mapped,1 obsolete private adapter,
-zero pending. Native tests
-run without KOH_ASM using freshly built target/debug/koh-asm. Production remains
-managed. Native main now serves all original methods through Server; real
-stdio child/worker checks cover sync/diagnostics/hover/lifecycle. Full editor
-requests also have direct protocol checks against real worker analyses.
+Completed logs in evidence.md: native60 checks on Rust1.88; affected Rust
+nextest249/249, zero skipped; strict Clippy exit0; retained managed297/297,
+zero skipped; solution build0 warnings/errors; packaged stdio4/4; actual
+VSCode1.147.0/Xvfb47/47. DAP regression reused an existing separate engine
+artifact, not an engine build on this branch. The full Rust workspace build
+was stopped at host saturation (exit130); it is not passing proof.
 
-Task2 parity review complete. Editing unrelated configured files reuses cached
-project analysis; editing shared includes rebuilds both owners. READFILE,
-custom nested resolver mappings, warnings and native instruction/data bytes
-covered through the real worker for physical/virtual fixtures.
+Fresh whole-branch review found four defects, all addressed: linker staging,
+config-save forwarding, Windows drive-relative paths and asynchronous spawn
+errors. Real editor tests reproduced ENOENT/config reload failures and passed
+after fixes. Windows-only path regression requires Windows execution.
+YAML scalar coercions were checked against the actual managed parser.
 
-Next: Task4 native publishing, managed server/test retirement and real VS Code
-acceptance, then Rust1.88/platform/package evidence and final review.
-Plan docs/superpowers/plans/2026-11-19-rust-lsp.md.
-Full scope and acceptance in design.md. No broad compiler/emulator redesign.
+Next: obtain authorization to push and run hosted Windows/macOS acceptance.
+Do not infer platform success from Linux or static workflow parsing. No release
+publication is needed. Existing whole-toolchain licensing questions remain
+release blockers; exact added YAML dependency notices are verified.
 
-Build assembler once with cargo build -p koh-asm --locked, then cargo test -p
-koh-lsp --locked. Cargo /usr/lib/rust/1.99.0/bin/cargo;
-direct cargo-clippy with CARGO and RUSTC set to matching binaries works.
-Direct rustfmt --edition 2024 avoids nightly cargo-fmt shim.
+Verify: cargo build -p koh-asm --locked; cargo test -p koh-lsp --locked.
+Affected suite: cargo nextest run -p koh-lsp -p koh-asm -p koh-link -p koh-objects
+--all-features --locked --test-threads 2. Use CARGO_BUILD_JOBS=2 on this host.
+Root dotnet msbuild build.proj -t:PublishLanguageServer publishes native tools.
+Set KOH_LSP_TEST_BINARY for packaged stdio tests; set KOH_TEST_LSP_DIR for
+npm test in editors/vscode. Standard extension test config creates/removes
+a disposable workspace. Keep builds serial per output directory.
+Rust: /usr/lib/rust/1.99.0/bin; .NET: ~/.local/share/koh-dotnet-10.0.115.
 
-Main checkout unrelated battle.png preserved. Initial migration docs also
-remain untracked there; use this branch's approved copies as authoritative.
-Do not overwrite main HANDOFF.md, which belongs to the prior engine migration.
-
-New native modules: symbols.rs resolves native symbol IDs and occurrences;
-server.rs routes protocol, validates params, publishes diagnostic notifications;
-instructions.rs preserves all46 instruction hover descriptions. Main uses Server.
-Worker remains the only parser/semantic analyzer. Do not replace this with a
-direct assembler dependency. File/untitled URIs work, including URI preservation
-and no disk writes for untitled buffers. features.rs owns hints, signatures,
-outline/completion; tokens.rs owns explicit classification and bounded line
-splitting. Protocol-v1 kind fixture retained under tests/fixtures. No live test.
-
-Before Task4, inspect build.proj, NativeBuild.targets, ci.yml and release workflow.
-They still publish managed LSP. Reuse existing RID mapping for a native
-GetNativeLanguageServerPath/root publish target; ship koh-lsp plus koh-asm.
-Add actual extension LanguageClient integration. Retire only replaced managed
-server/tests; preserve other Koh.Native users. Do not push or merge.
+Main checkout battle.png and untracked initial migration docs are preserved.
+This branch docs/rust-lsp are authoritative. Main HANDOFF.md is unchanged.

@@ -8,11 +8,12 @@ Active user-requested LSP migration (2026-11-19): replace the managed language
 server with native Rust while retaining the `koh-asm --serve-json` worker.
 Configuration/workspace ownership, diagnostic notifications, hover, definition,
 references, rename, semantic tokens, inlay hints, signatures, document symbols
-and completion now run through native stdio. Local native checks pass59/59
+and completion now run through native stdio. Local native checks pass60/60
 with strict Clippy;206 legacy cases have native replacements and one private
-adapter test is obsolete. Publishing, managed retirement and platform/editor
-acceptance remain. Production still uses the managed
-server. See [LSP migration](docs/rust-lsp/design.md) and
+adapter test is obsolete. Publishing now builds native koh-lsp with its assembler
+worker and preserves the linker; managed LSP source/tests and solution references
+are retired. Local packaged VS Code acceptance and297 retained managed tests
+pass. Final review fixes and platform acceptance remain. See [LSP migration](docs/rust-lsp/design.md) and
 [current evidence](docs/rust-lsp/evidence.md).
 
 Active user-requested migration (2026-11-19): rewrite the production emulator

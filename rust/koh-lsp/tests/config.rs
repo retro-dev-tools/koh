@@ -89,3 +89,46 @@ fn absent_config_selects_heuristics() {
         Configuration::Heuristic
     );
 }
+
+#[test]
+fn yaml_scalars_keep_the_managed_loaders_string_and_version_coercions() {
+    let root = std::env::temp_dir();
+    for (source, name, path) in [
+        (
+            "version: 1\nprojects: [{name: 2048, entrypoint: main.asm}]",
+            "2048",
+            "main.asm",
+        ),
+        (
+            "version: '1'\nprojects: [{name: game, entrypoint: main.asm}]",
+            "game",
+            "main.asm",
+        ),
+        (
+            "version: 1\nprojects: [{name: TRUE, entrypoint: 2048}]",
+            "TRUE",
+            "2048",
+        ),
+    ] {
+        assert_eq!(
+            Configuration::parse(source, &root),
+            Configuration::Configured(vec![Project {
+                name: name.into(),
+                entrypoint: root.join(path)
+            }])
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn drive_relative_entrypoints_are_rejected() {
+    let config = Configuration::parse(
+        "version: 1\nprojects: [{name: game, entrypoint: 'C:main.asm'}]",
+        Path::new("C:/workspace"),
+    );
+    let Configuration::Invalid(errors) = config else {
+        panic!("accepted drive-relative path")
+    };
+    assert!(errors.iter().any(|error| error.contains("relative path")));
+}

@@ -8,8 +8,6 @@
   </Folder>
   <Folder Name="/Asm/">
     <Project Path="src/Asm/Koh.Native/Koh.Native.csproj" />
-    <Project Path="src/Asm/Koh.Lsp/Koh.Lsp.csproj" />
-    <Project Path="tests/Asm/Koh.Lsp.Tests/Koh.Lsp.Tests.csproj" />
   </Folder>
   <Folder Name="/Link/">
     <Project Path="tests/Link/Koh.Linker.Tests/Koh.Linker.Tests.csproj" />
