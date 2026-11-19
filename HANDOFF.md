@@ -9,11 +9,24 @@ progress, preview commands and full parity/removal acceptance are in
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
 Current progress9/10: KohUI removal and desktop package integration verified.
-Next unit: final native acceptance (Wayland/HiDPI, audible audio, watched editor
-debugging and Windows/macOS GUI behavior). Current evidence and licensing
-release gates are in docs/gpui-migration.md, Removal and integration checkpoint.
-Managed fast553/553, NativeAOT debugger49/49, extension44/44; composite publish
-and PublishDev exit0. Native mapped DAP disconnect/EOF closes both processes.
+Next unit: final native acceptance on Windows/macOS plus audible output.
+Native Wayland scale1/2, exact physical integer replication, Start and pause
+passed (logs /tmp/koh-gpui-wayland-native1h.log and native2d.log).
+Real VS Code source breakpoint at Program.cs:10, stepping/memory and simultaneous
+mapped editor+GPUI capture passed; /tmp/koh-gpui-vscode-coexistence.log, screenshot
+docs/images/gpui-vscode.png. Separate existing DAP setExceptionBreakpoints
+unsupported diagnostic recorded as proposal; source debugging works.
+Empty game shortcuts now ignored until ROM snapshot loaded; expanded native
+regression passes with final release package, /tmp/koh-ui-final-shortcuts-package.log.
+Focused Rust8/8 incl fresh engine; Clippy/format pass. Release build8m35s exit0;
+root publish /tmp/koh-ui-empty-publish.log exit0.
+Full CI44432391455 at5a0b04b: macOS publish/headless passed, both managed and
+extension platforms passed; native suites still live at last read. Windows
+notice-check failure fixed with .gitattributes (383 exact-byte Windows-style
+checkout checks pass). Linux window-check locator included white inspector
+tab: actual LCD artifact exactly matches oracle; locator fixed and local final
+package passes. Await new pushed-head validation; do not restart live jobs for
+observation timeout.
 Fresh package /tmp/koh-gpui-package; older /tmp/koh-gpui-engine-native is stale.
 Empty startup/picker: /tmp/koh-gpui-empty-picker-native.log exit0 (no default ROM,
 inactive transport, no disabled click actions, valid/spaced/invalid selection).

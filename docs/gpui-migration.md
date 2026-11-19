@@ -363,3 +363,18 @@ Separate pre-existing protocol proposal: VS Code sends setExceptionBreakpoints
 even without exception filters; the current adapter reports it unsupported.
 Source breakpoints, stepping and memory still work. No unrelated DAP expansion
 is included in this UI increment.
+
+Wayland scale 2 also passed exact title-oracle pixels with 6x physical pixel
+replication, Start and pause: `/tmp/koh-gpui-wayland-native2d.log`, exit 0.
+The nested compositor captures its own cursor, so the pointer was moved outside
+the LCD before pixel comparisons. Pause was checked after rendering settled;
+this is software-compositor evidence, not a physical monitor/GPU claim.
+
+The hosted Linux native-window artifact from run 44432391455 revealed a locator
+error: the selected inspector tab contributed white pixels outside the LCD.
+Independent inspection found the actual LCD at (234,163)–(714,595), matching
+the oracle byte for byte. The verifier now finds the longest white LCD span
+and retains its validated bounds for subsequent frames, excluding tab controls.
+It passes against the hosted image and the newly published local release package.
+Final package regression: `/tmp/koh-ui-final-shortcuts-package.log`, exit 0,
+including inactive empty shortcuts. The corrected hosted run remains pending.

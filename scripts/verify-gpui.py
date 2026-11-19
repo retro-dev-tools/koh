@@ -1,6 +1,7 @@
 import argparse
 import ctypes as c
 import os
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -163,16 +164,27 @@ def main():
             write_png(output / name, rgba, 1280, 800)
             return rgba
 
+        lcd_box = None
+
         def lcd(rgba):
-            points = [(column, row) for row in range(120, 640) for column in range(180, 880) if rgba[(row * 1280 + column) * 4:(row * 1280 + column) * 4 + 3] == b"\xff\xff\xff"]
-            if not points:
-                return None
-            left, right = min(p[0] for p in points), max(p[0] for p in points)
-            top, bottom = min(p[1] for p in points), max(p[1] for p in points)
-            width, height = right - left + 1, bottom - top + 1
-            scale = width // 160
-            if not scale or width != 160 * scale or height != 144 * scale:
-                return None
+            nonlocal lcd_box
+            if lcd_box is None:
+                runs = []
+                for row in range(120, 640):
+                    whites = bytes(rgba[(row * 1280 + column) * 4:(row * 1280 + column) * 4 + 3] == b"\xff\xff\xff" for column in range(180, 880))
+                    runs.extend((180 + match.start(), 180 + match.end(), row) for match in re.finditer(b"\x01{160,}", whites))
+                if not runs:
+                    return None
+                width = max(right - left for left, right, _ in runs)
+                runs = [run for run in runs if run[1] - run[0] == width]
+                left, right = runs[0][:2]
+                top, bottom = min(run[2] for run in runs), max(run[2] for run in runs) + 1
+                height = bottom - top
+                scale = width // 160
+                if width != 160 * scale or height != 144 * scale:
+                    return None
+                lcd_box = left, top, width, scale
+            left, top, width, scale = lcd_box
             result = bytearray()
             for row in range(144):
                 start = ((top + row * scale) * 1280 + left) * 4
