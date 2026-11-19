@@ -9,7 +9,14 @@ progress, preview commands and full parity/removal acceptance are in
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
 Current progress9/10: KohUI removal and desktop package integration verified.
-Next unit: final native acceptance on Windows/macOS plus audible output.
+Next unit: execute/review new native Windows/macOS checks plus audible output.
+Added scripts/verify-gpui-platform.py and locator tests; CI publish jobs now
+run actual screen oracle/input/save/close on Windows/macOS. Pillow13.0.0 is
+CI-only. Three local locator tests pass, actual APIs not yet executed on those
+platforms. macOS permission failures remain visible; do not modify TCC.
+Pause requires two completed byte-identical raw states, not just static LCD.
+Full run44435097844 (7eb3831) pending behind live old compiler suites; new
+validation head will include these checks. No timeout-triggered restarts.
 Native Wayland scale1/2, exact physical integer replication, Start and pause
 passed (logs /tmp/koh-gpui-wayland-native1h.log and native2d.log).
 Real VS Code source breakpoint at Program.cs:10, stepping/memory and simultaneous

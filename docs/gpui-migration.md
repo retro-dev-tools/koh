@@ -378,3 +378,21 @@ and retains its validated bounds for subsequent frames, excluding tab controls.
 It passes against the hosted image and the newly published local release package.
 Final package regression: `/tmp/koh-ui-final-shortcuts-package.log`, exit 0,
 including inactive empty shortcuts. The corrected hosted run remains pending.
+
+### Windows/macOS native acceptance harness
+
+`scripts/verify-gpui-platform.py` captures the actual desktop with Pillow,
+compares a full 160x144 engine oracle at integer scale, sends platform keyboard
+events, saves state and closes the owned native window. Two completed saves
+while paused must be byte-identical, so a static game screen cannot substitute
+for a stopped machine. Windows checks the window owner PID; macOS uses native
+event/accessibility APIs without requesting permissions or modifying TCC.
+A runner lacking those permissions fails visibly. Only CI installs Pillow;
+it is not a desktop runtime dependency.
+
+The three local locator regression tests pass: 1/2/3/6x replicas, exclusion of
+white controls, corrupted-pixel rejection and blank-capture rejection. The
+locator also recognizes the exact prior hosted Linux artifact. Windows/macOS
+API execution remains pending on hosted runners; adding the harness is not
+a claim that either platform has passed native-window acceptance. The same
+protected publish jobs run it and retain screenshots/logs by RID.
