@@ -44,7 +44,6 @@ build:
     run("dotnet", "msbuild", "build.proj", "-t:PublishEmulatorApp", f"-p:EmulatorPublishDir={bin}")
     rid = subprocess.check_output(["dotnet", "msbuild", "build.proj", "-nologo", "-getProperty:EmulatorRuntimeIdentifier"], text=True).strip()
     shutil.copytree(bin, root / f"artifacts/emulator/{rid}", dirs_exist_ok=True)
-    # Same command and target dir as Koh.Build.Tasks/NativeBuild.targets, so the solution build reuses it.
     target = root / "target/compiler-msbuild/Release"
     run("cargo", "build", "--release", "--package", "koh-compile", "--package", "koh-link", "--locked", "--target-dir", str(target))
     suffix = ".exe" if os.name == "nt" else ""
@@ -95,9 +94,11 @@ verify:
     run("dotnet", "msbuild", "build.proj", "-t:BuildSample2048")
     run(bin / f"koh-engine{suffix}", "samples/asm/gb-2048/build/2048.gbc", "--frames=300", f"--screenshot={out / 'frame.png'}")
     with Image.open(out / "frame.png") as image:
-        image.load()
         if image.size != (160, 144) or image.mode != "RGBA":
             raise RuntimeError(f"Expected 160x144 RGBA frame, got {image.size} {image.mode}")
+        image.verify()
+    with Image.open(out / "frame.png") as image:
+        image.load()
     linux = sys.platform == "linux"
     verifier = "verify-gpui" if linux else "verify-gpui-platform"
     run(sys.executable, f"scripts/test-{verifier}.py")

@@ -61,6 +61,8 @@ recipe checks raise explicit errors; 13 real corrupt/missing-fixture cases pass
 with PYTHONOPTIMIZE=1. Required-context documentation names all three platform
 checks and MSRV, app15368, strict:true. Live read-only inspection still shows
 seven obsolete contexts; an administrator must replace them before merge.
+Corrupt IDAT CRC fixtures demonstrate that Pillow load alone is insufficient;
+retain verify plus one decode. Compiler outputs reuse the SDK target directory.
 
 Hosted acceptance, downloaded artifact integrity and final limitations:
 https://github.com/retro-dev-tools/koh/pull/60
