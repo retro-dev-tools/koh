@@ -5,6 +5,10 @@
     {
       "context": "check (ubuntu-latest)",
       "app_id": 15368
+    },
+    {
+      "context": "msrv",
+      "app_id": 15368
     }
   ]
 }
