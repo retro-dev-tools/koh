@@ -1,5 +1,4 @@
 use crate::{
-    paths,
     symbols::{self, child_tokens, span},
     workspace::Workspace,
 };
@@ -13,8 +12,8 @@ pub fn inlay_hints(workspace: &Workspace, path: &Path, requested: &Value) -> Val
     if workspace.project_for(path).is_none() {
         return Value::Null;
     }
-    let start = paths::offset(&doc.text, &requested["start"]);
-    let end = paths::offset(&doc.text, &requested["end"]);
+    let start = doc.lines.offset(&requested["start"]);
+    let end = doc.lines.offset(&requested["end"]);
     let mut hints = Vec::new();
     for token in doc.syntax["tokens"].as_array().into_iter().flatten() {
         if !matches!(
@@ -47,7 +46,7 @@ pub fn inlay_hints(workspace: &Workspace, path: &Path, requested: &Value) -> Val
             Some("Constant") => format!(" = ${value:04X} ({value})"),
             _ => continue,
         };
-        hints.push(json!({"position":paths::position(&doc.text,offset+length),"label":label,"kind":1,"paddingLeft":true}));
+        hints.push(json!({"position":doc.lines.position(offset+length),"label":label,"kind":1,"paddingLeft":true}));
     }
     json!(hints)
 }
@@ -56,7 +55,7 @@ pub fn signature(workspace: &Workspace, path: &Path, position: &Value) -> Value 
     let Some(doc) = workspace.document(path) else {
         return Value::Null;
     };
-    let offset = paths::offset(&doc.text, position);
+    let offset = doc.lines.offset(position);
     let Some(call) = doc.syntax["nodes"]
         .as_array()
         .into_iter()
@@ -158,7 +157,7 @@ pub fn document_symbols(workspace: &Workspace, path: &Path) -> Value {
             };
             let (start, length) = span(node);
             let (selection, selection_length) = span(token);
-            symbols.push(json!({"name":name,"kind":kind,"range":paths::range(&doc.text,start,length),"selectionRange":paths::range(&doc.text,selection,selection_length)}));
+            symbols.push(json!({"name":name,"kind":kind,"range":doc.lines.range(start,length),"selectionRange":doc.lines.range(selection,selection_length)}));
         }
     }
     json!(symbols)

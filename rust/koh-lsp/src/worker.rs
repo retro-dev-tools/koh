@@ -1,3 +1,4 @@
+use crate::transport::MAX_MESSAGE;
 use serde_json::Value;
 use std::{
     io::{self, BufRead, BufReader, Read, Write},
@@ -14,7 +15,6 @@ pub struct Worker {
     responses: Receiver<io::Result<Value>>,
     exchange: Option<JoinHandle<()>>,
     timeout: Duration,
-    stopped: bool,
 }
 
 impl Worker {
@@ -42,7 +42,7 @@ impl Worker {
                     input.flush()?;
                     let mut line = Vec::new();
                     let size = (&mut output)
-                        .take(64 * 1024 * 1024 + 1)
+                        .take(MAX_MESSAGE + 1)
                         .read_until(b'\n', &mut line)?;
                     if size == 0 {
                         return Err(io::Error::new(
@@ -50,7 +50,7 @@ impl Worker {
                             "assembler closed its response stream",
                         ));
                     }
-                    if size > 64 * 1024 * 1024 || line.last() != Some(&b'\n') {
+                    if size as u64 > MAX_MESSAGE ||line.last() != Some(&b'\n') {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             "invalid assembler response framing",
@@ -87,7 +87,6 @@ impl Worker {
             responses,
             exchange: Some(exchange),
             timeout,
-            stopped: false,
         })
     }
 
@@ -119,11 +118,9 @@ impl Worker {
     }
 
     fn stop(&mut self) {
-        if self.stopped {
+        if self.requests.take().is_none() {
             return;
         }
-        self.stopped = true;
-        self.requests.take();
         let _ = self.child.kill();
         let _ = self.child.wait();
         if let Some(exchange) = self.exchange.take() {
@@ -142,11 +139,7 @@ fn executable() -> io::Result<PathBuf> {
     if let Some(path) = std::env::var_os("KOH_ASM").filter(|p| !p.is_empty()) {
         return Ok(path.into());
     }
-    let name = if cfg!(windows) {
-        "koh-asm.exe"
-    } else {
-        "koh-asm"
-    };
+    let name = &format!("koh-asm{}", std::env::consts::EXE_SUFFIX);
     let current = std::env::current_exe()?;
     if let Some(parent) = current.parent() {
         let sibling = parent.join(name);

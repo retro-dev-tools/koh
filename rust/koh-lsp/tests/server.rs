@@ -1,7 +1,7 @@
 mod common;
 use common::Fixture;
 use koh_lsp::{
-    paths::to_uri,
+    paths::{Lines, to_uri},
     server::{Server, diagnostic},
 };
 use serde_json::{Value, json};
@@ -82,7 +82,7 @@ fn native_server_sync_navigation_and_rename_use_worker_analysis() {
 fn diagnostics_keep_severity_source_message_and_ranges() {
     for (severity, number) in [("Error", 1), ("Warning", 2), ("Information", 3)] {
         let result = diagnostic(
-            "nop\nhalt",
+            &Lines::new("nop\nhalt"),
             &json!({"start":4,"length":4,"severity":severity,"message":"test"}),
         );
         assert_eq!(result["severity"], number);
@@ -95,7 +95,7 @@ fn diagnostics_keep_severity_source_message_and_ranges() {
     }
     assert_eq!(
         diagnostic(
-            "nop",
+            &Lines::new("nop"),
             &json!({"start":0,"length":0,"severity":"Error","message":"global"})
         )["range"],
         json!({"start":{"line":0,"character":0},"end":{"line":0,"character":0}})

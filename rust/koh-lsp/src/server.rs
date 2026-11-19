@@ -1,5 +1,5 @@
 use crate::{
-    paths::{self, key, same_file},
+    paths::{self, invalid, key, same_file},
     symbols::{self, span},
     workspace::Workspace,
 };
@@ -198,9 +198,8 @@ impl Server {
                     .unwrap_or(false);
                 let mut locations = Vec::new();
                 for item in symbols::occurrences(&self.workspace, &target, include) {
-                    let text = self.workspace.text(Path::new(&item.path))?;
-                    let (start, length) = span(&item.token);
-                    locations.push(json!({"uri":self.uri(Path::new(&item.path))?,"range":paths::range(&text,start,length)}));
+                    let path = Path::new(&item.path);
+                    locations.push(json!({"uri":self.uri(path)?,"range":self.range(path,span(&item.token))?}));
                 }
                 Ok(json!(locations))
             }
@@ -209,10 +208,8 @@ impl Server {
                 let Some(target) = self.resolve(params, &path)? else {
                     return Ok(Value::Null);
                 };
-                let text = self.workspace.text(&path)?;
-                let (start, length) = span(&target.token);
                 Ok(
-                    json!({"range":paths::range(&text,start,length),"placeholder":target.token["text"]}),
+                    json!({"range":self.range(&path,span(&target.token))?,"placeholder":target.token["text"]}),
                 )
             }
             "textDocument/rename" => {
@@ -226,12 +223,12 @@ impl Server {
                 }
                 let mut changes: BTreeMap<String, Vec<Value>> = BTreeMap::new();
                 for item in symbols::occurrences(&self.workspace, &target, true) {
-                    let text = self.workspace.text(Path::new(&item.path))?;
-                    let (start, length) = span(&item.token);
+                    let path = Path::new(&item.path);
+                    let range = self.range(path, span(&item.token))?;
                     changes
-                        .entry(self.uri(Path::new(&item.path))?)
+                        .entry(self.uri(path)?)
                         .or_default()
-                        .push(json!({"range":paths::range(&text,start,length),"newText":name}));
+                        .push(json!({"range":range,"newText":name}));
                 }
                 if changes.is_empty() {
                     Ok(Value::Null)
@@ -253,13 +250,20 @@ impl Server {
             .map_or_else(|| paths::to_uri(path), Ok)
     }
 
+    fn range(&self, path: &Path, (start, length): (usize, usize)) -> io::Result<Value> {
+        Ok(match self.workspace.document(path) {
+            Some(doc) => doc.lines.range(start, length),
+            None => paths::range(&std::fs::read_to_string(path)?, start, length),
+        })
+    }
+
     fn publish(&self, output: &mut Vec<Value>) -> io::Result<()> {
         for doc in self.workspace.open_documents() {
             let diagnostics: Vec<_> = self
                 .workspace
                 .diagnostics(Path::new(&doc.path))
                 .iter()
-                .map(|d| diagnostic(&doc.text, d))
+                .map(|d| diagnostic(&doc.lines, d))
                 .collect();
             output.push(json!({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":self.uri(Path::new(&doc.path))?,"diagnostics":diagnostics}}));
         }
@@ -269,7 +273,7 @@ impl Server {
     fn resolve(&self, params: &Value, path: &Path) -> io::Result<Option<symbols::Resolved>> {
         let position = cursor(params)?;
         Ok(self.workspace.document(path).and_then(|doc| {
-            symbols::resolve_at(&self.workspace, path, paths::offset(&doc.text, position))
+            symbols::resolve_at(&self.workspace, path, doc.lines.offset(position))
         }))
     }
 
@@ -279,12 +283,12 @@ impl Server {
         let Some(doc) = self.workspace.document(&path) else {
             return Ok(Value::Null);
         };
-        let offset = paths::offset(&doc.text, position);
+        let offset = doc.lines.offset(position);
         let Some(token) = symbols::token_at(&doc.syntax, offset).cloned() else {
             return Ok(Value::Null);
         };
         let (start, length) = span(&token);
-        let range = paths::range(&doc.text, start, length);
+        let range = doc.lines.range(start, length);
         let content = if let Some(target) = symbols::resolve_at(&self.workspace, &path, offset) {
             let symbol = target.symbol;
             let name = symbol["name"].as_str().unwrap_or("");
@@ -336,7 +340,6 @@ impl Server {
         let Some(defpath) = location["path"].as_str() else {
             return Ok(Value::Null);
         };
-        let text = self.workspace.text(Path::new(defpath))?;
         let syntax = self
             .workspace
             .project_for(&path)
@@ -351,19 +354,19 @@ impl Server {
                     .and_then(|token| symbols::parent(syntax, token))
             })
             .unwrap_or(location);
-        let (start, length) = span(site);
-        Ok(json!({"uri":self.uri(Path::new(defpath))?,"range":paths::range(&text,start,length)}))
+        let defpath = Path::new(defpath);
+        Ok(json!({"uri":self.uri(defpath)?,"range":self.range(defpath,span(site))?}))
     }
 }
 
-pub fn diagnostic(text: &str, diagnostic: &Value) -> Value {
+pub fn diagnostic(lines: &paths::Lines, diagnostic: &Value) -> Value {
     let (start, length) = span(diagnostic);
     let severity = match diagnostic["severity"].as_str() {
         Some("Error") => 1,
         Some("Warning") => 2,
         _ => 3,
     };
-    json!({"range":paths::range(text,start,length),"severity":severity,"source":"koh","message":diagnostic["message"]})
+    json!({"range":lines.range(start,length),"severity":severity,"source":"koh","message":diagnostic["message"]})
 }
 
 fn required<'a>(value: &'a Value, field: &str) -> io::Result<&'a str> {
@@ -378,8 +381,4 @@ fn cursor(params: &Value) -> io::Result<&Value> {
         return Err(invalid("missing or invalid position"));
     }
     Ok(position)
-}
-
-fn invalid(message: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, message)
 }

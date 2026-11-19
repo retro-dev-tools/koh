@@ -1,19 +1,21 @@
 use crate::{
     config::Configuration,
     graph::Graph,
-    paths::{key, normalize, same_file},
+    paths::{Lines, file_key, key, normalize, same_file},
     worker::Worker,
 };
 use serde_json::{Value, json};
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     io,
     path::Path,
+    rc::Rc,
 };
 
 pub struct Document {
     pub path: String,
     pub text: String,
+    pub lines: Lines,
     pub syntax: Value,
     pub diagnostics: Vec<Value>,
 }
@@ -22,7 +24,7 @@ pub struct Document {
 pub struct Project {
     pub name: String,
     pub entrypoint: String,
-    pub analysis: Value,
+    pub analysis: Rc<Value>,
     files: BTreeSet<String>,
 }
 
@@ -89,6 +91,7 @@ impl Workspace {
             Document {
                 path: path.clone(),
                 text: text.into(),
+                lines: Lines::new(text),
                 syntax,
                 diagnostics,
             },
@@ -206,7 +209,12 @@ impl Workspace {
     }
 
     fn graph(&self, analysis: &Value, root: &str) -> io::Result<Graph> {
-        let documents = analysis["documents"].as_array().unwrap();
+        let mut documents = HashMap::new();
+        for doc in analysis["documents"].as_array().unwrap() {
+            if let Some(path) = doc["path"].as_str().and_then(file_key) {
+                documents.entry(path).or_insert(doc);
+            }
+        }
         let mut graph = Graph::default();
         let mut pending = VecDeque::from([root.to_string()]);
         let mut visited = BTreeSet::new();
@@ -215,10 +223,7 @@ impl Workspace {
             if !visited.insert(key(&path)) {
                 continue;
             }
-            let Some(doc) = documents
-                .iter()
-                .find(|doc| doc["path"].as_str().is_some_and(|p| same_file(p, &path)))
-            else {
+            let Some(doc) = file_key(&path).and_then(|id| documents.get(&id)) else {
                 continue;
             };
             let includes: Vec<_> = doc["includes"]
@@ -252,17 +257,17 @@ impl Workspace {
                                 && changed.is_some_and(|path| !project.contains(Path::new(path)))
                         })
                         .cloned();
-                    let project = if let Some(project) = unchanged {
-                        project
-                    } else {
-                        let analysis = self.analyze(std::slice::from_ref(&root))?;
-                        let graph = self.graph(&analysis, &root)?;
-                        let files = graph.reachable(&root).iter().map(|p| key(p)).collect();
-                        Project {
-                            name: def.name,
-                            entrypoint: root.clone(),
-                            analysis,
-                            files,
+                    let project = match unchanged {
+                        Some(project) => project,
+                        None => {
+                            let analysis = self.analyze(std::slice::from_ref(&root))?;
+                            let files = reachable_keys(&self.graph(&analysis, &root)?, &root);
+                            Project {
+                                name: def.name,
+                                entrypoint: root.clone(),
+                                analysis: Rc::new(analysis),
+                                files,
+                            }
                         }
                     };
                     for file in &project.files {
@@ -288,7 +293,7 @@ impl Workspace {
                         graph.upsert(&file, &includes);
                         files.insert(file);
                     }
-                    analyses.insert(key(root), analysis);
+                    analyses.insert(key(root), (analysis, reachable_keys(&local, root)));
                 }
                 let discovered = graph.discover(&files, &open);
                 owners = discovered
@@ -298,12 +303,14 @@ impl Workspace {
                     .collect();
                 for candidate in discovered.candidates {
                     let root = candidate.path;
-                    let analysis = match analyses.remove(&key(&root)) {
-                        Some(value) => value,
-                        None => self.analyze(std::slice::from_ref(&root))?,
+                    let (analysis, files) = match analyses.remove(&key(&root)) {
+                        Some(cached) => cached,
+                        None => {
+                            let analysis = self.analyze(std::slice::from_ref(&root))?;
+                            let files = reachable_keys(&self.graph(&analysis, &root)?, &root);
+                            (analysis, files)
+                        }
                     };
-                    let local = self.graph(&analysis, &root)?;
-                    let files = local.reachable(&root).iter().map(|p| key(p)).collect();
                     let name = Path::new(&root)
                         .file_stem()
                         .unwrap_or_default()
@@ -312,7 +319,7 @@ impl Workspace {
                     projects.push(Project {
                         name,
                         entrypoint: root,
-                        analysis,
+                        analysis: Rc::new(analysis),
                         files,
                     });
                 }
@@ -332,7 +339,7 @@ impl Workspace {
                     projects.push(Project {
                         name: String::new(),
                         entrypoint: root.clone(),
-                        analysis,
+                        analysis: Rc::new(analysis),
                         files,
                     });
                 }
@@ -342,4 +349,8 @@ impl Workspace {
         self.owners = owners;
         Ok(())
     }
+}
+
+fn reachable_keys(graph: &Graph, root: &str) -> BTreeSet<String> {
+    graph.reachable(root).iter().map(|p| key(p)).collect()
 }
