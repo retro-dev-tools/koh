@@ -82,7 +82,6 @@ dotnet test --solution Koh.Ci.slnf -c Release --no-build --max-parallel-test-mod
 dotnet test --solution Koh.Fast.slnf -c Release --no-build --max-parallel-test-modules 1 -- --maximum-parallel-tests 1
 dotnet test --project tests/Compiler/Koh.Compiler.Tests/Koh.Compiler.Tests.csproj -c Release --no-build -- --maximum-parallel-tests 1 --treenode-filter '/*/*/CilStaticsTests/*'
 dotnet msbuild build.proj -t:BuildSample2048 -p:Configuration=Release
-dotnet msbuild build.proj -t:BuildSample2048Rust -p:Configuration=Release
 python3 scripts/verify-rust-assembler.py
 python3 scripts/reproduce-macro-unique.py
 cargo nextest run -p koh-compile --test sdk

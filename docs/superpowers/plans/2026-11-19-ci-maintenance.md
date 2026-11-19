@@ -32,8 +32,11 @@ Implementation:
   MSRV and the existing nextest deadlines/zero retries.
 - [x] Shorten contributor/release documentation and repair developer installers'
   obsolete managed-LSP invocation.
-- [ ] Run local acceptance, package smoke tests and actual hosted workflows.
-- [ ] Re-review final design and record quantitative results.
+- Run local acceptance, package smoke tests and actual hosted workflows;
+  completed results and quantitative comparisons are recorded on PR #60.
+- Independent review found stale validation/extension output directories;
+  both are now cleared. Hosted Windows caught global argument forwarding;
+  forwarding is now scoped to parameterized script recipes.
 
 PR #60 additions assessed: MSRV, formatting, production audit, action pinning,
 draft permissions and manual package runs solve real problems and remain.
@@ -42,9 +45,12 @@ at package boundaries. Manual archive installers and cache fingerprints are
 removed. Native package setup is shared locally. Dependency security repairs,
 temporary editor profiles, installer cleanup and Windows fixture repairs remain.
 
-Verification: actionlint exit 0; just parsing/listing exit 0; local lint exit 0
+Initial verification: actionlint exit 0; just parsing/listing exit 0; local lint exit 0
 (CSharpier 310 files; Clippy finished). Bad/injected toolchain and mismatched
-extension versions exit 1 before builds. Full acceptance is running; these
-checks alone are not hosted acceptance.
+extension versions exit 1 before builds, including with PYTHONOPTIMIZE=1.
+Fourteen boundary/fresh-output assertions pass. Local VSIX packaging exits 0;
+the obsolete seeded VSIX is removed, and production audit finds 0 vulnerabilities.
+These checks alone are not hosted acceptance.
 
-Metrics and hosted evidence will be recorded after completion.
+Hosted acceptance, downloaded artifact integrity and final limitations:
+https://github.com/retro-dev-tools/koh/pull/60

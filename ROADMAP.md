@@ -10,7 +10,7 @@ produce archives, installers and checksums locally; tag workflows only create
 drafts. MSRV, audits, formatting, native GUI/audio/editor and packaged-tool checks
 remain. Public publication requires license/notice review; repository protection
 is unchanged. See [build, test and release](docs/ci-validation.md). Validation of
-this refactoring is in progress on PR #60.
+this refactoring is tracked on PR #60.
 
 Active user-requested LSP migration (2026-11-19): replace the managed language
 server with native Rust while retaining the `koh-asm --serve-json` worker.
@@ -22,8 +22,8 @@ private API cases are obsolete. Publishing now builds native koh-lsp with its as
 worker and preserves the linker; managed LSP source/tests and solution references
 are retired. Local packaged VS Code acceptance and297 retained managed tests
 pass. Review fixes are addressed; draft PR59 is open. Platform acceptance
-continues in the independent Native LSP workflow after full CI hit an unchanged
-SDK graphics-run timeout. See [LSP migration](docs/rust-lsp/design.md) and
+is now covered by the consolidated three-platform CI workflow. See
+[LSP migration](docs/rust-lsp/design.md) and
 [current evidence](docs/rust-lsp/evidence.md).
 
 Active user-requested migration (2026-11-19): rewrite the production emulator

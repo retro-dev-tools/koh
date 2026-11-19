@@ -159,6 +159,7 @@ extension tag:
     if sys.argv[1] != f"ext-v{version}" or lock["version"] != lock["packages"][""]["version"] or lock["version"] != version:
         sys.exit("tag must match package.json and package-lock.json")
     out = pathlib.Path("artifacts/extension")
+    shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True, exist_ok=True)
     for args in (("ci",), ("audit", "--omit=dev", "--audit-level=high"), ("run", "compile"), ("run", "package", "--", "--out", str((out / f"koh-asm-{version}.vsix").resolve()))):
         subprocess.run([shutil.which("npm"), *args], cwd=extension, check=True)

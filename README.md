@@ -140,7 +140,7 @@ dotnet msbuild build.proj -t:Test
 
 ### Common build targets
 
-Invoke as `dotnet msbuild build.proj -t:<Target>` (no external tool install).
+Invoke as `dotnet msbuild build.proj -t:<Target>`. `TestAll` delegates to `just test`.
 
 | Target                | Description                                                 |
 | --------------------- | ----------------------------------------------------------- |

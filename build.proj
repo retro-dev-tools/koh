@@ -1,6 +1,6 @@
 <!--
   Repo-level build targets. Invoke with `dotnet msbuild build.proj -t:<Target>`.
-  Requirements: .NET 10 SDK, Rust/Cargo, Python 3.11+
+  Requirements: .NET 10 SDK, Rust/Cargo, Python 3.11+; just for TestAll
 
   Quick reference:
     dotnet msbuild build.proj -t:Test      (.NET component tests)
@@ -22,15 +22,11 @@
   </PropertyGroup>
 
   <Target Name="Test">
-    <!-- The solution flag is required: a bare positional arg is ambiguous to the .NET 10 SDK's
-         `dotnet test` when the repo root has multiple sln/slnf files (see ci.yml, fixed the same way). -->
     <Exec Command="dotnet test --solution Koh.Fast.slnf" />
   </Target>
 
   <Target Name="TestAll">
-    <Exec Command="cargo nextest run --workspace --all-features --locked" />
-    <Exec Command="cargo test --workspace --all-features --doc --locked" />
-    <Exec Command="dotnet test --solution Koh.Ci.slnf" />
+    <Exec Command="just test" />
   </Target>
 
   <Target Name="Benchmark">
@@ -99,22 +95,10 @@
     </MSBuild>
   </Target>
 
-  <Target Name="TestRustAssembler">
-    <Exec Command="cargo nextest run --workspace --all-features --locked" />
-    <Exec Command="cargo test --workspace --all-features --doc --locked" />
-  </Target>
-
   <Target Name="BuildRustLinker">
     <MSBuild Projects="src/Asm/Koh.Native/Koh.Native.csproj" Targets="GetNativeLinkerPath" Properties="Configuration=Release">
       <Output TaskParameter="TargetOutputs" PropertyName="RustLinker" />
     </MSBuild>
-  </Target>
-
-  <Target Name="BuildSample2048Rust" DependsOnTargets="BuildRustAssembler;BuildRustLinker">
-    <MakeDir Directories="samples/asm/gb-2048/build" />
-    <Exec Command="&quot;$(RustAssembler)&quot; samples/asm/gb-2048/src/main.asm -o samples/asm/gb-2048/build/2048-rust.o" />
-    <Exec Command="&quot;$(RustLinker)&quot; samples/asm/gb-2048/build/2048-rust.o -o samples/asm/gb-2048/build/2048-rust.gbc -n samples/asm/gb-2048/build/2048-rust.sym -d samples/asm/gb-2048/build/2048-rust.elf" />
-    <Error Condition="!Exists('samples/asm/gb-2048/build/2048-rust.gbc')" Text="2048-rust.gbc was not produced" />
   </Target>
 
   <Target Name="BuildSample2048" DependsOnTargets="BuildRustAssembler;BuildRustLinker">
