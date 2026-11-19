@@ -1,7 +1,10 @@
+mod assembler;
 mod common;
 mod debugger;
 mod emulator;
 mod games;
+mod presentation2048;
+mod verify2048;
 
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -11,6 +14,8 @@ fn main() {
     }
     let name = args.remove(0);
     let result = match name.as_str() {
+        "AssemblerVerify" => assembler::run(&args),
+        "Verify2048" => verify2048::run(&args),
         "EmulatorHost" => emulator::run(&args),
         "VBlankHost" => games::vblank(&args),
         "GameHost" => games::game(&args),

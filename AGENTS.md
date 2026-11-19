@@ -2,16 +2,16 @@
 
 ## Project Structure & Module Organization
 
-Koh is a Rust and .NET 10 Game Boy development toolchain. The Cargo workspace contains `rust/koh-asm`, `rust/koh-link`, `rust/koh-compile`, `rust/koh-lsp`, the canonical ELF32/SM83 model in `rust/koh-objects`, and the GPUI Kit desktop in `rust/koh-ui`. C# projects under `src/` provide common diagnostics/opcodes/debug readers, the native-service bridge, Koh.GameBoy, minimal SDK/build tasks, and the retained emulator/boot/verification tools. Native compiler tests live in `rust/koh-compile/tests`; remaining .NET tests mirror their live component areas. VS Code sources are under `editors/vscode`, tools under `tools/`, and samples under `samples/{asm,csharp}`.
+Koh is a Rust toolchain with .NET 10 game authoring. The Cargo workspace owns the assembler, linker, CIL compiler, language server, emulator, debugger, execution/test hosts and GPUI desktop. `rust/koh-objects` owns the canonical ELF32/SM83 model. C# under `src/Compiler` provides Koh.GameBoy and SDK/MSBuild integration; samples and native compiler fixtures remain C# input programs. `src/Asm/Koh.Native` contains native build/publish targets and NuGet asset integration, with no C# source. Tests live in the owning Rust crates. VS Code sources are under `editors/vscode`, tools under `tools/`, and samples under `samples/{asm,csharp}`.
 
 ## Build, Test, and Development Commands
 
 - `cargo build --release -p koh-asm -p koh-link --locked` builds the native assembler and linker.
 - `cargo nextest run --workspace --all-features --locked` runs native tests; `cargo test --workspace --all-features --doc --locked` runs doctests separately. `KOH_RGBDS_TEST=1` enables RGBDS 1.0.1 reference checks.
-- `dotnet build` builds the default solution, including the native assembler bridge.
+- `dotnet build` builds the .NET game APIs, SDK integration, samples and native build glue.
 - `dotnet restore Koh.Ci.slnf` and `dotnet build Koh.Ci.slnf --configuration Release` mirror CI's main build.
-- `dotnet msbuild build.proj -t:Test` runs live .NET component tests (`Koh.Fast.slnf`).
-- `just test` runs all native tests, separate Rust doctests and .NET component tests. Native compiler tests invoke Roslyn and the existing C# emulator; nextest limits their concurrency with zero retries.
+- `dotnet msbuild build.proj -t:Test` runs native tests and separate Rust doctests.
+- `just test` builds .NET inputs and runs native tests and doctests. Native compiler tests invoke Roslyn and the native emulator; nextest limits their concurrency with zero retries.
 - `dotnet msbuild build.proj -t:PublishDev` publishes binaries for VS Code debugging.
 - `dotnet msbuild build.proj -t:PublishLanguageServer` publishes native `koh-lsp` and its assembler worker; `LanguageServerRuntimeIdentifier` and `LanguageServerPublishDir` override the target and destination.
 - `cd editors/vscode; npm ci; npm test` installs and runs the extension test harness.
@@ -23,7 +23,7 @@ C# uses `net10.0`, C# 14, nullable references, implicit usings, and `TreatWarnin
 
 ## Testing Guidelines
 
-Add compiler/assembler/linker coverage to their Rust targets, using rstest for meaningful parameterized cases. Add live .NET component coverage to the matching test project. Check observable behavior and explicit diagnostics. Run focused checks first; compiler-owned Roslyn/emulator integration tests remain discoverable by cargo-nextest.
+Add coverage in the owning Rust crate, using rstest for meaningful parameterized cases. SDK and game-library contracts belong in native compiler integration tests. Check observable behavior and explicit diagnostics. Run focused checks first; Roslyn/emulator integration tests remain discoverable by cargo-nextest.
 
 ## Commit & Pull Request Guidelines
 
@@ -42,10 +42,10 @@ Do not commit downloaded ROMs, local toolchains, VSIX packages, benchmark output
 - `global.json` requires SDK 10.0.115 or a compatible newer .NET 10 SDK. Keep auditing enabled across SDK feature bands: a higher SDK feature band does not guarantee a newer NativeAOT runtime patch.
 - Preserve pre-existing edits. Stage only files belonging to the current increment; do not merge into the default branch or push without authorization.
 - Licensing and third-party attribution are release blockers; unrelated engineering can continue.
-- Run builds serially in each output directory. On constrained machines, use `dotnet build Koh.Ci.slnf -c Release -m:1`, then `dotnet test --solution Koh.Fast.slnf -c Release --no-build --max-parallel-test-modules 1`.
+- Run builds serially in each output directory. On constrained machines, use `dotnet build Koh.Ci.slnf -c Release -m:1`, then `cargo nextest run --workspace --all-features --locked`.
 - Read completed logs and record actual exit codes. Never infer test success from an empty log or pipe status.
 - Keep code comments short, without prose or implementation detail.
 - Headless screenshots use the emulator framebuffer's PNG writer. Keep compression in the platform libraries and test pixel order, alpha, PNG structure, and checksums.
 - Tests must not write tracked sample assets. JRPG captures belong under the test binary's `TestResults/gb-jrpg/<run-id>/`; curated sample screenshots are updated manually after review.
-- For a constrained full-suite run, build first, then use `dotnet test --solution Koh.Ci.slnf -c Release --no-build --max-parallel-test-modules 1 -- --maximum-parallel-tests 1`.
-- Root emulator publish/run targets default to the host runtime identifier. Override publishing with `-p:EmulatorRuntimeIdentifier=<rid>`; NativeAOT still requires a compatible native host/toolchain. CI exercises the root publish target on Linux, Windows, and macOS.
+- For a constrained full-suite run, build first, then use `cargo nextest run --workspace --all-features --locked` and run doctests separately.
+- Root emulator publish/run targets default to the host runtime identifier. Override publishing with `-p:EmulatorRuntimeIdentifier=<rid>`; native publishing requires a compatible host/toolchain. CI exercises the root publish target on Linux, Windows, and macOS.

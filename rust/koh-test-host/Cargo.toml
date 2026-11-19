@@ -12,3 +12,4 @@ koh-debugger = { path = "../koh-debugger" }
 koh-link = { path = "../koh-link" }
 serde_json = "1"
 png = "0.18.1"
+gif = "=0.14.2"

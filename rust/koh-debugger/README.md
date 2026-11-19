@@ -35,8 +35,9 @@ ordering, including RamLabel names and hidden unwind markers.
 
 ## Independent oracle
 
-`tests/oracle.cs` is a development-only capture program referencing unchanged
-managed assemblies. Rust never loads it. `tests/disassemble.json` contains all
+The development-only managed capture program was retired in PR62; its source
+is available in Git before that retirement. Rust never loaded it.
+`tests/disassemble.json` contains all
 512 managed unprefixed/CB-prefixed decodes. `tests/responses.json` contains 28
 managed DAP response objects. Tests compare full response objects, excluding
 only outbound sequence numbers because the production host emits initialized

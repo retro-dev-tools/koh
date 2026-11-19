@@ -1,15 +1,9 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using Microsoft.Build.Framework;
 
 namespace Koh.Build.Tasks;
 
-/// <summary>
-/// MSBuild task behind the Koh SDK's tile-sheet pipeline: converts every <c>@(KohTileSheet)</c>
-/// PNG (see <see cref="TileSheetConverter"/>) into one generated source file
-/// (<c>KohTileSheets.g.cs</c>, a <c>static class Art</c> in the game's root namespace) that
-/// <c>Sdk.targets</c> adds to <c>@(Compile)</c> — so game code references <c>Art.GrassTiles</c>/
-/// <c>Art.GrassColor0</c> and never hand-writes tile bytes, on both the ROM and the desktop
-/// reference build.
-/// </summary>
 public sealed class GenerateKohTileSheets : Microsoft.Build.Utilities.Task
 {
     [Required]
@@ -21,26 +15,59 @@ public sealed class GenerateKohTileSheets : Microsoft.Build.Utilities.Task
     [Required]
     public string Namespace { get; set; } = "";
 
+    [Required]
+    public string CompilerPath { get; set; } = "";
+
     public override bool Execute()
     {
         try
         {
-            var sheets = Sheets
-                .Select(item => item.GetMetadata("FullPath"))
-                .OrderBy(p => p, StringComparer.Ordinal)
-                .Select(TileSheetConverter.Convert)
-                .ToList();
-            var source = TileSheetConverter.GenerateSource(Namespace, sheets);
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(OutputFile)) ?? ".");
-            File.WriteAllText(OutputFile, source);
-            Log.LogMessage(
-                MessageImportance.Normal,
-                $"Koh tile sheets: {sheets.Count} sheet(s), "
-                    + $"{sheets.Sum(s => s.TileCount)} tile(s) -> {OutputFile}"
-            );
+            var start = new ProcessStartInfo(CompilerPath)
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            foreach (
+                var argument in new[]
+                {
+                    "--tile-sheets",
+                    "--namespace",
+                    Namespace,
+                    "-o",
+                    OutputFile,
+                    "--",
+                }
+            )
+                start.ArgumentList.Add(argument);
+            foreach (var sheet in Sheets)
+                start.ArgumentList.Add(sheet.GetMetadata("FullPath"));
+            using var process = Process.Start(start)!;
+            var output = process.StandardOutput.ReadToEndAsync();
+            var errors = process.StandardError.ReadToEndAsync();
+            process.WaitForExit();
+            var stdout = output.GetAwaiter().GetResult();
+            var stderr = errors.GetAwaiter().GetResult();
+            if (process.ExitCode != 0)
+            {
+                Log.LogError($"Koh: '{CompilerPath}' exited {process.ExitCode}: {stderr}");
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(stdout))
+                Log.LogMessage(MessageImportance.Normal, stdout);
+            if (!string.IsNullOrWhiteSpace(stderr))
+                Log.LogMessage(MessageImportance.Normal, stderr);
             return true;
         }
-        catch (Exception ex) when (ex is InvalidDataException or IOException)
+        catch (Exception ex)
+            when (ex
+                    is IOException
+                        or UnauthorizedAccessException
+                        or Win32Exception
+                        or InvalidOperationException
+                        or ArgumentException
+            )
         {
             Log.LogError(ex.Message);
             return false;

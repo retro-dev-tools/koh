@@ -3347,6 +3347,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "unicode-properties",
 ]
 
 [[package]]
@@ -3418,6 +3419,7 @@ dependencies = [
 name = "koh-test-host"
 version = "1.0.2"
 dependencies = [
+ "gif 0.14.2",
  "koh-debugger",
  "koh-emulator",
  "koh-link",

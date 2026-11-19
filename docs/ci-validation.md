@@ -30,8 +30,8 @@ MSRV covers core libraries/binaries; UI and test-host require
 newer Rust and run on stable. Nextest retains zero retries and bounded Roslyn
 concurrency. The tests include packaged LSP stdio, source-to-ROM execution,
 native audio resets, framebuffer PNGs, native windows and actual VS Code
-debugging. Linux also checks workflow/shell syntax, RGBDS parity and benchmark
-discovery. NuGet auditing, warnings-as-errors and npm production auditing remain
+debugging. Linux also checks workflow/shell syntax and RGBDS parity.
+NuGet auditing, warnings-as-errors and npm production auditing remain
 enabled. Results and diagnostic captures are uploaded for seven days.
 
 ## Releases

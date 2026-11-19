@@ -50,7 +50,7 @@ build:
     shutil.copy2(target / f"release/koh-compile{suffix}", bin)
     run("dotnet", "build", "Koh.Ci.slnf", "-c", "Release", "-m:1")
 
-# Build and test native and managed components.
+# Build .NET inputs and test native components.
 [script("python")]
 test: build
     import os, pathlib, subprocess
@@ -65,7 +65,6 @@ test: build
     run("cargo", "clippy", "-p", "koh-emulator", "-p", "koh-debugger", "-p", "koh-engine", "-p", "koh-test-host", "-p", "koh-lsp", "--all-targets", "--no-deps", "--locked", "--", "-D", "warnings")
     run("cargo", "nextest", "run", "--workspace", "--all-features", "--locked", "--no-fail-fast")
     run("cargo", "test", "--doc", "--workspace", "--all-features", "--locked")
-    run("dotnet", "test", "--solution", "Koh.Ci.slnf", "-c", "Release", "--no-build", "--max-parallel-test-modules", "1")
 
 # Verify built packages, native windows, audio and real editor/debugger use.
 [script("python")]
@@ -92,6 +91,9 @@ verify:
     run("cargo", "test", "-p", "koh-engine", "--bin", "koh-engine", "openal_null_backend_warmup_reset_and_restart", "--locked", "--", "--ignored")
     run("cargo", "test", "-p", "koh-engine", "--test", "session", "audio_resume_reset_and_restore_remain_operational", "--locked", "--", "--ignored")
     run("dotnet", "msbuild", "build.proj", "-t:BuildSample2048")
+    run("cargo", "build", "--release", "-p", "koh-test-host", "--locked")
+    run(sys.executable, "scripts/test-verify-2048.py")
+    run(sys.executable, "scripts/verify-2048.py", "samples/asm/gb-2048/build/2048.gbc", out / "2048", "--no-build")
     run(bin / f"koh-engine{suffix}", "samples/asm/gb-2048/build/2048.gbc", "--frames=300", f"--screenshot={out / 'frame.png'}")
     with Image.open(out / "frame.png") as image:
         if image.size != (160, 144) or image.mode != "RGBA":
@@ -121,8 +123,6 @@ verify:
         os.environ["KOH_RGBDS_TEST"] = "1"
         run("cargo", "nextest", "run", "-p", "koh-asm", "-p", "koh-link", "--all-features", "--locked")
         run(sys.executable, "scripts/verify-rust-assembler.py", "--output", out / "assembler")
-        run("dotnet", "build", "tools/benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj", "-c", "Release", "-m:1")
-        run("dotnet", "run", "--project", "tools/benchmarks/Koh.Benchmarks", "-c", "Release", "--no-build", "--", "--list", "flat")
 
 # Match the host's CI phases; platform-independent lint runs on Linux.
 [linux]

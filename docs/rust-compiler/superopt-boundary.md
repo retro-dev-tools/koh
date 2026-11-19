@@ -1,5 +1,10 @@
 # Independent superoptimization tool
 
+The standalone tool and its managed dependencies were decommissioned in PR62
+under the user's nonessential-C# retirement scope. The native compiler never
+depended on it; native peephole verification remains compiler-owned. The evidence
+below describes the earlier, superseded retention boundary.
+
 The standalone C# Superopt tool remains an emulator-backed exploration tool. It
 is not called by `koh-compile`, the SDK compiler task or the linker. Its random
 execution filter is not a proof that mined rewrites are safe for production.

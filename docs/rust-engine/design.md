@@ -9,7 +9,9 @@ commands, persistence and shutdown. The user authorized this next migration on
 separate. The engine PR was opened as a draft and subsequently marked ready
 externally. Do not merge or release it.
 
-User clarification: all verification tooling is out of scope pending deeper
+Historical engine-PR scope (superseded by the user's 2026-11-19 clarification
+for PR62; see [retirement plan](../superpowers/plans/2026-11-19-managed-retirement.md)):
+all verification tooling was out of scope pending deeper
 design. Leave `Koh.Verify`, the 2048 verifier and `tools/rust-asm-verify`
 unchanged. Retain the C# emulator and boot libraries for existing development
 tools, including superoptimizer and benchmarks. Deferred Rust tool ports stay

@@ -3,8 +3,7 @@
   Requirements: .NET 10 SDK, Rust/Cargo, Python 3.11+
 
   Quick reference:
-    dotnet msbuild build.proj -t:Test      (.NET component tests)
-    dotnet msbuild build.proj -t:Benchmark
+    dotnet msbuild build.proj -t:Test      (native tests and doctests)
     dotnet msbuild build.proj -t:PublishDev
     dotnet msbuild build.proj -t:PublishEmulatorApp
 -->
@@ -18,11 +17,8 @@
   </PropertyGroup>
 
   <Target Name="Test">
-    <Exec Command="dotnet test --solution Koh.Fast.slnf" />
-  </Target>
-
-  <Target Name="Benchmark">
-    <Exec Command="dotnet run --project tools/benchmarks/Koh.Benchmarks/ --configuration Release" />
+    <Exec Command="cargo nextest run --workspace --all-features --locked" />
+    <Exec Command="cargo test --workspace --all-features --doc --locked" />
   </Target>
 
   <Target Name="PublishDev" DependsOnTargets="PublishEmulatorApp">

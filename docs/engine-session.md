@@ -79,7 +79,8 @@ back the core before replying. Existing raw `.state` format remains in use.
   `/tmp/koh-engine-native-2048.log`. Captured framebuffer SHA256:
   `59ab7ed41472db0b2ce1bb52643df9314fba7182a625f8bd1c9c36e906ca78aa`.
 
-To test a published engine, set `KOH_TEST_EMULATOR` to its absolute path when
-running the debugger test project's `*ProcessTests` cases. Without it, the same
-tests run the managed engine with the test host's runtime/dependency files.
-This verification does not claim audible output or a rendered GPUI window.
+The milestone above describes the earlier managed-host implementation. Its test
+projects and fallback are retired. Current process tests live in `koh-engine`;
+run `cargo nextest run -p koh-engine --locked`. Packaged engine, audio and GPUI
+acceptance run through `just verify`; see [CI validation](ci-validation.md).
+These automated checks do not establish physical GPU or audible-output acceptance.

@@ -37,8 +37,9 @@ DELETE / DEFER decision, Rust test location and nextest discovery. DEFER is only
 valid for another active component, never for compiler coverage. Do not assign a
 group-wide decision without reading its cases and assertions.
 
-`TileSheetConverterTests` belongs to a retained build-time component; its current
-location inside the compiler suite does not make it obsolete. Similarly inspect
+The original `TileSheetConverterTests` requirements belong to the retained asset
+workflow; PR62 moves its algorithms to Rust and keeps native SDK/ROM coverage.
+The former source location does not make those requirements obsolete. Similarly inspect
 `DisassemblerLengthTests` ownership rather than deleting it with compiler internals.
 
 | Source file (relative to compiler test project) | Test attributes | Argument attributes | Assertion call sites |

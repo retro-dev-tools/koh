@@ -1,3 +1,32 @@
+# Managed retirement handoff
+
+Active PR62: retire all nonessential C# under the user's expanded scope.
+Branch `chore/remove-unused-managed-code`; worktree `koh-managed-cleanup`.
+Plan: docs/superpowers/plans/2026-11-19-managed-retirement.md.
+Earlier tool exclusions below are superseded. Verifiers are native; managed-only
+benchmark/mining tools are decommissioned. Managed emulator/boot and bridge
+libraries/tests are retired, with real boot handoff checks now native.
+Remaining work: finish combined native/platform acceptance and inspect current
+PR checks. No merge or release is authorized.
+
+Parallel units completed (2026-11-19): native tile-sheet/PNG conversion in
+`koh-compile`, thin MSBuild wrapper, and native 2048 image/GIF presentation.
+Workers used separate `target/retirement-assets` and `target/retirement-captures`
+directories; no shared builds or commits. Root reviewed all changed paths.
+Asset tests: 6 passed, including a live CLR oracle over 63,488 BMP scalars.
+Isolated SDK fixture: 32768-byte ROM, zero warnings/errors; invalid PNG preserves
+source/ROM. Native presentation: 7 tests, 2 independent image tests, all11 game
+checks, exact11 PNGs and13x60ms GIF versus `/tmp/koh-2048-managed-reference`.
+Root owns combined verification, commits and PR state.
+Read-only closure audits completed: all97 C# fixtures have live consumers;
+no deleted library references remain in their project/import graph. Integration
+review found a custom-Cargo-target stale-host risk; verifier defaults now honor
+`CARGO_TARGET_DIR`, with a regression check. No unowned source changes were found.
+Current native core: 92 unit +4 real-boot tests pass; reduced solution builds
+all seven C# ROMs with zero warnings/errors. Remaining acceptance is unproven.
+
+The following handoffs are historical; verify their state before reuse.
+
 # CI/CD maintenance handoff
 
 Current work: simplify PR #60 on `ci/maintainable-automation`, master `0814e2f`.

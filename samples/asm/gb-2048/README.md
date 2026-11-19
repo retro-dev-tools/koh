@@ -16,23 +16,21 @@ Output: `build/2048.gbc`, `build/2048.sym`, and `build/2048.elf`. Open the ROM i
 
 ## Verify
 
-The sample ships with `verify/Gb2048Verify`, a console app that boots the
-ROM in `Koh.Emulator`, exercises every game state, asserts board-level
-invariants, and writes PNG snapshots of each state to
-`build/verify-shots/`.
+The native `koh-test-host Verify2048` boots the ROM, exercises every game state,
+checks board rendering, and captures each state and all four slide directions.
+Rust also writes scaled PNGs, contact sheets, slide strips and the GIF using
+the PNG/GIF libraries. The optional Python driver only launches the native host.
 
 ```sh
 # Build the ROM first, then:
-dotnet run --project samples/asm/gb-2048/verify -- \
-    samples/asm/gb-2048/build/2048.gbc samples/asm/gb-2048/build/verify-shots
+python3 scripts/verify-2048.py samples/asm/gb-2048/build/2048.gbc \
+    artifacts/verification/2048
 ```
 
-Exits non-zero on the first assertion failure. PNG output uses an
-in-process encoder so no Python / ImageMagick is required.
-
-The harness lives in `src/Emulator/Koh.Verify/RomHarness.cs` and can be reused
-by any other Koh-built ROM that wants headless verification + snapshot
-capture.
+The driver builds the Rust host unless `--no-build` is supplied; `--host`
+selects an existing executable. It exits nonzero if any assertion fails and
+retains captures for diagnosis. Python 3 is only required for this launcher;
+the Rust host alone writes all captures, composite views and its JSON manifest.
 
 ## Controls
 

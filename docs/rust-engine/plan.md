@@ -6,6 +6,9 @@
 
 ## Scope and evidence
 
+Historical engine-PR plan: its retained-managed-tool exclusions below were
+superseded by PR62's [managed retirement plan](../superpowers/plans/2026-11-19-managed-retirement.md).
+
 All product verification tooling is excluded: existing Koh.Verify, sample
 verifiers and rust-asm-verify remain unchanged. C# emulator/boot and their tests
 remain development dependencies for verification, superoptimizer and benchmarks.

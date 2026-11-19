@@ -5,6 +5,8 @@ use std::{
     process::ExitCode,
 };
 
+mod assets;
+
 fn identity(path: &Path) -> Result<PathBuf, String> {
     if path.exists() {
         return path
@@ -60,6 +62,9 @@ fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn run() -> Result<(), String> {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--tile-sheets")) {
+        return assets::run();
+    }
     let mut input = None;
     let mut output = None;
     let mut references = Vec::new();
@@ -98,7 +103,7 @@ fn run() -> Result<(), String> {
             Some("--no-pdb") => no_pdb = true,
             Some("--help" | "-h") => {
                 println!(
-                    "koh-compile ASSEMBLY [-o OBJECT] [-r REFERENCE]... [--entry Type::Method] [--pdb SYMBOLS | --no-pdb]\nEmits canonical ELF32/SM83 for koh-link. References must contain reachable implementations.\nMatching adjacent Portable PDBs are optional; --pdb selects the root assembly's symbols."
+                    "koh-compile ASSEMBLY [-o OBJECT] [-r REFERENCE]... [--entry Type::Method] [--pdb SYMBOLS | --no-pdb]\nkoh-compile --tile-sheets --namespace NAMESPACE -o SOURCE -- PNG...\nEmits canonical ELF32/SM83 for koh-link. References must contain reachable implementations.\nMatching adjacent Portable PDBs are optional; --pdb selects the root assembly's symbols."
                 );
                 return Ok(());
             }
