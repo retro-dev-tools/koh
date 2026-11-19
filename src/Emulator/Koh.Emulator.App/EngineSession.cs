@@ -88,6 +88,7 @@ internal sealed class EngineSession(EmulatorLoop loop, BootRomResolver bootRoms)
                             or FormatException
                             or OverflowException
                             or UnauthorizedAccessException
+                            or NotSupportedException
                 )
             {
                 reply = new EngineReply(id, false, ex.Message, null);

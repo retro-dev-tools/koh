@@ -95,6 +95,19 @@ public class EngineSessionProcessTests
                 }
             );
             await Assert.That(missing.GetProperty("ok").GetBoolean()).IsFalse();
+            var mbc2 = (byte[])rom.Clone();
+            mbc2[0x147] = 0x05;
+            TestRom.WithValidHeader(mbc2);
+            await File.WriteAllBytesAsync(path + ".mbc2.gb", mbc2);
+            var unsupported = await Request(
+                new
+                {
+                    id = ++sequence,
+                    command = "load",
+                    path = path + ".mbc2.gb",
+                }
+            );
+            await Assert.That(unsupported.GetProperty("ok").GetBoolean()).IsFalse();
             var badShape = await Request(
                 new
                 {
