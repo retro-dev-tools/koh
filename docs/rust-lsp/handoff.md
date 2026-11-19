@@ -34,6 +34,10 @@ strict Clippy locally, committed/pushed9b4ff28. Rust1.8861/61; affected250/250.
 Run44558820496 passes native/package checks on all platforms, but editor setup
 fails on Windows/macOS in test-electron2.5.2. Updated existing runner to3.1.0
 and CI/release Node22; actual local editor47/47 passes. Push and inspect rerun.
+Runner fix pushed d435f86. Run44560211970 Linux/Windows fully pass; macOS actual
+LSP editor assertions pass but three existing filesystem resolver tests share
+the real home. Fixed test helper isolation with a failing macOS simulation;
+actual local editor48/48 passes. Push test-only fix and inspect platform rerun.
 Full CI44552197980 Linux ran2463 tests:2462 passed,1 SDK graphics test timed
 out after360 seconds,5 skipped. All60 LSP cases passed. The SDK test and run
 target are unchanged by this migration; its timeout needs separate investigation.

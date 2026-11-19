@@ -288,3 +288,12 @@ passes with the updated runner (/tmp/koh-lsp-new-runner-vscode.log, exit0).
 No custom launcher workaround or product behavior change was added.
 Rust1.88 also passes61/61 and affected nextest250/250, zero skipped, after the
 path fixes (/tmp/koh-lsp-platform-fixes-{rust188,affected}.log, exit0).
+
+Run44560211970: Linux/Windows passed the complete native/package/editor gate.
+macOS passed native/package tests and actual LSP editor assertions, but three
+existing resolver filesystem tests shared the runner's real home: changing HOME
+did not redirect its os.homedir(). The scratch helper now stubs/restores homedir
+for each fixture. A local macOS simulation reproduced this before the fix
+(/tmp/koh-lsp-macos-resolver-red.log, exit1); full editor48/48 passes afterward
+(/tmp/koh-lsp-macos-resolver-green.log, exit0). Product resolver behavior is
+unchanged; the fix is confined to test isolation. Final platform rerun pending.
