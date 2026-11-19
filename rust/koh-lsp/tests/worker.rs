@@ -19,6 +19,34 @@ fn real_worker_handles_multiple_requests_and_utf16_spans() {
     }
 }
 
+#[test]
+fn unread_large_request_times_out_and_a_fresh_worker_can_start() {
+    for _ in 0..2 {
+        let mut command = if cfg!(windows) {
+            let mut command = Command::new("powershell.exe");
+            command.args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Sleep -Seconds 30",
+            ]);
+            command
+        } else {
+            let mut command = Command::new("sh");
+            command.args(["-c", "exec sleep 30"]);
+            command
+        };
+        command.stdin(std::process::Stdio::piped());
+        let mut worker = Worker::start(command, Duration::from_millis(250)).unwrap();
+        let started = std::time::Instant::now();
+        let error = worker
+            .request(&json!({"version":1,"text":" ".repeat(4*1024*1024)}))
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(started.elapsed() < Duration::from_secs(15));
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn worker_eof_bad_version_and_timeout_fail_without_hanging() {

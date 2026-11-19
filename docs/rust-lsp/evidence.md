@@ -50,3 +50,33 @@ Strict Clippy: `cargo-clippy clippy -p koh-lsp --all-targets --locked -- -D warn
 exit `0`; `/tmp/koh-lsp-transport-clippy-strict.log`.
 Use explicit Rust 1.99 cargo/clippy/rustfmt paths on this host; cargo subcommand
 discovery otherwise selects an unavailable rustup nightly component.
+
+## Configuration and core workspace increment
+
+`cargo build -p koh-asm --locked`: exit `0`, local worker built from this
+worktree. Log `/tmp/koh-lsp-local-asm.log`.
+
+`cargo test -p koh-lsp --locked`, without KOH_ASM override: exit `0`, 27 passed,
+zero failed/ignored. Completed log `/tmp/koh-lsp-workspace-final.log` was re-read
+and its per-binary summaries summed. Strict Clippy with `-D warnings`: exit `0`,
+`/tmp/koh-lsp-workspace-final-clippy.log`.
+
+Covers configuration validation and reload, include syntax/graph/discovery,
+UTF-16 positions and escaped file URIs, configured project isolation,
+root-owned macros in an open include, overlays and close-to-disk restoration,
+heuristic edge changes, shared include ownership and per-root include search.
+Large unread worker writes also time out on two successive child instances.
+
+RED/GREEN: `/tmp/koh-lsp-incbin-red.log` reported label offset12 rather than2
+when unsaved text incorrectly replaced physical INCBIN data. Removed that
+binary overlay; the full suite passes. `/tmp/koh-lsp-nested-roots.log` failed
+ownership for a shared include with `../` in worker source provenance.
+Boundary probe confirmed logical `a/../shared.inc` response paths; normalizing
+file identity comparisons fixes ownership without rewriting provenance.
+`/tmp/koh-lsp-nested-roots-green.log` confirms the focused fix.
+
+83 managed source cases mapped to current native assertions;124 remain pending.
+This is not complete feature parity. Editor requests/publishing still await
+implementation; production remains managed. YAML parsing uses serde_yaml_ng
+0.10.0 (upstream metadata Rust1.64) and URL handling reuses the workspace's
+existing url2.5 dependency. Whole-target Rust1.88 validation remains open.

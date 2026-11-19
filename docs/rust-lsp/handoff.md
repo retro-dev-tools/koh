@@ -9,16 +9,23 @@ worker client implemented. Worker I/O runs on an exchange thread so blocked
 writes and reads are covered by the request deadline. Protocol failures stop
 and reap the child. Stderr inherits server stderr, never LSP stdout.
 
-7/7 native tests pass, strict Clippy exit0. Completed logs listed in evidence.md.
-Managed oracle 207/207 pass. All 207 disposition rows remain pending: do not
-claim feature replacement from the transport tests. Production remains managed.
+Configuration, file URI/UTF16 positions, graph/discovery and core workspace now
+implemented. Configured/heuristic/invalid modes, unsaved overlays, isolation,
+deterministic shared ownership and root-first nested includes have native checks.
+INCBIN always uses disk; source path identity comparisons normalize ../ without
+rewriting native provenance. Workspace recreates a worker after protocol failure.
 
-Next: Task2 configuration/workspace/path handling, then editor methods, native
+27/27 native tests pass, strict Clippy exit0. Completed logs in evidence.md.
+Managed oracle207/207 pass.83 disposition rows mapped,124 pending. Native tests
+run without KOH_ASM using freshly built target/debug/koh-asm. Production remains
+managed; native main currently handles lifecycle only.
+
+Next: finish Task2 project/overlay disposition review, then editor methods, native
 packaging and managed retirement. Plan docs/superpowers/plans/2026-11-19-rust-lsp.md.
 Full scope and acceptance in design.md. No broad compiler/emulator redesign.
 
-Run tests with KOH_ASM=/home/minorum/projekty/koh/target/native-msbuild/Release/host/release/koh-asm
-until assembler is built in this worktree. Cargo /usr/lib/rust/1.99.0/bin/cargo;
+Build assembler once with cargo build -p koh-asm --locked, then cargo test -p
+koh-lsp --locked. Cargo /usr/lib/rust/1.99.0/bin/cargo;
 direct cargo-clippy with CARGO and RUSTC set to matching binaries works.
 Direct rustfmt --edition 2024 avoids nightly cargo-fmt shim.
 
