@@ -1,7 +1,8 @@
 # Rust LSP review handoff
 
 Current work: native LSP migration in feat/rust-lsp. Fresh whole-branch review
-complete; local checks pass. Commit and hosted platform checks remain.
+complete; local checks pass. Implementation committed0a0978e; hosted platform
+checks remain and require push authorization.
 State, boundaries and verification: docs/rust-lsp/handoff.md.
 The engine handoff below describes separate prior work.
 

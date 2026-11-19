@@ -3,6 +3,7 @@
 Updated 2026-11-19. Goal active; local implementation and review complete.
 Worktree /home/minorum/projekty/koh-rust-lsp, branch feat/rust-lsp,
 base065cf05. No push/merge/release authorization.
+Integration/retirement commit:0a0978e. Worktree clean after documentation commit.
 
 Rust koh-lsp owns all original editor methods, configuration, include ownership,
 overlays, diagnostics and stdio lifecycle. It invokes the persistent

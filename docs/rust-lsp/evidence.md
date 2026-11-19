@@ -243,3 +243,7 @@ affected-package doctest invocation exited0 with zero doctests present
 also passes60/60 (/tmp/koh-lsp-rust188-reviewed.log).
 Windows/macOS runtime and hosted workflows have not run; no platform claim,
 push, merge or release is implied by local Linux evidence.
+
+Integration/retirement committed0a0978e. Commit hook exited0; no C# formatting
+targets remained. No binaries, package caches or machine-specific test config
+were committed. Main checkout's unrelated image remains untouched.
