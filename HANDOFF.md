@@ -22,6 +22,14 @@ captures /tmp/koh-gpui-startup-{windows,linux}-native-window/.
 Three broader native suites remain live; do not restart on observation timeout.
 Managed554/554 both platforms, zero warnings/errors. QuickPR green.
 Keep goal9/10 until remaining gates are proven. Physical question pending.
+New release Wayland roundtrip PASS, exit0: two owned Weston outputs scale1/2;
+exactLCD physical3x ->6x ->3x after actual drag there/back. Protocol independently
+set_buffer_scale1->2->1 with output enter/leave. Logs
+/tmp/koh-ui-wayland-transition4.log; artifacts
+target/gpui-wayland-acceptance/transition4/. Temporary harness
+/tmp/koh-ui-wayland-transition.py and compositor-transition.py in parent artifact
+folder. Earlier harness straddled/cursor occluded; corrected, no product change.
+Owned servers cleaned; host display untouched. Physical proof still absent.
 Full44442207871 at3b2634f: Linux + Windows publish/window jobs PASS; Windows
 metadata UTF8 fix confirmed, foreground/input/state/save/close all pass.
 Mac job135287624302 fails actual AXFrontmost assertion as expected; log

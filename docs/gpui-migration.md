@@ -561,3 +561,17 @@ and clean child exit; its capture is reviewed too. Logs:
 All three desktop publish/window jobs are now green on implementation `58f3746`.
 The three broader native suites are still running. Physical listening and
 movement between monitors with different scaling remain unverified.
+
+### Wayland output-scale transition
+
+The published release UI also passed a live two-output scale round trip in an
+owned nested Weston compositor: scale 1 exact 3x LCD, move to scale 2 exact 6x
+LCD, then move back to scale 1 exact 3x LCD. Each full LCD matches the same
+independent engine oracle byte for byte. Wayland protocol logs independently
+show output enter/leave events and `set_buffer_scale` transitions 1 -> 2 -> 1.
+The completed probe exited 0; log `/tmp/koh-ui-wayland-transition4.log`, protocol
+and captures `target/gpui-wayland-acceptance/transition4/`. Owned compositor
+and display processes exited normally. Host display settings were untouched.
+Earlier harness attempts left the window straddling outputs or the compositor
+cursor over the LCD; these were corrected before the passing full-image check.
+This proves the nested compositor transition, not physical monitor behavior.
