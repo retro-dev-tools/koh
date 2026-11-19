@@ -16,6 +16,7 @@ Run `just` to list tasks:
 | `just test` | Build, then run full platform/package/editor acceptance |
 | `just ci` | Lint and full acceptance, exactly as CI |
 | `just msrv` | Check core production crates on Rust 1.88.0 |
+| `just run [ROM/options...]` | Publish and launch the desktop |
 | `just package tools-v0.1.6-rc.1` | Build, smoke-test and archive the host toolchain |
 | `just extension ext-v0.1.5` | Audit, compile and package the VSIX |
 

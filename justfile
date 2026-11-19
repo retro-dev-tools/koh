@@ -20,6 +20,16 @@ lint:
 msrv:
     cargo +1.88.0 check --workspace --exclude koh-ui --exclude koh-test-host --lib --bins --all-features --locked
 
+# Publish and launch the desktop, forwarding ROM/options unchanged.
+[script("python")]
+[positional-arguments]
+run *args:
+    import os, pathlib, subprocess, sys
+    subprocess.run(["dotnet", "msbuild", "build.proj", "-t:PublishEmulatorApp"], check=True)
+    publish = subprocess.check_output(["dotnet", "msbuild", "build.proj", "-nologo", "-getProperty:EmulatorPublishDir"], text=True).strip()
+    executable = pathlib.Path(publish) / ("koh-emulator.exe" if os.name == "nt" else "koh-emulator")
+    subprocess.run([str(executable), *sys.argv[1:]], check=True)
+
 # Build managed projects and the host's complete native package.
 [script("python")]
 build:

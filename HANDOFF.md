@@ -1,7 +1,7 @@
 # CI/CD maintenance handoff
 
 Current work: simplify PR #60 on `ci/maintainable-automation`, master `0814e2f`.
-One justfile, three workflows, four scripts removed; PR #60 owns this work.
+One justfile, three workflows, eight scripts removed; PR #60 owns this work.
 Plan/evidence: docs/superpowers/plans/2026-11-19-ci-maintenance.md.
 Developer interface: docs/ci-validation.md. Final results are recorded on PR #60.
 Root agent owns implementation, local tests, hosted runs and PR updates.

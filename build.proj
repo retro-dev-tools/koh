@@ -8,15 +8,12 @@
     dotnet msbuild build.proj -t:Benchmark
     dotnet msbuild build.proj -t:PublishDev
     dotnet msbuild build.proj -t:PublishEmulatorApp
-    dotnet msbuild build.proj -t:RunEmulator   (publish + launch koh-emulator)
 -->
 <Project DefaultTargets="Test">
 
   <PropertyGroup>
     <EmulatorRuntimeIdentifier Condition="'$(EmulatorRuntimeIdentifier)' == ''">$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</EmulatorRuntimeIdentifier>
     <EmulatorPublishDir Condition="'$(EmulatorPublishDir)' == ''">$(MSBuildThisFileDirectory)artifacts/emulator/$(EmulatorRuntimeIdentifier)</EmulatorPublishDir>
-    <EmulatorExecutableName>koh-emulator</EmulatorExecutableName>
-    <EmulatorExecutableName Condition="$(EmulatorRuntimeIdentifier.StartsWith('win-'))">koh-emulator.exe</EmulatorExecutableName>
     <LanguageServerRuntimeIdentifier Condition="'$(LanguageServerRuntimeIdentifier)' == ''">$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</LanguageServerRuntimeIdentifier>
     <LanguageServerPublishDir Condition="'$(LanguageServerPublishDir)' == ''">$(MSBuildThisFileDirectory)artifacts/language-server/$(LanguageServerRuntimeIdentifier)</LanguageServerPublishDir>
   </PropertyGroup>
@@ -83,10 +80,6 @@
     <Copy SourceFiles="@(RustAssemblerNotices)" DestinationFiles="@(RustAssemblerNotices->'$(EmulatorPublishDir)/licenses/rust-assembler/%(RecursiveDir)%(Filename)%(Extension)')" />
     <Copy SourceFiles="$(MSBuildThisFileDirectory)licenses/rust-assembler-dependencies.md" DestinationFolder="$(EmulatorPublishDir)/licenses" />
     <Exec Command="python &quot;$(MSBuildThisFileDirectory)scripts/stage-rust-notices.py&quot; &quot;$(EmulatorPublishDir)/licenses/rust-runtime&quot;" />
-  </Target>
-
-  <Target Name="RunEmulator" DependsOnTargets="PublishEmulatorApp">
-    <Exec Command="&quot;$(EmulatorPublishDir)/$(EmulatorExecutableName)&quot;" />
   </Target>
 
   <Target Name="BuildRustAssembler">

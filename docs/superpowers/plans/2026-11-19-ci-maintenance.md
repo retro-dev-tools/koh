@@ -30,8 +30,10 @@ Implementation:
   the draft job. No second hash pass over checksum manifests.
 - [x] Keep pinned actions, read-only build tokens, draft-only releases, audits,
   MSRV and the existing nextest deadlines/zero retries.
-- [x] Shorten contributor/release documentation and repair developer installers'
-  obsolete managed-LSP invocation.
+- [x] Shorten contributor/release documentation; retire paired developer
+  installers/launchers entirely.
+  Existing VS Code CLI/settings install development packages; just run forwards
+  launcher arguments using Python instead of duplicate shell/RID implementations.
 - Run local acceptance, package smoke tests and actual hosted workflows;
   completed results and quantitative comparisons are recorded on PR #60.
 - Independent review found stale validation/extension output directories;

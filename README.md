@@ -150,13 +150,11 @@ Invoke as `dotnet msbuild build.proj -t:<Target>`. `TestAll` delegates to `just 
 | `Benchmark`           | Run benchmarks                                              |
 | `PublishDev`          | Publish the LSP server for local VS Code debugging          |
 | `PublishEmulatorApp`  | Publish the Rust desktop and NativeAOT engine together (`-p:EmulatorRuntimeIdentifier=<rid>` to override) |
-| `RunEmulator`         | Publish the emulator and launch the host executable         |
 
 Quick-launch the emulator:
 
-```powershell
-./scripts/run-emulator.ps1     # Windows PowerShell
-./scripts/run-emulator.sh      # bash / git-bash
+```sh
+just run
 ```
 
 ## VS Code
@@ -168,6 +166,10 @@ dotnet msbuild build.proj -t:PublishDev
 ```
 
 Then open `editors/vscode/` in VS Code and press `F5`.
+
+To install a development VSIX, run `just build`, `just extension ext-v0.1.5`,
+then `code --install-extension artifacts/extension/koh-asm-0.1.5.vsix --force`.
+Set `koh.toolchainPath` to the absolute `artifacts/bin` path in local VS Code settings.
 
 For workspace-based projects, place a `koh.yaml` file in the repository root:
 

@@ -15,7 +15,7 @@ Koh is a Rust and .NET 10 Game Boy development toolchain. The Cargo workspace co
 - `dotnet msbuild build.proj -t:PublishDev` publishes binaries for VS Code debugging.
 - `dotnet msbuild build.proj -t:PublishLanguageServer` publishes native `koh-lsp` and its assembler worker; `LanguageServerRuntimeIdentifier` and `LanguageServerPublishDir` override the target and destination.
 - `cd editors/vscode; npm ci; npm test` installs and runs the extension test harness.
-- `./scripts/run-emulator.ps1` or `./scripts/run-emulator.sh` publishes and launches the emulator locally.
+- `just run [ROM/options...]` publishes and launches the emulator locally.
 
 ## Coding Style & Naming Conventions
 
