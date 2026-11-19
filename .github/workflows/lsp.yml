@@ -1,0 +1,95 @@
+name: Native LSP
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/lsp.yml'
+      - 'rust/koh-lsp/**'
+      - 'rust/koh-asm/**'
+      - 'rust/koh-objects/**'
+      - 'rust/koh-link/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'global.json'
+      - 'Directory.Build.*'
+      - 'Directory.Packages.props'
+      - 'build.proj'
+      - 'scripts/stage-rust-notices.py'
+      - 'src/Asm/Koh.Native/**'
+      - 'editors/vscode/**'
+      - 'licenses/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-lsp-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  RUSTUP_TOOLCHAIN: stable
+  CARGO_BUILD_JOBS: '4'
+  DOTNET_PROCESSOR_COUNT: '4'
+
+jobs:
+  lsp:
+    name: native-lsp (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install editor test display
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libxtst6
+      - name: Test native language server
+        run: |
+          cargo build -p koh-asm --locked
+          cargo test -p koh-lsp --locked
+      - name: Publish and test native package
+        shell: bash
+        run: |
+          dotnet msbuild build.proj -t:PublishLanguageServer
+          rid=$(dotnet msbuild build.proj -nologo -getProperty:LanguageServerRuntimeIdentifier)
+          package="$PWD/artifacts/language-server/$rid"
+          suffix=
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            package="$(cygpath -m "$package")"
+            suffix=.exe
+          fi
+          "$package/koh-link$suffix" --version
+          KOH_LSP_TEST_BINARY="$package/koh-lsp$suffix" cargo test -p koh-lsp --test stdio --locked
+          echo "KOH_TEST_LSP_DIR=$package" >> "$GITHUB_ENV"
+      - name: Test actual VS Code client
+        shell: bash
+        working-directory: editors/vscode
+        run: |
+          npm ci
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            xvfb-run -a npm test
+          else
+            npm test
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-lsp-${{ runner.os }}
+          path: artifacts/language-server/
+          if-no-files-found: ignore
+          retention-days: 7

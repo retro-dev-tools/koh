@@ -13,7 +13,9 @@ with strict Clippy;206 legacy cases have native replacements and one private
 adapter test is obsolete. Publishing now builds native koh-lsp with its assembler
 worker and preserves the linker; managed LSP source/tests and solution references
 are retired. Local packaged VS Code acceptance and297 retained managed tests
-pass. Final review fixes and platform acceptance remain. See [LSP migration](docs/rust-lsp/design.md) and
+pass. Review fixes are addressed; draft PR59 is open. Platform acceptance
+continues in the independent Native LSP workflow after full CI hit an unchanged
+SDK graphics-run timeout. See [LSP migration](docs/rust-lsp/design.md) and
 [current evidence](docs/rust-lsp/evidence.md).
 
 Active user-requested migration (2026-11-19): rewrite the production emulator

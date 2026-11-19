@@ -2,8 +2,8 @@
 
 Updated 2026-11-19. Goal active; local implementation and review complete.
 Worktree /home/minorum/projekty/koh-rust-lsp, branch feat/rust-lsp,
-base065cf05. No push/merge/release authorization.
-Integration/retirement commit:0a0978e. Worktree clean after documentation commit.
+base065cf05. User authorized push and draft PR59; no merge/release authorization.
+Integration/retirement commit:0a0978e. Branch pushed; draft PR59 open.
 
 Rust koh-lsp owns all original editor methods, configuration, include ownership,
 overlays, diagnostics and stdio lifecycle. It invokes the persistent
@@ -27,7 +27,13 @@ errors. Real editor tests reproduced ENOENT/config reload failures and passed
 after fixes. Windows-only path regression requires Windows execution.
 YAML scalar coercions were checked against the actual managed parser.
 
-Next: obtain authorization to push and run hosted Windows/macOS acceptance.
+Next: inspect independent Native LSP workflow results on all three platforms.
+Full CI44552197980 Linux ran2463 tests:2462 passed,1 SDK graphics test timed
+out after360 seconds,5 skipped. All60 LSP cases passed. The SDK test and run
+target are unchanged by this migration; its timeout needs separate investigation.
+Proposal: investigate SDK graphics headless-run timeout as a separate increment.
+The independent LSP gate builds/tests/packages and exercises actual VS Code
+without waiting behind unrelated compiler/emulator acceptance.
 Do not infer platform success from Linux or static workflow parsing. No release
 publication is needed. Existing whole-toolchain licensing questions remain
 release blockers; exact added YAML dependency notices are verified.

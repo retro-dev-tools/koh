@@ -247,3 +247,19 @@ push, merge or release is implied by local Linux evidence.
 Integration/retirement committed0a0978e. Commit hook exited0; no C# formatting
 targets remained. No binaries, package caches or machine-specific test config
 were committed. Main checkout's unrelated image remains untouched.
+
+## Hosted acceptance
+
+User authorized push and opening draft PR59. Remote branch head26bf90c was
+verified using git ls-remote. Full CI44552197980 was dispatched on that SHA.
+Linux job135658639624 completed with exit100:2463 tests run,2462 passed,
+1 timed out,5 skipped. All60 LSP tests passed. The single timeout was
+sdk_dotnet_run_launches_the_graphics_rom_headlessly (360.015 seconds).
+Completed job log: /tmp/koh-lsp-ci-linux-completed.log, downloaded and re-read.
+The test and SDK run target have no diff from base065cf05. Its cause is not
+established; investigating/fixing SDK headless execution is a separate proposal.
+
+Because that earlier failure skips later package/editor steps, a dedicated
+Native LSP workflow now runs native tests, root publishing, packaged stdio and
+actual VS Code acceptance independently on Linux, Windows and macOS. The full
+workspace checks remain intact. Independent hosted results are pending.
