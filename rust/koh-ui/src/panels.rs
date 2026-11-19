@@ -183,7 +183,7 @@ impl Desktop {
             } else {
                 "Bank 0"
             }))
-            .children(ready.then(|| self.tiles.image.clone()).flatten().map(|image| {
+            .children(self.tiles.image.clone().filter(|_| ready).map(|image| {
                 img(image)
                     .w(px(128. * scale as f32 / dpi))
                     .h(px(height as f32 * scale as f32 / dpi))
