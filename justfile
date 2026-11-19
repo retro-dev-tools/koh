@@ -62,8 +62,7 @@ test: build
     os.environ["PATH"] = str(bin) + os.pathsep + os.environ["PATH"]
     for key in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
         os.environ[key] = str(bin) + (os.pathsep + os.environ[key] if os.environ.get(key) else "")
-    os.environ.update(KOH_LSP_TEST_BINARY=str(bin / f"koh-lsp{suffix}"),
-                      KOH_COMPILE=str(bin / f"koh-compile{suffix}"), KOH_LINK=str(bin / f"koh-link{suffix}"))
+    os.environ["KOH_LSP_TEST_BINARY"] = str(bin / f"koh-lsp{suffix}")
     run("cargo", "clippy", "-p", "koh-emulator", "-p", "koh-debugger", "-p", "koh-engine", "-p", "koh-test-host", "-p", "koh-lsp", "--all-targets", "--no-deps", "--locked", "--", "-D", "warnings")
     run("cargo", "nextest", "run", "--workspace", "--all-features", "--locked", "--no-fail-fast")
     run("cargo", "test", "--doc", "--workspace", "--all-features", "--locked")
@@ -88,6 +87,8 @@ verify:
     os.environ["PATH"] = str(bin) + os.pathsep + os.environ["PATH"]
     for key in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
         os.environ[key] = str(bin) + (os.pathsep + os.environ[key] if os.environ.get(key) else "")
+    run("cargo", "nextest", "run", "-p", "koh-compile", "--test", "sdk", "--locked", "-E", "test(sdk_dotnet_run)",
+        env={**os.environ, "KOH_COMPILE": str(bin / f"koh-compile{suffix}"), "KOH_LINK": str(bin / f"koh-link{suffix}")})
     os.environ["ALSOFT_DRIVERS"] = "null"
     run("cargo", "test", "-p", "koh-engine", "--bin", "koh-engine", "openal_null_backend_warmup_reset_and_restart", "--locked", "--", "--ignored")
     run("cargo", "test", "-p", "koh-engine", "--test", "session", "audio_resume_reset_and_restore_remain_operational", "--locked", "--", "--ignored")

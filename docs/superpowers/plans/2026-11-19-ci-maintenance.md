@@ -18,8 +18,9 @@ Implementation:
 - [x] Remove the overlapping LSP workflow; cover every PR on all three OSes.
 - [x] Consolidate full acceptance, publishing and packaging in just recipes.
 - [x] Delete release preflight/tests, promotion wrappers and protection payload.
-- [x] Remove redundant workspace check and duplicate package smoke runs:
-  nextest builds/tests the workspace; its SDK tests now use release artifacts.
+- [x] Remove redundant workspace compilation; nextest builds/tests the workspace.
+  Keep default SDK tool discovery in core tests and an explicit release-artifact
+  SDK smoke in verification: these exercise different selection paths.
 - [x] Keep native notice validators: they check attribution inventories against
   actual dependency graphs, not just file existence.
 - [x] Keep GUI verification/oracle scripts and their tests: they prove behavior
