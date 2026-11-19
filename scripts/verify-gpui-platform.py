@@ -165,7 +165,7 @@ def main():
     rom = output / "2048.gb"
     shutil.copyfile(args.rom, rom)
     suffix = ".exe" if sys.platform == "win32" else ""
-    engine = desktop.with_name("Koh.Emulator.App" + suffix)
+    engine = desktop.with_name("koh-engine" + suffix)
     assert engine.is_file()
     environment = dict(os.environ, ALSOFT_DRIVERS="null")
     environment.pop("KOH_ENGINE", None)

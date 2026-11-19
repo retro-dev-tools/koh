@@ -7,6 +7,43 @@ Set aside untracked koh-verify and koh-superopt ports outside the worktree.
 DraftenginePR57 https://github.com/retro-dev-tools/koh/pull/57 stackedonUI56.
 
 Current native cutover, 2026-11-19:
+- Final root native publish PASSED exit0 /tmp/koh-engine-publish-final.log.
+  Package metadata/hashes /tmp/koh-engine-native-package.json; actual immutable
+  desktop5f9bd2e0 and enginee904e800 matched real VSCode + window tests.
+- Real VSCode/defaultGPUI/nativeDAP PASSED21/21 zero pending, exit0
+  /tmp/koh-vscode-packaged-native-tests.log. KOH_ENGINEunset; real RustDWARF
+  sourcebreak/stackline/step/readwriteMemory/disconnect and desktopexit0.
+- Packaged X11 native window PASSED exit0 /tmp/koh-engine-native-window-final.log:
+  exactLCD/integer3x/Start/pause/save/cleanchild/emptyshortcuts. Title/gameplay
+  captures inspected under /tmp/koh-engine-native-window-final/.
+- Fresh independent read-only review found no confirmed critical/important
+  migration regression; review scope/limits/inherited step behavior documented
+  in docs/rust-engine/review.md. No scope expansion to fix inherited behavior.
+- First full compiler run FAILED after1362pass on shortened palette diagnostic;
+  restored exact BG/OBJ strings, focused2/2 +unit/Clippy pass, commit044d7ed.
+  Full NO-FAIL-FAST2063 rerun now LIVE session17163, same private root target,
+  /tmp/koh-engine-compiler-regression-final.log. Prior65706 terminal exit100.
+- PNG acceptance harness corrected for valid adaptive filters using existing
+  Pillow dependency, retaining IHDR/CRC/length/alpha checks. Proper RED/GREEN
+  /tmp/koh-engine-png-oracle-{red,green}.log; CI now provisions Pillow on Linux.
+- Integration/retirement changes ready for commit; preserve existing excluded
+  tools and main battle.png. Next push exact integration head, inspect CI on
+  Linux/Windows/macOS, and finish local full compiler + remaining Rust gates.
+- Latest committed backend/assertion head da426da. All43 legacy debugger/host
+  methods now42mapped+1obsolete; no partials. Focused strict Clippy passes all
+  four native crates: /tmp/koh-engine-native-clippy-final.log exit0.
+- Production C# debugger/App/tests deleted in working tree, solution filters
+  and core friend attributes cleaned. Existing verify/tool sources unchanged.
+  Managed build isolated ArtifactsPath=/tmp/koh-engine-managed-artifacts and
+  native target=/tmp/koh-engine-managed-native-target, 0warnings/errors exit0:
+  /tmp/koh-engine-managed-build.log. Remaining fast504/504 zero skips exit0:
+  /tmp/koh-engine-managed-tests.log. Sessions77565/83223 terminal.
+- CPU owns final real VSCode/default GPUI/native DAP opt-in run once native
+  package exists; focused20pass/1pending, exact Windowless3-case assertions pass.
+- Fresh independent reviewer owns read-only current backend/cutover review;
+  no code/index edits, no builds, no delegation. Verify by reading actual code,
+  accepted baseline e1336b0, design/plan and completed logs. Existing publish2955
+  and compiler65706 still live; never restart from an observation timeout.
 - Committed core machine/boot/state-file increment 3d4a56a. Fresh 91/91 core
   tests: /tmp/koh-engine-core-final-current.log. Raw/STES formats stay separate.
 - Rust debugger committed ddbd1df (27/27 fresh), native compiler hosts d8b0317,
@@ -45,7 +82,7 @@ Current native cutover, 2026-11-19:
 2026-11-19 user authorized emulator -> debugger -> engine host migration after
 accepted GPUI work. Worktree /home/minorum/projekty/koh-rust-engine, branch
 feat/rust-engine, base e1336b0; PR56 remains open/draft and untouched. Design and
-plan: docs/rust-engine/{design,plan}.md. No product Rust engine code yet.
+plan: docs/rust-engine/{design,plan}.md. Native backend and acceptance state above.
 Main checkout battle.png edit is unrelated; preserve it. No work on the LSP.
 
 Parallel ownership after foundation/review:

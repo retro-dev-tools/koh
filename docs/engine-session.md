@@ -1,6 +1,6 @@
 # Desktop engine session
 
-`Koh.Emulator.App --session [rom] [--dap=<pipe>]` runs without a window.
+`koh-engine --session [rom] [--dap=<pipe>]` runs without a window.
 `--headless` also disables audio. Without a ROM it starts paused with an empty
 display. Boot ROM overrides retain their existing command-line syntax.
 

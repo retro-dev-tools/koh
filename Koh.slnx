@@ -20,12 +20,9 @@
   </Folder>
   <Folder Name="/Emulator/">
     <Project Path="src/Emulator/Koh.Boot/Koh.Boot.csproj" />
-    <Project Path="src/Emulator/Koh.Debugger/Koh.Debugger.csproj" />
-    <Project Path="src/Emulator/Koh.Emulator.App/Koh.Emulator.App.csproj" />
     <Project Path="src/Emulator/Koh.Emulator/Koh.Emulator.csproj" />
     <Project Path="src/Emulator/Koh.Verify/Koh.Verify.csproj" />
     <Project Path="tests/Emulator/Koh.Boot.Tests/Koh.Boot.Tests.csproj" />
-    <Project Path="tests/Emulator/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj" />
     <Project Path="tests/Emulator/Koh.Emulator.Tests/Koh.Emulator.Tests.csproj" />
   </Folder>
   <Folder Name="/Tools/">

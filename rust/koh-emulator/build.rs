@@ -6,7 +6,10 @@ fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     for file in fs::read_dir(&source).unwrap() {
         let path = file.unwrap().path();
-        if path.extension().is_some_and(|ext| ext == "asm" || ext == "inc") {
+        if path
+            .extension()
+            .is_some_and(|ext| ext == "asm" || ext == "inc")
+        {
             println!("cargo:rerun-if-changed={}", path.display());
         }
     }

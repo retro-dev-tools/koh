@@ -32,7 +32,7 @@ export type Spawner = (
  *      process alive for the session.
  *
  * The emulator itself hosts the debug adapter (see
- * src/Emulator/Koh.Emulator.App/DapServerHost.cs); this extension only owns
+ * rust/koh-engine/src/dap.rs); this extension only owns
  * launch and teardown.
  *
  * Teardown: the factory tracks every spawned emulator by session id
@@ -77,7 +77,7 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
         // miss the `[koh-dap] listening on` line the emulator prints
         // once the pipe server is up. Without waiting, VS Code's DAP
         // client races the ~200ms emulator startup and gets ENOENT
-        // on the pipe before Koh.Emulator.App registers the server.
+        // on the pipe before koh-engine registers the server.
         const ready = waitForDapReady(child, 15_000);
 
         child.stdout?.on('data', data => this.log.info(`[emu] ${String(data).trimEnd()}`));

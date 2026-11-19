@@ -22,6 +22,9 @@
     <KohNativeUiName>koh-emulator</KohNativeUiName>
     <KohNativeUiName Condition="('$(RuntimeIdentifier)' == '' and '$(OS)' == 'Windows_NT') or $(RuntimeIdentifier.StartsWith('win-'))">koh-emulator.exe</KohNativeUiName>
     <KohNativeUi>$([System.IO.Path]::Combine($([System.IO.Path]::GetDirectoryName('$(KohNativeAssembler)')), '$(KohNativeUiName)'))</KohNativeUi>
+    <KohNativeEngineName>koh-engine</KohNativeEngineName>
+    <KohNativeEngineName Condition="('$(RuntimeIdentifier)' == '' and '$(OS)' == 'Windows_NT') or $(RuntimeIdentifier.StartsWith('win-'))">koh-engine.exe</KohNativeEngineName>
+    <KohNativeEngine>$([System.IO.Path]::Combine($([System.IO.Path]::GetDirectoryName('$(KohNativeAssembler)')), '$(KohNativeEngineName)'))</KohNativeEngine>
     <KohNativeHostRid>$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</KohNativeHostRid>
     <KohNativeNeedsHostTool Condition="'$(RuntimeIdentifier)' != '' and '$(RuntimeIdentifier)' != '$(KohNativeHostRid)'">true</KohNativeNeedsHostTool>
     <KohNativeHostExecutableName>koh-asm</KohNativeHostExecutableName>
@@ -60,4 +63,20 @@
     <Error Condition="!Exists('$(KohNativeUi)')" Text="Native desktop was not produced: $(KohNativeUi)" />
   </Target>
   <Target Name="GetNativeUiPath" DependsOnTargets="BuildRustUi" Returns="$(KohNativeUi)" />
+  <Target Name="BuildRustEngine">
+    <Error Condition="'$(RuntimeIdentifier)' != '' and '$(KohNativeTargetTriple)' == ''" Text="No Rust target mapping for RuntimeIdentifier '$(RuntimeIdentifier)'." />
+    <Exec WorkingDirectory="$(KohRepositoryRoot)" Command="cargo build --release --package koh-engine --locked --target-dir &quot;$(KohNativeCargoTargetDir)&quot; $(KohNativeTargetArgument)" />
+    <Error Condition="!Exists('$(KohNativeEngine)')" Text="Native engine was not produced: $(KohNativeEngine)" />
+  </Target>
+  <Target Name="GetNativeEnginePath" DependsOnTargets="BuildRustEngine" Returns="$(KohNativeEngine)" />
+  <Target Name="GetNativeAudioFiles" Returns="@(KohNativeAudioFiles)">
+    <PropertyGroup>
+      <KohAudioRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</KohAudioRid>
+      <KohAudioRid Condition="'$(KohAudioRid)' == ''">$(KohNativeHostRid)</KohAudioRid>
+    </PropertyGroup>
+    <ItemGroup>
+      <KohNativeAudioFiles Include="$(PkgSilk_NET_OpenAL_Soft_Native)/runtimes/$(KohAudioRid)/native/*" />
+    </ItemGroup>
+    <Error Condition="'@(KohNativeAudioFiles)' == ''" Text="OpenAL native assets unavailable for $(KohAudioRid). Restore Koh.Native first." />
+  </Target>
 </Project>

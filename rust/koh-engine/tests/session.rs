@@ -116,6 +116,7 @@ impl Client {
     }
     fn spawn(binary: &Path, args: &[String], headless: bool, session: bool) -> Self {
         let mut child = Command::new(binary)
+            .env("ALSOFT_DRIVERS", "null")
             .args(if session { Some("--session") } else { None })
             .args(if headless { Some("--headless") } else { None })
             .args(args)

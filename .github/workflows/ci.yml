@@ -85,7 +85,7 @@ jobs:
       - name: Test Rust documentation
         run: cargo +stable test --doc --workspace --all-features --locked
       - name: Build native executables
-        run: cargo +stable build --release --package koh-asm --package koh-link --package koh-compile --locked
+        run: cargo +stable build --release --package koh-asm --package koh-link --package koh-compile --package koh-engine --locked
       - name: Stage Rust runtime notices
         run: python scripts/stage-rust-notices.py artifacts/rust-runtime
       - name: Smoke-test native compiler artifacts
@@ -110,6 +110,8 @@ jobs:
             target/release/koh-link.exe
             target/release/koh-compile
             target/release/koh-compile.exe
+            target/release/koh-engine
+            target/release/koh-engine.exe
             licenses/rust-assembler-dependencies.md
             licenses/rust-assembler/
             artifacts/rust-runtime/
@@ -207,11 +209,7 @@ jobs:
             target
           key: ${{ runner.os }}-dotnet-${{ hashFiles('Cargo.lock', 'global.json', 'Directory.Packages.props') }}
 
-  # NativeAOT publishes of the emulator on each host runner. The AOT
-  # compiler can't cross-OS, so each target's binary is produced on
-  # its native runner. This job catches RID-specific build breakage
-  # (missing native assets, platform API gaps) before it reaches a
-  # user trying to ship.
+  # Native desktop packages.
   emulator-aot-publish:
     strategy:
       fail-fast: false
@@ -237,15 +235,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config clang libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan-dev xvfb libxtst6 mesa-vulkan-drivers fonts-dejavu-core
 
-      - name: Publish desktop and NativeAOT engine
+      - name: Publish desktop and native engine
         run: dotnet msbuild build.proj -t:PublishEmulatorApp
 
-      - name: Smoke-test headless NativeAOT emulator
+      - name: Test native engine lifecycle and OpenAL reset
+        shell: bash
+        run: |
+          pub="$PWD/artifacts/emulator/${{ matrix.rid }}"
+          export PATH="$pub:$PATH"
+          export LD_LIBRARY_PATH="$pub${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export DYLD_LIBRARY_PATH="$pub${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+          cargo test -p koh-engine --locked
+          ALSOFT_DRIVERS=null cargo test -p koh-engine --bin koh-engine openal_null_backend_warmup_reset_and_restart --locked -- --ignored
+          ALSOFT_DRIVERS=null cargo test -p koh-engine --test session audio_resume_reset_and_restore_remain_operational --locked -- --ignored
+
+      - name: Smoke-test headless native engine
         shell: bash
         run: |
           dotnet msbuild build.proj -t:BuildSample2048
-          pub=src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish
-          exe="$pub/koh-emulator"
+          pub=artifacts/emulator/${{ matrix.rid }}
+          exe="$pub/koh-engine"
           if [[ "$RUNNER_OS" == "Windows" ]]; then exe="$exe.exe"; fi
           smoke_dir="$(mktemp -d)"
           "$exe" samples/asm/gb-2048/build/2048.gbc --frames=300 --screenshot="$smoke_dir/frame.png"
@@ -268,40 +277,70 @@ jobs:
                   compressed.extend(chunk)
               offset += size + 12
           assert len(zlib.decompress(compressed)) == 144 * (1 + 160 * 4)
-          print("Headless NativeAOT capture: 160x144 PNG")
+          print("Headless native capture: 160x144 PNG")
           PY
 
       - name: Report publish size
         shell: bash
         run: |
-          pub=src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish
+          pub=artifacts/emulator/${{ matrix.rid }}
           echo "── publish contents ──"
           ls -lh "$pub"
           echo "── total ──"
           du -sh "$pub"
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install image test dependency
+        run: python -m pip install Pillow==13.0.0
+
       - name: Verify packaged GPUI window
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          python scripts/test-verify-gpui.py
           dotnet build samples/csharp/gb-2048-v2/Gb2048V2.csproj -c Release -m:1
-          python scripts/verify-gpui.py src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish/koh-emulator samples/csharp/gb-2048-v2/2048v2.gb --output "$RUNNER_TEMP/gpui-native"
-
-      - uses: actions/setup-python@v5
-        if: runner.os != 'Linux'
-        with:
-          python-version: '3.13'
+          python scripts/verify-gpui.py artifacts/emulator/${{ matrix.rid }}/koh-emulator samples/csharp/gb-2048-v2/2048v2.gb --output "$RUNNER_TEMP/gpui-native"
 
       - name: Verify native Windows/macOS window
         if: runner.os != 'Linux'
         shell: bash
         run: |
-          python -m pip install Pillow==13.0.0
           python scripts/test-verify-gpui-platform.py
           dotnet build samples/csharp/gb-2048-v2/Gb2048V2.csproj -c Release -m:1
-          exe=src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish/koh-emulator
+          exe=artifacts/emulator/${{ matrix.rid }}/koh-emulator
           if [[ "$RUNNER_OS" == "Windows" ]]; then exe="$exe.exe"; fi
           python scripts/verify-gpui-platform.py "$exe" samples/csharp/gb-2048-v2/2048v2.gb --output "$RUNNER_TEMP/gpui-native"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Verify actual VS Code desktop debugger
+        shell: bash
+        run: |
+          fixture="$RUNNER_TEMP/native-dap-fixture"
+          cargo run -p koh-debugger --example fixture --locked -- "$fixture"
+          desktop="$PWD/artifacts/emulator/${{ matrix.rid }}/koh-emulator"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            desktop="$(cygpath -m "$desktop.exe")"
+            fixture="$(cygpath -m "$fixture")"
+          fi
+          export KOH_TEST_DESKTOP="$desktop"
+          export KOH_TEST_DAP_ROM="$fixture/fixture.gb"
+          export KOH_TEST_DAP_ELF="$fixture/fixture.elf"
+          export ALSOFT_DRIVERS=null
+          cd editors/vscode
+          npm ci
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            xvfb-run -a npm test -- --grep 'KohDapAdapterFactory|waitForDapReady'
+          else
+            npm test -- --grep 'KohDapAdapterFactory|waitForDapReady'
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -313,7 +352,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.rid }}
-          path: src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish/
+          path: artifacts/emulator/${{ matrix.rid }}/
           if-no-files-found: error
           retention-days: 7
 

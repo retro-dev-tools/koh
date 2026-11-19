@@ -27,6 +27,7 @@ BenchmarkDotNet.Artifacts/
 tests/fixtures/screenshots/
 scriptrun.log
 /target/
+/artifacts/
 /samples/csharp/**/*.elf
 *.png
 __pycache__/

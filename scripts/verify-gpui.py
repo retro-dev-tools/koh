@@ -8,6 +8,7 @@ import struct
 import subprocess
 import time
 import zlib
+from PIL import Image
 
 
 def png_chunk(kind, data):
@@ -35,8 +36,9 @@ def read_oracle(path):
         offset += length + 12
     rows = zlib.decompress(compressed)
     assert len(rows) == 144 * 641
-    assert all(rows[y * 641] == 0 for y in range(144))
-    rgba = b"".join(rows[y * 641 + 1:(y + 1) * 641] for y in range(144))
+    with Image.open(path) as image:
+        assert image.mode == "RGBA" and image.size == (160, 144)
+        rgba = image.tobytes()
     assert rgba[3::4] == b"\xff" * (160 * 144)
     return rgba
 
@@ -86,7 +88,7 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     rom = output / "2048.gb"
     shutil.copyfile(args.rom, rom)
-    engine = desktop.with_name("Koh.Emulator.App")
+    engine = desktop.with_name("koh-engine")
     assert engine.is_file(), "windowless engine must be beside the desktop"
     environment = dict(os.environ, ALSOFT_DRIVERS="null", GSETTINGS_BACKEND="memory")
     for name in ["DISPLAY", "WAYLAND_DISPLAY", "KOH_ENGINE"]:

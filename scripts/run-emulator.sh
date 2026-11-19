@@ -20,7 +20,7 @@ if [[ "$rid" == win-x64 ]]; then
     [[ -x "$vs_installer/vswhere.exe" ]] && PATH="$vs_installer:$PATH"
 fi
 
-publish_dir="$repo_root/src/Emulator/Koh.Emulator.App/bin/Release/net10.0/$rid/publish"
+publish_dir="$repo_root/artifacts/emulator/$rid"
 exe_name="koh-emulator"
 [[ "$rid" == win-* ]] && exe_name="koh-emulator.exe"
 exe="$publish_dir/$exe_name"

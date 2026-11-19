@@ -7,9 +7,11 @@ Assessment date: 2026-11-14. Source baseline: `c2fddcf`, with pre-existing uncom
 Active user-requested migration (2026-11-19): rewrite the production emulator
 engine and debugger in Rust. Core machine/boot/state compatibility, DWARF
 debugger and native execution hosts are committed. Fresh checks cover 91 core,
-27 debugger, 22 host, 295 compiler CPU, 37 source and 42 game cases. Native
-publishing and launch cutover, full regression, actual GPUI/VS Code and platform
-acceptance remain in progress; see [engine migration](docs/rust-engine/design.md).
+27 debugger, complete legacy host matrices, 295 compiler CPU, 37 source and
+42 game cases. Native publishing and actual packaged GPUI/VS Code acceptance
+pass locally; the remaining managed suite passes 504/504 with zero skips.
+Full compiler regression and platform acceptance remain in progress; see
+[engine migration](docs/rust-engine/design.md).
 Verification tooling is excluded pending separate design. Keep existing C#
 emulator/boot dependencies for unchanged verification and development tools;
 the Rust production engine has no managed fallback. Keep draft PR57 stacked
