@@ -216,7 +216,12 @@ impl MemoryHook for Hook {
                     && matches!(address, 0xff69 | 0xff6b)
                     && c.lcdc & 128 != 0
                     && mode == PpuMode::Drawing),
-                "Mode-3 palette write"
+                "{}",
+                if address == 0xff6b {
+                    "Mode-3 OBJ palette write"
+                } else {
+                    "Mode-3 BG palette write"
+                }
             );
             if address == 0xff46 {
                 assert!(
@@ -346,5 +351,44 @@ pub fn joined(values: &[String]) -> String {
         "-".into()
     } else {
         values.join(",")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn palette_guards_preserve_bg_obj_and_ime_diagnostics() {
+        for (address, ime, expected) in [
+            (0xff69, false, "Mode-3 BG palette write"),
+            (0xff6b, false, "Mode-3 OBJ palette write"),
+            (0xff69, true, "Palette write with IME enabled"),
+            (0xff6b, true, "Palette write with IME enabled"),
+        ] {
+            let mut m = Machine::load_rom(&vec![0; 0x8000]).unwrap();
+            m.ppu.mode = PpuMode::Drawing;
+            m.ppu.lcdc = 0x80;
+            m.cpu.ime = ime;
+            Hook::attach(
+                &mut m,
+                TraceOptions {
+                    video: true,
+                    guard_palettes: true,
+                    guard_palette_ime: true,
+                    ..Default::default()
+                },
+            );
+            let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                m.write_cpu(address, 0x42)
+            }))
+            .unwrap_err();
+            let message = panic
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| panic.downcast_ref::<&str>().copied())
+                .unwrap();
+            assert_eq!(message, expected);
+        }
     }
 }
