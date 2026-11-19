@@ -44,24 +44,6 @@ impl Graph {
         self.edges.insert(id, edges);
     }
 
-    pub fn remove(&mut self, path: &str) {
-        let id = key(path);
-        self.upsert(path, &[]);
-        self.edges.remove(&id);
-        if let Some(incoming) = self.reverse.remove(&id) {
-            for parent in incoming {
-                if let Some(edges) = self.edges.get_mut(&parent) {
-                    edges.remove(&id);
-                }
-            }
-        }
-        self.names.remove(&id);
-    }
-
-    pub fn scanned(&self, path: &str) -> bool {
-        self.edges.contains_key(&key(path))
-    }
-
     pub fn includes(&self, path: &str) -> BTreeSet<String> {
         self.edges
             .get(&key(path))
@@ -99,14 +81,6 @@ impl Graph {
         self.distances(path)
             .into_keys()
             .map(|id| self.names.get(&id).cloned().unwrap_or_else(|| path.into()))
-            .collect()
-    }
-
-    pub fn reachable_entrypoints(&self, path: &str, roots: &BTreeSet<String>) -> BTreeSet<String> {
-        roots
-            .iter()
-            .filter(|root| self.distances(root).contains_key(&key(path)))
-            .cloned()
             .collect()
     }
 

@@ -8,7 +8,6 @@ use std::{collections::BTreeSet, io, path::Path};
 pub struct Resolved {
     pub symbol: Value,
     pub token: Value,
-    pub path: String,
     pub declaration: bool,
 }
 
@@ -115,16 +114,15 @@ pub fn resolve_at(workspace: &Workspace, path: &Path, offset: usize) -> Option<R
                 .flatten()
                 .chain(std::iter::once(&symbol["definition"]))
                 .any(|location| {
-                    location["path"]
-                        .as_str()
-                        .is_some_and(|p| same_file(p, &doc.path))
-                        && span(location).0 == span(token).0
+                    span(location).0 == span(token).0
+                        && location["path"]
+                            .as_str()
+                            .is_some_and(|p| same_file(p, &doc.path))
                 })
         })?;
     Some(Resolved {
         symbol: symbol.clone(),
         token: token.clone(),
-        path: doc.path.clone(),
         declaration: declaration(&doc.syntax, token),
     })
 }

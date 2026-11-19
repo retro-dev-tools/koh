@@ -39,7 +39,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # ubuntu is covered by ci.yml on every PR
+        os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -56,9 +57,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Install editor test display
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb libxtst6
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.nuget/packages
+            target
+          key: ${{ runner.os }}-lsp-${{ hashFiles('Cargo.lock', 'global.json', 'Directory.Packages.props') }}
+          restore-keys: ${{ runner.os }}-lsp-
       - name: Test native language server
         run: |
           cargo build -p koh-asm --locked
@@ -93,11 +100,7 @@ jobs:
         working-directory: editors/vscode
         run: |
           npm ci
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            xvfb-run -a npm test
-          else
-            npm test
-          fi
+          npm test
       - uses: actions/upload-artifact@v4
         if: always()
         with:

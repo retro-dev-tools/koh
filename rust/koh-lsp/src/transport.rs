@@ -1,7 +1,7 @@
 use serde_json::Value;
 use std::io::{self, BufRead, Read, Write};
 
-const MAX_MESSAGE: u64 = 64 * 1024 * 1024;
+pub(crate) const MAX_MESSAGE: u64 = 64 * 1024 * 1024;
 const MAX_HEADER: u64 = 8192;
 
 pub fn read_message(input: &mut impl BufRead) -> io::Result<Option<Value>> {

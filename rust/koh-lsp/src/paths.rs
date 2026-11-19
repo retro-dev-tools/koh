@@ -52,11 +52,14 @@ pub fn key(path: &str) -> String {
     path.to_lowercase()
 }
 
+pub fn file_key(path: &str) -> Option<String> {
+    normalize(Path::new(path))
+        .ok()
+        .map(|path| key(&path.to_string_lossy()))
+}
+
 pub fn same_file(left: &str, right: &str) -> bool {
-    match (normalize(Path::new(left)), normalize(Path::new(right))) {
-        (Ok(left), Ok(right)) => key(&left.to_string_lossy()) == key(&right.to_string_lossy()),
-        _ => false,
-    }
+    matches!((file_key(left), file_key(right)), (Some(left), Some(right)) if left == right)
 }
 
 pub(crate) fn lines(text: &str) -> Vec<(usize, usize)> {
@@ -78,32 +81,56 @@ pub(crate) fn lines(text: &str) -> Vec<(usize, usize)> {
     lines
 }
 
-pub fn offset(text: &str, position: &Value) -> usize {
-    let line = position["line"].as_i64().unwrap_or(0);
-    if line < 0 {
-        return 0;
+/// UTF-16 line table: build once per text, then convert in O(log n).
+pub struct Lines(Vec<(usize, usize)>);
+
+impl Lines {
+    pub fn new(text: &str) -> Self {
+        Self(lines(text))
     }
-    let character = position["character"].as_u64().unwrap_or(0) as usize;
-    let lines = lines(text);
-    lines.get(line as usize).map_or_else(
-        || text.encode_utf16().count(),
-        |&(start, end)| start + character.min(end - start),
-    )
+
+    fn len(&self) -> usize {
+        self.0.last().map_or(0, |&(_, end)| end)
+    }
+
+    pub fn offset(&self, position: &Value) -> usize {
+        let line = position["line"].as_i64().unwrap_or(0);
+        if line < 0 {
+            return 0;
+        }
+        let character = position["character"].as_u64().unwrap_or(0) as usize;
+        self.0.get(line as usize).map_or_else(
+            || self.len(),
+            |&(start, end)| start + character.min(end - start),
+        )
+    }
+
+    pub fn position(&self, offset: usize) -> Value {
+        let offset = offset.min(self.len());
+        let line = self
+            .0
+            .partition_point(|&(start, _)| start <= offset)
+            .saturating_sub(1);
+        json!({"line":line,"character":offset-self.0[line].0})
+    }
+
+    pub fn range(&self, start: usize, length: usize) -> Value {
+        json!({"start":self.position(start),"end":self.position(start.saturating_add(length))})
+    }
+}
+
+pub fn offset(text: &str, position: &Value) -> usize {
+    Lines::new(text).offset(position)
 }
 
 pub fn position(text: &str, offset: usize) -> Value {
-    let lines = lines(text);
-    let offset = offset.min(text.encode_utf16().count());
-    let line = lines
-        .partition_point(|&(start, _)| start <= offset)
-        .saturating_sub(1);
-    json!({"line":line,"character":offset-lines[line].0})
+    Lines::new(text).position(offset)
 }
 
 pub fn range(text: &str, start: usize, length: usize) -> Value {
-    json!({"start":position(text,start),"end":position(text,start.saturating_add(length))})
+    Lines::new(text).range(start, length)
 }
 
-fn invalid(message: &str) -> io::Error {
+pub(crate) fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }

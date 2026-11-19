@@ -7,34 +7,23 @@ fn set(paths: &[&str]) -> BTreeSet<String> {
 }
 
 #[test]
-fn edges_replace_remove_and_track_scanned_leaves_case_insensitively() {
+fn edges_replace_case_insensitively() {
     let mut graph = Graph::default();
     assert!(graph.includes("unknown").is_empty());
     assert!(graph.includers("unknown").is_empty());
-    assert!(!graph.scanned("leaf.inc"));
     graph.upsert("Main.asm", &["old.inc".into(), "shared.inc".into()]);
     assert_eq!(graph.includes("MAIN.ASM"), set(&["old.inc", "shared.inc"]));
     assert_eq!(graph.includers("OLD.INC"), set(&["Main.asm"]));
     graph.upsert("Main.asm", &["new.inc".into()]);
     assert!(graph.includers("old.inc").is_empty());
     assert_eq!(graph.includes("Main.asm"), set(&["new.inc"]));
-    graph.upsert("leaf.inc", &[]);
-    assert!(graph.scanned("LEAF.INC"));
-    graph.remove("leaf.inc");
-    assert!(!graph.scanned("leaf.inc"));
-    graph.remove("NEW.INC");
-    assert!(graph.includes("Main.asm").is_empty());
-    graph.upsert("Main.asm", &["new.inc".into()]);
-    graph.remove("Main.asm");
-    assert!(graph.includers("new.inc").is_empty());
-    graph.remove("missing");
     graph.upsert("a.asm", &["shared.inc".into()]);
     graph.upsert("b.asm", &["shared.inc".into()]);
     assert_eq!(graph.includers("shared.inc"), set(&["a.asm", "b.asm"]));
 }
 
 #[test]
-fn reachable_files_and_entrypoints_handle_chains_diamonds_and_cycles() {
+fn reachable_files_handle_chains_diamonds_and_cycles() {
     let mut graph = Graph::default();
     assert_eq!(graph.reachable("alone.asm"), set(&["alone.asm"]));
     graph.upsert("a.asm", &["b.asm".into(), "c.asm".into()]);
@@ -44,15 +33,6 @@ fn reachable_files_and_entrypoints_handle_chains_diamonds_and_cycles() {
     assert_eq!(
         graph.reachable("a.asm"),
         set(&["a.asm", "b.asm", "c.asm", "d.inc"])
-    );
-    assert_eq!(
-        graph.reachable_entrypoints("d.inc", &set(&["a.asm", "b.asm", "unrelated.asm"])),
-        set(&["a.asm", "b.asm"])
-    );
-    assert!(
-        graph
-            .reachable_entrypoints("isolated", &set(&["a.asm"]))
-            .is_empty()
     );
 }
 
