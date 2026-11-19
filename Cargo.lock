@@ -3350,6 +3350,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "koh-emulator"
+version = "1.0.2"
+
+[[package]]
 name = "koh-link"
 version = "1.0.2"
 dependencies = [
