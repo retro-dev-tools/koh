@@ -18,6 +18,7 @@ pub struct Document {
     pub diagnostics: Vec<Value>,
 }
 
+#[derive(Clone)]
 pub struct Project {
     pub name: String,
     pub entrypoint: String,
@@ -57,7 +58,7 @@ impl Workspace {
         let folder = normalize(folder)?;
         self.configuration = Some(Configuration::load(&folder));
         self.folder = Some(folder);
-        self.rebuild()
+        self.rebuild(None)
     }
 
     pub fn reload(&mut self) -> io::Result<()> {
@@ -86,19 +87,19 @@ impl Workspace {
         self.documents.insert(
             key(&path),
             Document {
-                path,
+                path: path.clone(),
                 text: text.into(),
                 syntax,
                 diagnostics,
             },
         );
-        self.rebuild()
+        self.rebuild(Some(&path))
     }
 
     pub fn close(&mut self, path: &Path) -> io::Result<()> {
-        self.documents
-            .remove(&key(&normalize(path)?.to_string_lossy()));
-        self.rebuild()
+        let path = normalize(path)?.to_string_lossy().into_owned();
+        self.documents.remove(&key(&path));
+        self.rebuild(Some(&path))
     }
 
     pub fn document(&self, path: &Path) -> Option<&Document> {
@@ -227,7 +228,7 @@ impl Workspace {
         Ok(graph)
     }
 
-    fn rebuild(&mut self) -> io::Result<()> {
+    fn rebuild(&mut self, changed: Option<&str>) -> io::Result<()> {
         let mut projects = Vec::new();
         let mut owners = BTreeMap::new();
         match self.configuration.clone() {
@@ -236,19 +237,31 @@ impl Workspace {
                 definitions.sort_by_key(|def| key(&def.entrypoint.to_string_lossy()));
                 for def in definitions {
                     let root = def.entrypoint.to_string_lossy().into_owned();
-                    let analysis = self.analyze(std::slice::from_ref(&root))?;
-                    let graph = self.graph(&analysis, &root)?;
-                    let files: BTreeSet<_> =
-                        graph.reachable(&root).iter().map(|p| key(p)).collect();
-                    for file in &files {
+                    let unchanged = self
+                        .projects
+                        .iter()
+                        .find(|project| {
+                            same_file(&project.entrypoint, &root)
+                                && changed.is_some_and(|path| !project.contains(Path::new(path)))
+                        })
+                        .cloned();
+                    let project = if let Some(project) = unchanged {
+                        project
+                    } else {
+                        let analysis = self.analyze(std::slice::from_ref(&root))?;
+                        let graph = self.graph(&analysis, &root)?;
+                        let files = graph.reachable(&root).iter().map(|p| key(p)).collect();
+                        Project {
+                            name: def.name,
+                            entrypoint: root.clone(),
+                            analysis,
+                            files,
+                        }
+                    };
+                    for file in &project.files {
                         owners.entry(file.clone()).or_insert_with(|| key(&root));
                     }
-                    projects.push(Project {
-                        name: def.name,
-                        entrypoint: root,
-                        analysis,
-                        files,
-                    });
+                    projects.push(project);
                 }
             }
             Some(Configuration::Heuristic) => {

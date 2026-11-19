@@ -36,6 +36,10 @@ fn configured_projects_isolate_symbols_diagnostics_and_unrelated_files() {
     assert!(w.diagnostics(&tools).is_empty());
     assert!(w.project_for(&other).is_none());
     assert_eq!(w.projects().len(), 2);
+    assert_eq!(w.projects()[0].entrypoint, game.to_string_lossy());
+    assert_eq!(w.projects()[1].entrypoint, tools.to_string_lossy());
+    assert_eq!(w.projects()[0].name, "game");
+    assert_eq!(w.projects()[1].name, "tools");
 }
 
 #[test]
@@ -56,6 +60,8 @@ fn included_only_open_file_uses_root_context_and_unsaved_overlay() {
     w.open(&leaf, "UnsavedEntry: load_value 2\n").unwrap();
     let project = w.project_for(&leaf).unwrap();
     assert_eq!(project.entrypoint, game.to_string_lossy());
+    assert_eq!(project.name, "game");
+    assert_eq!(w.projects().len(), 1);
     assert!(symbols(&project.analysis).contains(&"UnsavedEntry"));
     assert!(!symbols(&project.analysis).contains(&"Entry"));
     assert!(
@@ -143,6 +149,9 @@ fn invalid_config_is_parse_only_until_reload_and_open_state_is_preserved() {
     let path = f.0.join("main.asm");
     let mut w = Workspace::default();
     w.initialize(&f.0).unwrap();
+    assert!(
+        matches!(&w.configuration, Some(koh_lsp::config::Configuration::Invalid(errors)) if errors.len() == 2)
+    );
     w.open(&path, "SECTION \"Main\",ROM0\nLabel: nop\n")
         .unwrap();
     assert!(w.projects().is_empty());
@@ -239,4 +248,124 @@ fn shared_nested_include_uses_each_entrypoints_root_before_its_own_directory() {
         assert!(project.contains(own));
         assert!(!project.contains(other));
     }
+}
+
+#[test]
+fn editing_one_project_preserves_unrelated_project_analysis() {
+    let f = Fixture::new();
+    f.write(
+        "koh.yaml",
+        "version: 1\nprojects: [{name: a, entrypoint: a.asm}, {name: b, entrypoint: b.asm}]",
+    );
+    let a = f.write("a.asm", "SECTION \"A\",ROM0\nnop\n");
+    let b = f.write("b.asm", "SECTION \"B\",ROM0\nDEF Value EQU 2\n");
+    let mut w = Workspace::default();
+    w.initialize(&f.0).unwrap();
+    let before = w.project_for(&b).unwrap().analysis.clone();
+    f.write("b.asm", "SECTION \"B\",ROM0\nDEF Value EQU 99\n");
+    w.open(&a, "SECTION \"A\",ROM0\nhalt\n").unwrap();
+    assert_eq!(w.project_for(&b).unwrap().analysis, before);
+    w.open(&b, &std::fs::read_to_string(&b).unwrap()).unwrap();
+    assert_ne!(w.project_for(&b).unwrap().analysis, before);
+}
+
+#[test]
+fn shared_include_edit_rebuilds_all_owning_projects() {
+    let f = Fixture::new();
+    f.write(
+        "koh.yaml",
+        "version: 1\nprojects: [{name: a, entrypoint: a.asm}, {name: b, entrypoint: b.asm}]",
+    );
+    f.write("a.asm", "SECTION \"A\",ROM0\nINCLUDE \"shared.inc\"\n");
+    f.write("b.asm", "SECTION \"B\",ROM0\nINCLUDE \"shared.inc\"\n");
+    let shared = f.write("shared.inc", "DEF Value EQU 1\n");
+    let mut w = Workspace::default();
+    w.initialize(&f.0).unwrap();
+    for expected in [1, 2] {
+        if expected == 2 {
+            w.open(&shared, "DEF Value EQU 2\n").unwrap();
+        }
+        assert_eq!(w.projects().len(), 2);
+        for project in w.projects() {
+            let value = project.analysis["symbols"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|s| s["name"] == "Value")
+                .unwrap();
+            assert_eq!(value["value"], expected);
+        }
+    }
+}
+
+#[test]
+fn heuristic_shared_file_owner_is_alphabetically_deterministic() {
+    let f = Fixture::new();
+    let alpha = f.0.join("alpha.asm");
+    let zeta = f.0.join("zeta.asm");
+    let shared = f.write("shared.inc", "Shared: nop\n");
+    let mut w = Workspace::default();
+    w.initialize(&f.0).unwrap();
+    w.open(&zeta, "SECTION \"Z\",ROM0\nINCLUDE \"shared.inc\"\n")
+        .unwrap();
+    w.open(&alpha, "SECTION \"A\",ROM0\nINCLUDE \"shared.inc\"\n")
+        .unwrap();
+    assert_eq!(
+        w.project_for(&shared).unwrap().entrypoint,
+        alpha.to_string_lossy()
+    );
+    w.close(&alpha).unwrap();
+    assert_eq!(
+        w.project_for(&shared).unwrap().entrypoint,
+        zeta.to_string_lossy()
+    );
+    w.close(&zeta).unwrap();
+    assert!(w.projects().is_empty());
+}
+
+#[test]
+fn heuristic_orphan_sources_keep_independent_analysis() {
+    let f = Fixture::new();
+    let asm = f.0.join("orphan.asm");
+    let inc = f.0.join("orphan.inc");
+    let mut w = Workspace::default();
+    w.initialize(&f.0).unwrap();
+    w.open(&asm, "SECTION \"Main\",ROM0\nOrphan: nop\n")
+        .unwrap();
+    w.open(&inc, "DEF Value EQU 42\n").unwrap();
+    assert_eq!(w.projects().len(), 2);
+    assert!(symbols(&w.project_for(&asm).unwrap().analysis).contains(&"Orphan"));
+    assert!(!symbols(&w.project_for(&asm).unwrap().analysis).contains(&"Value"));
+    assert!(symbols(&w.project_for(&inc).unwrap().analysis).contains(&"Value"));
+}
+
+#[test]
+fn overlay_text_updates_case_insensitively_and_close_restores_disk_reads() {
+    let f = Fixture::new();
+    let path = f.write("source.asm", "disk text");
+    let mut w = Workspace::default();
+    assert_eq!(w.text(&path).unwrap(), "disk text");
+    w.open(&path, "unsaved one").unwrap();
+    assert_eq!(w.text(&path).unwrap(), "unsaved one");
+    w.open(&path, "unsaved two").unwrap();
+    let upper = std::path::PathBuf::from(path.to_string_lossy().to_uppercase());
+    assert_eq!(w.text(&upper).unwrap(), "unsaved two");
+    w.close(&upper).unwrap();
+    assert_eq!(w.text(&path).unwrap(), "disk text");
+    assert!(w.text(&f.0.join("missing.asm")).is_err());
+}
+
+#[test]
+fn missing_relative_include_is_resolved_from_its_containing_file() {
+    let f = Fixture::new();
+    let path = f.0.join("src/main.asm");
+    let mut w = Workspace::default();
+    w.initialize(&f.0).unwrap();
+    w.open(&path, "INCLUDE \"helpers/math.asm\"\n").unwrap();
+    assert!(
+        w.project_for(&path)
+            .unwrap()
+            .contains(&f.0.join("src/helpers/math.asm"))
+    );
+    assert!(!w.diagnostics(&path).is_empty());
 }

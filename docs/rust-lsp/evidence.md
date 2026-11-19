@@ -80,3 +80,28 @@ This is not complete feature parity. Editor requests/publishing still await
 implementation; production remains managed. YAML parsing uses serde_yaml_ng
 0.10.0 (upstream metadata Rust1.64) and URL handling reuses the workspace's
 existing url2.5 dependency. Whole-target Rust1.88 validation remains open.
+
+## Completed workspace parity pass
+
+`cargo test -p koh-lsp --locked`: exit `0`,37 passed, zero failed/ignored;
+`/tmp/koh-lsp-task2-final.log` re-read and summaries summed. Strict Clippy
+exit `0`; `/tmp/koh-lsp-task2-clippy.log` re-read.
+
+An additional RED/GREEN test (`/tmp/koh-lsp-unrelated-{red,green}.log`) pins the
+existing invariant that editing one configured project must not rebuild
+unrelated projects. Reuse unaffected project analyses; rebuild all owners of
+an edited shared include. Separate tests cover heuristic ownership after close,
+overlay text/disk restoration, and missing relative includes.
+
+Worker bridge parity also proves warning severity/messages/UTF16 spans for
+analyze and assemble, instruction bytes, virtual/dynamic includes, separate
+text/binary snapshots, physical/virtual READFILE byte limits and explicit nested
+resolution mappings. Logs `/tmp/koh-lsp-{bridge,resolver}-parity.log`.
+
+Current inventory:125 mapped replacements,1 obsolete private C# adapter test,
+81 pending editor/classification cases. Obsolete test asserted delegation to a
+VirtualFileResolver seam; native workspace has no such adapter. Explicit worker
+resolution-policy assertions retain its useful behavior. No feature removal.
+
+Tasks1–2 complete. Native stdio remains lifecycle-only until Task3 connects the
+workspace/editor methods. Production publishing is still managed.
