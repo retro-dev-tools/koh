@@ -1,0 +1,16 @@
+[package]
+name = "koh-debugger"
+version = "1.0.2"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+koh-emulator = { path = "../koh-emulator" }
+koh-link = { path = "../koh-link" }
+serde_json = "1"
+base64 = "0.22"
+
+[dev-dependencies]
+koh-asm = { path = "../koh-asm" }
+koh-objects = { path = "../koh-objects" }

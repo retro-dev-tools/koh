@@ -3350,6 +3350,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "koh-debugger"
+version = "1.0.2"
+dependencies = [
+ "base64 0.22.1",
+ "koh-asm",
+ "koh-emulator",
+ "koh-link",
+ "koh-objects",
+ "serde_json",
+]
+
+[[package]]
 name = "koh-emulator"
 version = "1.0.2"
 dependencies = [
