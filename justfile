@@ -18,6 +18,7 @@ lint:
     actionlint -color
     shellcheck installers/unix/koh-install.sh.template
 
+# Check libraries and binaries on the minimum supported Rust version.
 msrv:
     cargo +1.88.0 check --workspace --exclude koh-ui --exclude koh-test-host --lib --bins --all-features --locked
 
@@ -43,9 +44,11 @@ build:
     run("dotnet", "msbuild", "build.proj", "-t:PublishEmulatorApp", f"-p:EmulatorPublishDir={bin}")
     rid = subprocess.check_output(["dotnet", "msbuild", "build.proj", "-nologo", "-getProperty:EmulatorRuntimeIdentifier"], text=True).strip()
     shutil.copytree(bin, root / f"artifacts/emulator/{rid}", dirs_exist_ok=True)
-    run("cargo", "build", "--release", "-p", "koh-compile", "--locked")
+    # Same command and target dir as Koh.Build.Tasks/NativeBuild.targets, so the solution build reuses it.
+    target = root / "target/compiler-msbuild/Release"
+    run("cargo", "build", "--release", "--package", "koh-compile", "--package", "koh-link", "--locked", "--target-dir", str(target))
     suffix = ".exe" if os.name == "nt" else ""
-    shutil.copy2(root / f"target/release/koh-compile{suffix}", bin)
+    shutil.copy2(target / f"release/koh-compile{suffix}", bin)
     run("dotnet", "build", "Koh.Ci.slnf", "-c", "Release", "-m:1")
 
 # Build and test native and managed components.
@@ -91,11 +94,9 @@ verify:
     run("dotnet", "msbuild", "build.proj", "-t:BuildSample2048")
     run(bin / f"koh-engine{suffix}", "samples/asm/gb-2048/build/2048.gbc", "--frames=300", f"--screenshot={out / 'frame.png'}")
     with Image.open(out / "frame.png") as image:
+        image.load()
         if image.size != (160, 144) or image.mode != "RGBA":
             raise RuntimeError(f"Expected 160x144 RGBA frame, got {image.size} {image.mode}")
-        image.verify()
-    with Image.open(out / "frame.png") as image:
-        image.load()
     linux = sys.platform == "linux"
     verifier = "verify-gpui" if linux else "verify-gpui-platform"
     run(sys.executable, f"scripts/test-{verifier}.py")
@@ -122,11 +123,13 @@ verify:
         run("dotnet", "run", "--project", "tools/benchmarks/Koh.Benchmarks", "-c", "Release", "--no-build", "--", "--list", "flat")
 
 # Match the host's CI phases; platform-independent lint runs on Linux.
-[script("python")]
-ci:
-    import subprocess, sys
-    phases = (["lint"] if sys.platform == "linux" else []) + ["test", "verify"]
-    subprocess.run(["just", *phases], check=True)
+[linux]
+ci: lint test verify
+
+# Match the host's CI phases; platform-independent lint runs on Linux.
+[macos]
+[windows]
+ci: test verify
 
 # Host toolchain archive and installer; no publication.
 [script("python")]
@@ -150,27 +153,27 @@ package tag:
     suffix = ".exe" if os.name == "nt" else ""
     (bin / "build-info.txt").write_text("".join(subprocess.check_output(cmd, text=True) for cmd in (["git", "rev-parse", "HEAD"], ["rustc", "-Vv"], ["dotnet", "--version"])))
     archive = pathlib.Path(shutil.make_archive(str(out / f"koh-toolchain-{version}-{rid}"), "zip" if os.name == "nt" else "gztar", bin))
-    bin = out / "extracted"
-    shutil.unpack_archive(archive, bin)
-    os.environ["KOH_LSP_TEST_BINARY"] = str(bin / f"koh-lsp{suffix}")
+    extracted = out / "extracted"
+    shutil.unpack_archive(archive, extracted)
+    os.environ["KOH_LSP_TEST_BINARY"] = str(extracted / f"koh-lsp{suffix}")
     run("cargo", "test", "-p", "koh-lsp", "--test", "stdio", "--locked")
-    run(bin / f"koh-compile{suffix}", "--version")
-    run(bin / f"koh-link{suffix}", "--version")
+    run(extracted / f"koh-compile{suffix}", "--version")
+    run(extracted / f"koh-link{suffix}", "--version")
     run("dotnet", "build", "samples/csharp/gb-gfx-demo/GbGfxDemo.csproj", "-c", "Release", "-m:1",
-        f"-p:KohCompilerExecutable={bin / ('koh-compile' + suffix)}", f"-p:KohLinkExecutable={bin / ('koh-link' + suffix)}", f"-p:KohRomPath={out / 'smoke.gb'}")
-    run(bin / f"koh-engine{suffix}", out / "smoke.gb", "--headless", "--frames=1200", f"--screenshot={out / 'smoke.png'}", f"--mode3-report={out / 'mode3.txt'}")
+        f"-p:KohCompilerExecutable={extracted / ('koh-compile' + suffix)}", f"-p:KohLinkExecutable={extracted / ('koh-link' + suffix)}", f"-p:KohRomPath={out / 'smoke.gb'}")
+    run(extracted / f"koh-engine{suffix}", out / "smoke.gb", "--headless", "--frames=1200", f"--screenshot={out / 'smoke.png'}", f"--mode3-report={out / 'mode3.txt'}")
     if (out / "smoke.png").stat().st_size == 0:
         raise RuntimeError("Packaged engine produced an empty screenshot")
     if "Mode-3 write violations: 0 total" not in (out / "mode3.txt").read_text():
         raise RuntimeError("Packaged engine reported Mode-3 write violations")
     for notice in ("rust-assembler-dependencies.md", "rust-runtime/COPYRIGHT-library.html", "rust-ui/manifest.json", "rust-lsp/manifest.json"):
-        if not (bin / "licenses" / notice).is_file():
-            raise FileNotFoundError(bin / "licenses" / notice)
+        if not (extracted / "licenses" / notice).is_file():
+            raise FileNotFoundError(extracted / "licenses" / notice)
     assets = [archive]
     if os.name == "nt":
         payload = root / "installers/windows/payload"
         shutil.rmtree(payload, ignore_errors=True)
-        shutil.copytree(bin, payload)
+        shutil.copytree(extracted, payload)
         run(pathlib.Path(os.environ["ProgramFiles(x86)"]) / "Inno Setup 6/ISCC.exe", f"/DAppVersion={version}", "installers/windows/koh-setup.iss")
         assets.append(pathlib.Path(shutil.move(f"koh-setup-{version}-win-x64.exe", out)))
     elif sys.platform == "linux":

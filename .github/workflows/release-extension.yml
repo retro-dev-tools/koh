@@ -12,7 +12,6 @@ permissions:
   contents: read
 concurrency:
   group: release-extension-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: false
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && format('ext-v{0}', inputs.version) || github.ref_name }}
 jobs:
