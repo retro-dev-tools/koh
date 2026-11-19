@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Koh.Emulator.Tests" />
-    <InternalsVisibleTo Include="EmulatorHost" />
   </ItemGroup>
 
 </Project>

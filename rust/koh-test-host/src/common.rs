@@ -58,25 +58,7 @@ pub fn write(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> Result {
     std::fs::write(path, bytes).map_err(|e| e.to_string())
 }
 pub fn button(name: &str) -> Result<u8> {
-    match name {
-        "Right" => Ok(1),
-        "Left" => Ok(2),
-        "Up" => Ok(4),
-        "Down" => Ok(8),
-        "A" => Ok(16),
-        "B" => Ok(32),
-        "Select" => Ok(64),
-        "Start" => Ok(128),
-        _ => Err(format!("Unknown button {name}")),
-    }
-}
-pub fn mode_name(mode: PpuMode) -> &'static str {
-    match mode {
-        PpuMode::HBlank => "HBlank",
-        PpuMode::VBlank => "VBlank",
-        PpuMode::OamScan => "OamScan",
-        PpuMode::Drawing => "Drawing",
-    }
+    Machine::button(name).ok_or_else(|| format!("Unknown button {name}"))
 }
 pub fn yes(value: bool) -> u8 {
     value as u8
@@ -245,8 +227,7 @@ impl MemoryHook for Hook {
             {
                 let elapsed = c.system_ticks - t.last_blank;
                 t.video_writes.push(format!(
-                    "{address:04X}@LY{ly}/mode{}/after144={elapsed}",
-                    mode_name(mode)
+                    "{address:04X}@LY{ly}/mode{mode:?}/after144={elapsed}"
                 ));
             }
         }
@@ -331,11 +312,7 @@ impl MemoryHook for Hook {
     }
 }
 pub fn boot(m: &mut Machine) -> Result {
-    m.load_boot_rom(if m.mode == HardwareMode::Cgb {
-        koh_emulator::boot::CGB_BOOT.to_vec()
-    } else {
-        koh_emulator::boot::DMG_BOOT.to_vec()
-    })
+    m.load_boot_rom(koh_emulator::boot::default_for(m.mode).to_vec())
 }
 pub fn frame(m: &mut Machine) -> Result {
     if m.run_frame().reason != koh_emulator::machine::StopReason::FrameComplete {

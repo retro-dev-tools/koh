@@ -345,11 +345,7 @@ pub fn cube(args: &[String]) -> Result {
                 m.frame_system_ticks = 0;
                 while m.frame_system_ticks < Machine::SYSTEM_TICKS_PER_FRAME {
                     let pc = m.cpu.registers.pc;
-                    let bank = if pc < 0x4000 {
-                        0
-                    } else {
-                        m.cartridge.current_rom_bank()
-                    };
+                    let bank = koh_debugger::bank(&m, pc);
                     let before = m.cpu.total_tcycles;
                     m.step_instruction();
                     *profile

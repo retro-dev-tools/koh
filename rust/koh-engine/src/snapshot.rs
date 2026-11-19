@@ -13,8 +13,8 @@ pub fn snapshot(
 ) -> Value {
     let cpu=machine.map(|m|{let r=&m.cpu.registers;json!({"pc":r.pc,"sp":r.sp,"a":r.a,"f":r.f,"bc":r.bc(),"de":r.de(),"hl":r.hl(),"totalTCycles":m.cpu.total_tcycles,"flagZ":r.flag_set(0x80),"flagN":r.flag_set(0x40),"flagH":r.flag_set(0x20),"flagC":r.flag_set(0x10)})});
     let framebuffer = machine.map_or_else(
-        || [0x2e, 0x2e, 0x2e, 255].repeat(160 * 144),
-        |m| m.ppu.framebuffer.clone(),
+        || STANDARD.encode([0x2e, 0x2e, 0x2e, 255].repeat(160 * 144)),
+        |m| STANDARD.encode(&m.ppu.framebuffer),
     );
     let palettes = machine.filter(|_| debug).map(palettes);
     let vram = machine.filter(|_| debug).map(vram);
@@ -24,7 +24,7 @@ pub fn snapshot(
             .collect();
         json!({"baseAddress":address,"bytes":STANDARD.encode(bytes)})
     });
-    json!({"protocolVersion":1,"romPath":path,"frame":frame,"paused":paused,"fastForward":fast_forward,"mode":machine.map(|m|format!("{:?}",m.mode)),"cpu":cpu,"framebuffer":STANDARD.encode(framebuffer),"palettes":palettes,"vram":vram,"memory":memory})
+    json!({"protocolVersion":1,"romPath":path,"frame":frame,"paused":paused,"fastForward":fast_forward,"mode":machine.map(|m|format!("{:?}",m.mode)),"cpu":cpu,"framebuffer":framebuffer,"palettes":palettes,"vram":vram,"memory":memory})
 }
 fn color(r: u8, g: u8, b: u8) -> Value {
     json!({"r":r,"g":g,"b":b})

@@ -137,7 +137,7 @@ impl Host {
                 let machine = self.machine.as_mut().unwrap();
                 if self.dap_writer.is_some() {
                     for event in self.debugger.step(machine, Action::StepIn) {
-                        dap::send(&mut self.dap_writer, &event).map_err(|e| e.to_string())?;
+                        dap::send(&mut self.dap_writer, &event);
                     }
                 } else {
                     machine.step_instruction();
@@ -147,7 +147,7 @@ impl Host {
             "joypad" => {
                 self.require_rom()?;
                 let name = request["button"].as_str().ok_or("Unknown joypad button")?;
-                let button = options::button(name).ok_or("Unknown joypad button")?;
+                let button = Machine::button(name).ok_or("Unknown joypad button")?;
                 let down = Self::boolean(request, "down", None)?;
                 let m = self.machine.as_mut().unwrap();
                 if down {
@@ -214,7 +214,7 @@ impl Host {
             ),
         }
     }
-    fn dap(&mut self, frame: &protocol::Frame) -> io::Result<bool> {
+    fn dap(&mut self, frame: &protocol::Frame) -> bool {
         let request = match frame {
             protocol::Frame::Request(value) => value,
             protocol::Frame::InvalidJson(error) => {
@@ -224,8 +224,8 @@ impl Host {
                     self.debugger.handle_empty(&Value::Null).response
                 };
                 response["message"] = format!("invalid JSON: {error}").into();
-                dap::send(&mut self.dap_writer, &response)?;
-                return Ok(false);
+                dap::send(&mut self.dap_writer, &response);
+                return false;
             }
         };
         let reply = if let Some(machine) = &mut self.machine {
@@ -233,9 +233,9 @@ impl Host {
         } else {
             self.debugger.handle_empty(request)
         };
-        dap::send(&mut self.dap_writer, &reply.response)?;
+        dap::send(&mut self.dap_writer, &reply.response);
         for event in reply.events {
-            dap::send(&mut self.dap_writer, &event)?;
+            dap::send(&mut self.dap_writer, &event);
         }
         match reply.action {
             Action::None => {}
@@ -243,19 +243,19 @@ impl Host {
             Action::Pause => self.paused = true,
             Action::Disconnect => {
                 self.paused = true;
-                return Ok(true);
+                return true;
             }
             Action::StepIn | Action::Next | Action::StepOut => {
                 if let Some(machine) = &mut self.machine {
                     let events = self.debugger.step(machine, reply.action);
                     self.paused = !events.is_empty();
                     for event in events {
-                        dap::send(&mut self.dap_writer, &event)?;
+                        dap::send(&mut self.dap_writer, &event);
                     }
                 }
             }
         }
-        Ok(false)
+        false
     }
     fn run(&mut self, receiver: Receiver<Message>) -> io::Result<i32> {
         let mut next_frame = Instant::now();
@@ -287,7 +287,7 @@ impl Host {
                 Ok(Message::InputEnd(ok)) => return Ok(if ok { 0 } else { 1 }),
                 Ok(Message::DapConnected(writer)) => self.dap_writer = Some(writer),
                 Ok(Message::Dap(request)) => {
-                    if self.dap(&request)? {
+                    if self.dap(&request) {
                         return Ok(0);
                     }
                 }
@@ -306,7 +306,7 @@ impl Host {
             let machine = self.machine.as_mut().unwrap();
             if let Some(event) = self.debugger.run_frame(machine) {
                 self.paused = true;
-                dap::send(&mut self.dap_writer, &event)?;
+                dap::send(&mut self.dap_writer, &event);
             }
             self.frame = self.frame.wrapping_add(1);
             let available = machine.apu.sample_buffer.drain(&mut samples);

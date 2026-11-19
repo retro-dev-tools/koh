@@ -428,6 +428,24 @@ fn step_in_next_call_and_rst_step_out_and_simple_stack() {
 }
 
 #[test]
+fn step_over_keeps_user_breakpoint_at_return_address() {
+    let mut m = machine(&[0xcd, 0, 2, 0]);
+    m.cartridge.rom[0x200] = 0xc9;
+    let mut d = Debugger::default();
+    request(
+        &mut d,
+        &mut m,
+        "setInstructionBreakpoints",
+        json!({"breakpoints":[{"instructionReference":"0103"}]}),
+    );
+    assert!(d.breakpoints.contains_key(&(0, 0x103)));
+    assert!(d.step(&mut m, Action::Next).is_empty());
+    assert_eq!(d.run_frame(&mut m).unwrap()["body"]["reason"], "step");
+    assert_eq!(m.cpu.registers.pc, 0x103);
+    assert!(d.breakpoints.contains_key(&(0, 0x103)));
+}
+
+#[test]
 fn generated_rom_dwarf_breakpoint_stack_scopes_and_variables() {
     let (mut d, mut m) =
         source_machine("SECTION \"Entry\", ROM0[$100]\nEntry::\n ld a,$42\n nop\n");

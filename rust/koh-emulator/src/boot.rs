@@ -22,6 +22,14 @@ use crate::HardwareMode;
 pub const DMG_BOOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dmg_boot.bin"));
 pub const CGB_BOOT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/cgb_boot.bin"));
 
+pub fn default_for(mode: HardwareMode) -> &'static [u8] {
+    if mode == HardwareMode::Cgb {
+        CGB_BOOT
+    } else {
+        DMG_BOOT
+    }
+}
+
 #[derive(Clone)]
 pub struct BootRom {
     pub bytes: Vec<u8>,

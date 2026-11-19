@@ -4,17 +4,12 @@ mod emulator;
 mod games;
 
 fn main() {
-    let mut args: Vec<String> = std::env::args().collect();
-    let executable = std::path::Path::new(&args.remove(0))
-        .file_stem()
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
-    let name = if executable == "koh-test-host" {
-        args.remove(0)
-    } else {
-        executable
-    };
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.is_empty() {
+        eprintln!("usage: koh-test-host <FixtureHost> [args...]");
+        std::process::exit(2);
+    }
+    let name = args.remove(0);
     let result = match name.as_str() {
         "EmulatorHost" => emulator::run(&args),
         "VBlankHost" => games::vblank(&args),

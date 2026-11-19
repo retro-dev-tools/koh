@@ -434,7 +434,8 @@ fn debugger_stops_on_native_csharp_source_and_inspects_machine_state(
         std::os::unix::fs::symlink(host.directory.path(), &alias).unwrap();
         Host {
             directory: tempfile::tempdir_in(alias).unwrap(),
-            dll: host.dll.clone(),
+            program: host.program.clone(),
+            native: host.native.clone(),
         }
     };
     #[cfg(unix)]

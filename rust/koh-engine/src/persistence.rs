@@ -12,24 +12,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut name = path.as_os_str().to_os_string();
     name.push(".tmp");
     let temporary = std::path::PathBuf::from(name);
-    let result = (|| {
-        fs::write(&temporary, bytes)?;
-        #[cfg(windows)]
-        {
-            use std::os::windows::ffi::OsStrExt;
-            unsafe extern "system" {
-                fn MoveFileExW(from: *const u16, to: *const u16, flags: u32) -> i32;
-            }
-            let from: Vec<u16> = temporary.as_os_str().encode_wide().chain(Some(0)).collect();
-            let to: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-            if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 1) } == 0 {
-                return Err(io::Error::last_os_error());
-            }
-        }
-        #[cfg(not(windows))]
-        fs::rename(&temporary, path)?;
-        Ok(())
-    })();
+    let result = fs::write(&temporary, bytes).and_then(|()| fs::rename(&temporary, path));
     if result.is_err() {
         let _ = fs::remove_file(temporary);
     }

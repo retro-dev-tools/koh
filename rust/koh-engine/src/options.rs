@@ -61,18 +61,10 @@ impl Options {
         if let Some(path) = path {
             fs::read(path).map_err(|e| format!("Boot ROM '{path}': {e}"))
         } else {
-            Ok(if mode == HardwareMode::Cgb {
-                koh_emulator::boot::CGB_BOOT.to_vec()
-            } else {
-                koh_emulator::boot::DMG_BOOT.to_vec()
-            })
+            Ok(koh_emulator::boot::default_for(mode).to_vec())
         }
     }
     pub fn load_machine(&self, path: &str) -> Result<Machine, String> {
-        let length = fs::metadata(path).map_err(|e| e.to_string())?.len();
-        if !(0x150..=8 * 1024 * 1024).contains(&length) {
-            return Err("ROM size must be between 336 bytes and 8 MiB".into());
-        }
         let bytes = fs::read(path).map_err(|e| e.to_string())?;
         if !(0x150..=8 * 1024 * 1024).contains(&bytes.len()) {
             return Err("ROM size must be between 336 bytes and 8 MiB".into());
@@ -105,17 +97,4 @@ pub fn absolute(path: &str) -> Result<String, String> {
         })
         .to_string_lossy()
         .into_owned())
-}
-pub fn button(name: &str) -> Option<u8> {
-    match name {
-        "Right" => Some(1),
-        "Left" => Some(2),
-        "Up" => Some(4),
-        "Down" => Some(8),
-        "A" => Some(16),
-        "B" => Some(32),
-        "Select" => Some(64),
-        "Start" => Some(128),
-        _ => None,
-    }
 }

@@ -4,7 +4,6 @@ use serde::{
 };
 use serde_json::{Map, Value};
 use std::{
-    collections::HashSet,
     fmt,
     io::{self, Read, Write},
 };
@@ -67,13 +66,11 @@ impl<'de> Deserialize<'de> for Request {
                 f.write_str("a command object")
             }
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Request, A::Error> {
-                let mut names = HashSet::new();
                 let mut result = Map::new();
                 while let Some(name) = map.next_key::<String>()? {
-                    if !names.insert(name.clone()) {
+                    if result.insert(name, map.next_value()?).is_some() {
                         return Err(de::Error::custom("Duplicate command property"));
                     }
-                    result.insert(name, map.next_value()?);
                 }
                 Ok(Request(Value::Object(result)))
             }

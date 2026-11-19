@@ -185,6 +185,22 @@ impl Machine {
     pub fn boot_rom_mapped(&self) -> bool {
         self.boot.is_some() && self.io[0x50] == 0
     }
+    pub const BUTTONS: [(&'static str, u8); 8] = [
+        ("Right", 1),
+        ("Left", 2),
+        ("Up", 4),
+        ("Down", 8),
+        ("A", 16),
+        ("B", 32),
+        ("Select", 64),
+        ("Start", 128),
+    ];
+    pub fn button(name: &str) -> Option<u8> {
+        Self::BUTTONS
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|&(_, b)| b)
+    }
     pub fn joypad_press(&mut self, buttons: u8) {
         if self.joypad & buttons != 0 {
             return;

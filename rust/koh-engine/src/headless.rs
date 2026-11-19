@@ -1,4 +1,4 @@
-use crate::options::{self, Options};
+use crate::options::Options;
 use koh_debugger::metadata::DebugInfo;
 use koh_emulator::{
     machine::{Machine, MemoryHook},
@@ -62,11 +62,11 @@ fn input_script(path: Option<&str>) -> Result<Vec<Input>, String> {
                     if name.eq_ignore_ascii_case("None") {
                         continue;
                     }
-                    let canonical = ["Right", "Left", "Up", "Down", "A", "B", "Select", "Start"]
-                        .into_iter()
-                        .find(|v| v.eq_ignore_ascii_case(name))
-                        .ok_or_else(|| format!("Unknown joypad button: {name}"))?;
-                    value |= options::button(canonical).unwrap();
+                    value |= Machine::BUTTONS
+                        .iter()
+                        .find(|(v, _)| v.eq_ignore_ascii_case(name))
+                        .ok_or_else(|| format!("Unknown joypad button: {name}"))?
+                        .1;
                 }
                 value
             };
@@ -85,11 +85,7 @@ fn input_script(path: Option<&str>) -> Result<Vec<Input>, String> {
     Ok(actions)
 }
 fn location(info: &DebugInfo, machine: &Machine, pc: u16) -> String {
-    let bank = if pc >= 0x4000 {
-        machine.cartridge.current_rom_bank()
-    } else {
-        0
-    };
+    let bank = koh_debugger::bank(machine, pc);
     let symbol = |bank| {
         info.symbols
             .iter()

@@ -200,17 +200,13 @@ pub fn listen(
     }
 }
 
-pub fn send(
-    writer: &mut Option<Box<dyn Write + Send>>,
-    value: &serde_json::Value,
-) -> io::Result<()> {
+pub fn send(writer: &mut Option<Box<dyn Write + Send>>, value: &serde_json::Value) {
     if writer
         .as_mut()
         .is_some_and(|output| protocol::write_frame(output, value).is_err())
     {
         *writer = None;
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -228,7 +224,7 @@ mod tests {
     #[test]
     fn closed_dap_writer_does_not_turn_disconnect_into_failure() {
         let mut writer: Option<Box<dyn Write + Send>> = Some(Box::new(Closed));
-        assert!(send(&mut writer, &serde_json::json!({"event":"stopped"})).is_ok());
+        send(&mut writer, &serde_json::json!({"event":"stopped"}));
         assert!(writer.is_none());
     }
 }

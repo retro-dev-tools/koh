@@ -148,7 +148,7 @@ fn breakpoint_body(mut results: Vec<Value>) -> Value {
     }
     json!({"breakpoints":results})
 }
-fn bank(machine: &Machine, pc: u16) -> u8 {
+pub fn bank(machine: &Machine, pc: u16) -> u8 {
     if pc >= 0x4000 {
         machine.cartridge.current_rom_bank()
     } else {
@@ -530,7 +530,10 @@ impl Debugger {
             _ => Err(format!("unsupported command '{command}'")),
         }
     }
-    fn install_hook(&self, m: &mut Machine) -> (Arc<AtomicBool>, SharedMemoryHook) {
+    fn install_hook(&self, m: &mut Machine) -> Option<(Arc<AtomicBool>, SharedMemoryHook)> {
+        if self.watch_reads.is_empty() && self.watch_writes.is_empty() {
+            return None;
+        }
         let hit = Arc::new(AtomicBool::new(false));
         let previous = Arc::new(Mutex::new(m.hook.take()));
         m.hook = Some(Box::new(WatchHook {
@@ -539,13 +542,19 @@ impl Debugger {
             hit: hit.clone(),
             previous: previous.clone(),
         }));
-        (hit, previous)
+        Some((hit, previous))
+    }
+    fn remove_hook(m: &mut Machine, watch: Option<(Arc<AtomicBool>, SharedMemoryHook)>) -> bool {
+        let Some((hit, previous)) = watch else {
+            return false;
+        };
+        m.hook = previous.lock().unwrap().take();
+        hit.load(Ordering::Relaxed)
     }
     fn breakpoint_reason(&mut self, m: &mut Machine) -> Option<&'static str> {
         let pc = m.cpu.registers.pc;
         let address = (bank(m, pc), pc);
         if self.one_shots.remove(&address) {
-            self.breakpoints.remove(&address);
             return Some("step");
         }
         let state = self.breakpoints.get_mut(&address)?;
@@ -563,13 +572,18 @@ impl Debugger {
         Some("breakpoint")
     }
     pub fn run_frame(&mut self, m: &mut Machine) -> Option<Value> {
-        let (hit, previous) = self.install_hook(m);
+        let watch = self.install_hook(m);
+        let hit = || {
+            watch
+                .as_ref()
+                .is_some_and(|(h, _)| h.load(Ordering::Relaxed))
+        };
         m.stop_requested = None;
         m.frame_system_ticks = 0;
         let mut reason = None;
         while m.frame_system_ticks < Machine::SYSTEM_TICKS_PER_FRAME {
             m.step_instruction();
-            if hit.load(Ordering::Relaxed) {
+            if hit() {
                 reason = Some("data breakpoint");
                 break;
             }
@@ -577,7 +591,7 @@ impl Debugger {
                 reason = Some(stop);
                 break;
             }
-            if hit.load(Ordering::Relaxed) {
+            if hit() {
                 reason = Some("data breakpoint");
                 break;
             }
@@ -586,8 +600,7 @@ impl Debugger {
                 break;
             }
         }
-        m.hook.take();
-        m.hook = previous.lock().unwrap().take();
+        Self::remove_hook(m, watch);
         reason.map(|r| self.stopped(r))
     }
     pub fn step(&mut self, m: &mut Machine, action: Action) -> Vec<Value> {
@@ -608,16 +621,12 @@ impl Debugger {
             _ => None,
         };
         if let Some(target) = target {
-            let addr = (bank(m, target), target);
-            self.breakpoints.insert(addr, Breakpoint::default());
-            self.one_shots.insert(addr);
+            self.one_shots.insert((bank(m, target), target));
             return Vec::new();
         }
-        let (hit, previous) = self.install_hook(m);
+        let watch = self.install_hook(m);
         m.step_instruction();
-        m.hook.take();
-        m.hook = previous.lock().unwrap().take();
-        vec![self.stopped(if hit.load(Ordering::Relaxed) {
+        vec![self.stopped(if Self::remove_hook(m, watch) {
             "data breakpoint"
         } else {
             "step"

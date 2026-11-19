@@ -13,8 +13,7 @@ fn write_wram(host: &mut Host, data: &str) {
     host.dap(&protocol::Frame::Request(json!({
         "seq":1,"command":"writeMemory",
         "arguments":{"memoryReference":"$C000","data":data}
-    })))
-    .unwrap();
+    })));
 }
 
 #[test]
