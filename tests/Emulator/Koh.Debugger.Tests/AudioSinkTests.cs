@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Koh.Emulator.App;
 
 namespace Koh.Debugger.Tests;
@@ -39,6 +40,19 @@ public class AudioSinkTests
         start.ArgumentList.Add(directory);
         start.Environment["ALSOFT_DRIVERS"] = "null";
         start.Environment["KOH_AUDIO_TEST_CHILD"] = "1";
+        if (OperatingSystem.IsLinux())
+        {
+            string native = Path.Combine(
+                AppContext.BaseDirectory,
+                "runtimes",
+                RuntimeInformation.RuntimeIdentifier,
+                "native"
+            );
+            string? previous = Environment.GetEnvironmentVariable("LD_LIBRARY_PATH");
+            start.Environment["LD_LIBRARY_PATH"] = string.IsNullOrEmpty(previous)
+                ? native
+                : native + Path.PathSeparator + previous;
+        }
         using var process = Process.Start(start)!;
         var output = process.StandardOutput.ReadToEndAsync();
         var errors = process.StandardError.ReadToEndAsync();

@@ -11,6 +11,16 @@ Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updat
 Current progress9/10: KohUI removal and desktop package integration verified.
 Next unit: execute/review new native Windows/macOS checks; physical audio/DPI
 question is pending through request_user_input_async (no reply yet).
+New PR check c245557 failed loading OpenAL before audio regression on Ubuntu.
+Reproduced in owned existing container with copied .NET runtime/test assembly.
+Silk.NET distro fallback omits Ubuntu. Test child now prepends bundled portable
+native-assets directory to LD_LIBRARY_PATH only; host + Ubuntu regression pass.
+Logs /tmp/koh-ui-audio-ubuntu-loader-{red,green}.log, host-green.log.
+Older full44432391455 now terminal: native2259Linux/macOS and2257Windows passed,
+each1opt-in skip, docs/SDK artifacts pass. Overall red only for known fixed
+Windows notices/Linux LCD locator. New current full44437937356 c245557 live but
+uses old failing test-loader setup; replace its obsolete validation after fix
+is pushed, because of the demonstrated test failure, not observation timeout.
 Audio Reset issue discovered and fixed: add SourceRewind after clearing stopped
 source, so frame-sized buffers accumulate for warmup again. Isolated real
 OpenAL null-driver regression fails before, passes after (3 playback sessions).

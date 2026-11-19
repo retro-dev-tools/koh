@@ -233,7 +233,7 @@ final package/platform acceptance remains checkpoint 10.
 | Memory | 256 bytes, 16 columns, address/hex/ASCII, bank-aware reads | PgUp/PgDn wrap at 16 bits; Home=0; paused refresh |
 | Persistence | `<rom>.sav` battery SRAM, `<rom>.state` state | Real save/relaunch/load; report success after completion |
 | Audio | Existing OpenAL pacing | Audible run; pause/reset/load/fast-forward |
-| DAP | Launch/attach, breakpoints, step, memory, shutdown | Real VS Code session alongside new native window |
+| DAP | Launch on the shared core, breakpoints, step, memory, shutdown | Real VS Code session alongside new native window |
 | Headless | DAP, PNG, input script, mode3 report, boot overrides | Existing process/framebuffer tests without GUI initialization |
 | Access | Keyboard focus, labels, disabled states, contrast | Native keyboard pass and accessibility-tree inspection |
 
@@ -431,3 +431,35 @@ NativeAOT engine **50/50**, zero skipped, exit 0. Logs:
 `/tmp/koh-ui-audio-reset-publish.log`. These are local Linux results; hosted
 Windows/macOS window checks remain pending. Physical listening and monitor
 scale-transition evidence have been requested from the user.
+
+DAP inventory clarification: baseline `9ebb6e5` registered `launch`, not a DAP
+`attach` request. Both baseline and current host attach their debugger hooks to
+the already loaded emulator system through `AdoptSystem`. The inventory now
+names that shared-core behavior explicitly; a separate attach request is not
+part of the preserved baseline or the editor's launch schema.
+
+### Linux test-host library resolution
+
+The first hosted run of the new audio regression failed before playback:
+Silk.NET 2.23 could not locate OpenAL in an Ubuntu managed test host. Its distro
+fallback list omits Ubuntu; the published desktop is unaffected because its
+native library is beside the executable. The failure was reproduced with the
+same compiled test assembly and bundled library on Ubuntu 24.04. Only the
+isolated test child now receives the portable native-asset directory in
+LD_LIBRARY_PATH. No host environment, production loader, or dependency version
+was changed. Focused regression passes on both the development host and Ubuntu.
+Logs: `/tmp/koh-ui-audio-ubuntu-loader-red.log`,
+`/tmp/koh-ui-audio-ubuntu-loader-green.log`,
+`/tmp/koh-ui-audio-loader-host-green.log`.
+
+Completed older full run 44432391455 at 5a0b04b: Rust native suites passed
+2259 cases on Linux/macOS and 2257 on Windows. Each skipped one opt-in published
+engine-client test, separately run locally. Separate documentation tests and
+SDK artifact execution also passed. The run remains red for the two already
+corrected publish-verification issues (Windows notice conversion, Linux LCD
+locator); it is not final-head validation.
+
+After the test-host loader correction, the managed fast suite passed again:
+554/554, zero skipped, exit 0, 59.580 seconds;
+`/tmp/koh-ui-audio-loader-fast-tests.log`. The production audio fix and its
+NativeAOT/PCM evidence are unchanged.
