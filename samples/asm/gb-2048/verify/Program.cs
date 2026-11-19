@@ -11,7 +11,8 @@
 using Koh.Emulator.Joypad;
 using Koh.Verify;
 
-string rom = args.Length > 0 ? args[0] : Path.Combine("samples", "asm", "gb-2048", "build", "2048.gbc");
+string rom =
+    args.Length > 0 ? args[0] : Path.Combine("samples", "asm", "gb-2048", "build", "2048.gbc");
 string outDir =
     args.Length > 1 ? args[1] : Path.Combine(Path.GetDirectoryName(rom)!, "verify-shots");
 Directory.CreateDirectory(outDir);
