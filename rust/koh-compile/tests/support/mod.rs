@@ -44,6 +44,19 @@ pub fn build_fixture_host(name: &str) -> Host {
         .parent()
         .unwrap();
     if !matches!(name, "ManagedHost" | "SoftFloatHost") {
+        if let Some(program) = std::env::var_os("KOH_TEST_HOST") {
+            let program = root.join(program);
+            assert!(
+                program.is_file(),
+                "KOH_TEST_HOST missing: {}",
+                program.display()
+            );
+            return Host {
+                directory,
+                program,
+                native: Some(name.into()),
+            };
+        }
         static RUN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
         let run = RUN.get_or_init(|| {
             std::env::var("NEXTEST_RUN_ID").unwrap_or_else(|_| {

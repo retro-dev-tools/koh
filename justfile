@@ -63,6 +63,9 @@ test: build
         os.environ[key] = str(bin) + (os.pathsep + os.environ[key] if os.environ.get(key) else "")
     os.environ["KOH_LSP_TEST_BINARY"] = str(bin / f"koh-lsp{suffix}")
     run("cargo", "clippy", "-p", "koh-emulator", "-p", "koh-debugger", "-p", "koh-engine", "-p", "koh-test-host", "-p", "koh-lsp", "--all-targets", "--no-deps", "--locked", "--", "-D", "warnings")
+    run("cargo", "build", "--release", "-p", "koh-test-host", "--locked")
+    target = (root / os.environ.get("CARGO_TARGET_DIR", "target")).resolve()
+    os.environ["KOH_TEST_HOST"] = str(target / "release" / f"koh-test-host{suffix}")
     run("cargo", "nextest", "run", "--workspace", "--all-features", "--locked", "--no-fail-fast")
     run("cargo", "test", "--doc", "--workspace", "--all-features", "--locked")
 

@@ -13,3 +13,15 @@ rstest = { version = "0.28", default-features = false }
 [profile.release]
 lto = true
 strip = true
+
+[profile.test.package.koh-compile]
+opt-level = 2
+
+[profile.test.package.koh-link]
+opt-level = 2
+
+[profile.test.package.koh-objects]
+opt-level = 2
+
+[profile.test.package.koh-emulator]
+opt-level = 2
