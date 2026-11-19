@@ -30,7 +30,10 @@ YAML scalar coercions were checked against the actual managed parser.
 Next: inspect independent Native LSP workflow results on all three platforms.
 Run44557708672 Linux passed package/editor acceptance. macOS fixture collisions
 and Windows unnormalized lookup keys were exposed; fixes pass native61/61 and
-strict Clippy locally. Push fixes and inspect the next actual platform results.
+strict Clippy locally, committed/pushed9b4ff28. Rust1.8861/61; affected250/250.
+Run44558820496 passes native/package checks on all platforms, but editor setup
+fails on Windows/macOS in test-electron2.5.2. Updated existing runner to3.1.0
+and CI/release Node22; actual local editor47/47 passes. Push and inspect rerun.
 Full CI44552197980 Linux ran2463 tests:2462 passed,1 SDK graphics test timed
 out after360 seconds,5 skipped. All60 LSP cases passed. The SDK test and run
 target are unchanged by this migration; its timeout needs separate investigation.

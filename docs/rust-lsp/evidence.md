@@ -276,3 +276,15 @@ workspace lookup boundaries now normalize paths. A new logical-path-spelling
 test fails before the fix (/tmp/koh-lsp-path-spelling-red.log) and passes after.
 Native61/61 and strict Clippy exit0 after fixes
 (/tmp/koh-lsp-platform-fixes-{native,clippy}.log). Platform rerun is pending.
+
+Run44558820496 on9b4ff28 passed native and package tests on all three platforms.
+Linux also passed actual editor acceptance. Windows/macOS editor setup exposed
+the old @vscode/test-electron2.5.2 launcher: Windows shell splitting dropped the
+workspace path containing spaces; macOS resolved the removed Electron binary.
+The existing test runner is updated to published3.1.0, which resolves the macOS
+bundle executable and spawns Windows executables without a shell. CI and
+extension release use its supported Node22 runtime. Local actual VSCode47/47
+passes with the updated runner (/tmp/koh-lsp-new-runner-vscode.log, exit0).
+No custom launcher workaround or product behavior change was added.
+Rust1.88 also passes61/61 and affected nextest250/250, zero skipped, after the
+path fixes (/tmp/koh-lsp-platform-fixes-{rust188,affected}.log, exit0).
