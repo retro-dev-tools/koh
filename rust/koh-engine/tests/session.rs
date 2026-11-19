@@ -526,6 +526,64 @@ fn dap_invalid_json_is_recoverable() {
     assert_eq!(client.finish(), 0);
 }
 
+#[test]
+fn dap_replies_and_async_events_arrive_with_idle_input() {
+    use serde_json::json;
+    let temp = Temp::new();
+    let path = temp.path("idle-dap.gb");
+    rom(&path, false, false);
+    let name = format!(
+        "koh-dap-idle-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    );
+    let mut client = Client::start(
+        binary(),
+        &[path.to_string_lossy().into_owned(), format!("--dap={name}")],
+    );
+    let mut dap = Dap::connect(&endpoint(&name));
+    assert_eq!(dap.request("initialize", json!({}))["success"], true);
+    assert_eq!(dap.read()["event"], "initialized");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    assert_eq!(
+        dap.request("threads", json!({}))["body"]["threads"][0]["name"],
+        "CPU"
+    );
+    dap.request("launch", json!({"stopOnEntry":true}));
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    dap.request("configurationDone", json!({}));
+    assert_eq!(dap.stopped()["body"]["reason"], "entry");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    dap.request("pause", json!({}));
+    assert_eq!(dap.stopped()["body"]["reason"], "pause");
+    dap.sequence += 1;
+    let pending =
+        serde_json::to_vec(&json!({"seq":dap.sequence,"type":"request","command":"threads"}))
+            .unwrap();
+    write!(dap.stream, "Content-Length: {}\r\n\r\n", pending.len()).unwrap();
+    dap.stream.write_all(&pending[..1]).unwrap();
+    client.id += 1;
+    serde_json::to_writer(
+        client.input.as_mut().unwrap(),
+        &json!({"id":client.id,"command":"step"}),
+    )
+    .unwrap();
+    client.input.as_mut().unwrap().write_all(b"\n").unwrap();
+    client.input.as_mut().unwrap().flush().unwrap();
+    assert_eq!(dap.stopped()["body"]["reason"], "step");
+    let mut line = String::new();
+    client.output.read_line(&mut line).unwrap();
+    let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(reply["id"], client.id);
+    assert_eq!(reply["ok"], true);
+    dap.stream.write_all(&pending[1..]).unwrap();
+    let response = dap.read();
+    assert_eq!(response["request_seq"], dap.sequence);
+    assert_eq!(response["success"], true);
+    dap.request("disconnect", json!({}));
+    assert_eq!(client.finish(), 0);
+}
+
 #[cfg(unix)]
 #[test]
 fn dap_uses_vscode_explicit_unix_socket_path() {

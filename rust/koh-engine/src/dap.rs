@@ -10,6 +10,64 @@ use std::{sync::atomic::Ordering, time::Duration};
 pub struct Listener {
     path: Option<std::path::PathBuf>,
 }
+
+#[cfg(windows)]
+struct PipeReader {
+    file: std::fs::File,
+    cancel: Arc<AtomicBool>,
+}
+
+#[cfg(windows)]
+impl io::Read for PipeReader {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        use std::{
+            ffi::c_void, os::windows::io::AsRawHandle, sync::atomic::Ordering, time::Duration,
+        };
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn PeekNamedPipe(
+                pipe: *mut c_void,
+                buffer: *mut c_void,
+                size: u32,
+                read: *mut u32,
+                available: *mut u32,
+                left: *mut u32,
+            ) -> i32;
+        }
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            if self.cancel.load(Ordering::Relaxed) {
+                return Ok(0);
+            }
+            let mut available = 0;
+            if unsafe {
+                PeekNamedPipe(
+                    self.file.as_raw_handle(),
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null_mut(),
+                    &mut available,
+                    std::ptr::null_mut(),
+                )
+            } == 0
+            {
+                let error = io::Error::last_os_error();
+                return if matches!(error.raw_os_error(), Some(109 | 232)) {
+                    Ok(0)
+                } else {
+                    Err(error)
+                };
+            }
+            if available > 0 {
+                let count = buffer.len().min(available as usize);
+                return io::Read::read(&mut self.file, &mut buffer[..count]);
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+}
 impl Drop for Listener {
     fn drop(&mut self) {
         if let Some(path) = &self.path {
@@ -58,6 +116,7 @@ pub fn listen(
                         Err(e) => return Err(e),
                     }
                 };
+                stream.set_nonblocking(false)?;
                 eprintln!("[koh-dap] client connected");
                 let writer = stream.try_clone()?;
                 sender
@@ -80,7 +139,6 @@ pub fn listen(
     }
     #[cfg(windows)]
     {
-        let _ = cancel;
         use std::ffi::c_void;
         use std::{
             fs::File,
@@ -109,7 +167,7 @@ pub fn listen(
         if handle as isize == -1 {
             return Err(io::Error::last_os_error());
         }
-        let mut stream = unsafe { File::from_raw_handle(handle) };
+        let stream = unsafe { File::from_raw_handle(handle) };
         eprintln!("[koh-dap] listening on \\\\.\\pipe\\{name}");
         thread::spawn(move || {
             let result = (|| -> io::Result<()> {
@@ -122,7 +180,11 @@ pub fn listen(
                 sender
                     .send(Message::DapConnected(Box::new(stream.try_clone()?)))
                     .map_err(|e| io::Error::other(e.to_string()))?;
-                while let Some(value) = protocol::read_frame(&mut stream)? {
+                let mut reader = PipeReader {
+                    file: stream,
+                    cancel,
+                };
+                while let Some(value) = protocol::read_frame(&mut reader)? {
                     if sender.send(Message::Dap(value)).is_err() {
                         break;
                     }
