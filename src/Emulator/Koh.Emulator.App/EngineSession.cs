@@ -10,6 +10,7 @@ namespace Koh.Emulator.App;
 internal sealed class EngineSession(EmulatorLoop loop, BootRomResolver bootRoms)
 {
     private string? _romPath;
+    private int _probe = "deliberate CI probe compile error";
     private byte[] _framebuffer = [];
     private PaletteSnapshot? _palettes;
     private VramSnapshot? _vram;
