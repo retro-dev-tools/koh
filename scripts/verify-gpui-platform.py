@@ -33,7 +33,13 @@ def find_lcd(screen, oracle):
 
 
 def windows_controls(pid):
+    from ctypes import wintypes
+
+    class MonitorInfo(c.Structure):
+        _fields_ = [("size", wintypes.DWORD), ("monitor", wintypes.RECT), ("work", wintypes.RECT), ("flags", wintypes.DWORD)]
+
     user = c.WinDLL("user32", use_last_error=True)
+    dwm = c.WinDLL("dwmapi", use_last_error=True)
     user.FindWindowW.argtypes = [c.c_wchar_p, c.c_wchar_p]
     user.FindWindowW.restype = c.c_void_p
     user.GetWindowThreadProcessId.argtypes = [c.c_void_p, c.POINTER(c.c_ulong)]
@@ -41,11 +47,22 @@ def windows_controls(pid):
     user.GetForegroundWindow.restype = c.c_void_p
     user.PostMessageW.argtypes = [c.c_void_p, c.c_uint, c.c_size_t, c.c_ssize_t]
     user.MapVirtualKeyW.argtypes = [c.c_uint, c.c_uint]
+    user.MonitorFromWindow.argtypes = [c.c_void_p, c.c_uint]
+    user.MonitorFromWindow.restype = c.c_void_p
+    user.GetMonitorInfoW.argtypes = [c.c_void_p, c.POINTER(MonitorInfo)]
+    dwm.DwmGetWindowAttribute.argtypes = [c.c_void_p, c.c_uint, c.c_void_p, c.c_uint]
+    dwm.DwmGetWindowAttribute.restype = c.c_long
     window = user.FindWindowW(None, "Koh Emulator")
     owner = c.c_ulong()
     user.GetWindowThreadProcessId(window, c.byref(owner))
     assert window and owner.value == pid, "owned native window not found"
     assert user.GetForegroundWindow() == window, "new desktop is not the foreground window"
+    monitor, frame = MonitorInfo(), wintypes.RECT()
+    monitor.size = c.sizeof(monitor)
+    assert user.GetMonitorInfoW(user.MonitorFromWindow(window, 2), c.byref(monitor))
+    assert dwm.DwmGetWindowAttribute(window, 9, c.byref(frame), c.sizeof(frame)) == 0
+    rect = lambda value: (value.left, value.top, value.right, value.bottom)
+    assert frame.left >= monitor.work.left and frame.top >= monitor.work.top and frame.right <= monitor.work.right and frame.bottom <= monitor.work.bottom, f"native frame outside monitor work area: {rect(frame)} vs {rect(monitor.work)}"
 
     def key(code, hold=.15):
         scan = user.MapVirtualKeyW(code, 0)

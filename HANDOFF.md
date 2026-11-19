@@ -9,19 +9,23 @@ progress, preview commands and full parity/removal acceptance are in
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
 Current progress9/10: KohUI removal and desktop package integration verified.
-Next unit: run strengthened startup-foreground regression on Windows/macOS,
-then make minimal activation correction after the actual failing check.
-Production Rust remains unchanged; do not claim foreground input passes yet.
-At c9f6817 full44439169260: Linux native-window passed; macOS publish/headless/
-first targeted-input window probe passed (2x exact LCD, Start/pause/save/close).
-Mac capture /tmp/koh-gpui-macos-native-window/title.png visibly leaves Finder
-active. Updated verifier asserts OS foreground ownership on Win/Mac and uses
-macOS HID-route key events (rather than posting directly to inactive process).
-Local3locator tests pass; OS foreground checks await remote execution.
-Windows publish failed Python cp1252 Cargo metadata decoding; pushed64a11a2
-explicit UTF8 fix passes forcedASCII locale; no package/runtime changes.
-Current Linux/macOS publish jobs are terminal, so obsolete c9 full run may be
-cancelled after this test update is pushed, based on verified failure/new code.
+Next unit: verify corrected startup activation and native frame placement on
+Windows/macOS via the next full CI head; keep goal9/10 until that + remaining
+gates are proven. Physical question remains pending.
+Full44442207871 at3b2634f: Linux + Windows publish/window jobs PASS; Windows
+metadata UTF8 fix confirmed, foreground/input/state/save/close all pass.
+Mac job135287624302 fails actual AXFrontmost assertion as expected; log
+/tmp/koh-ui-macos-foreground-red.log. No API-error ambiguity: exact LCD passed
+then CFBooleanGetValue was false. Window was visible but Finder active.
+Windows capture also clips titlebar at1024x768. Source correction now reserves
+native frame clearance from visible display area, then cx.activate(true).
+Windows verifier checks DWM visible frame inside monitor work area.
+Local8Rust UI tests incl AOT engine,3locator cases,Clippy all pass. New native
+1024x768 client960x704 fits, exact LCD/native close pass; standard X11 rendering,
+input/pause/save/empty shortcuts/child close pass. Debug frontend + fresh AOT
+engine. Logs /tmp/koh-ui-startup-*.log, /tmp/koh-ui-startup-small.png.
+No new local release UI build yet; current /tmp/koh-gpui-package UI is pre-startup
+fix. New /tmp/koh-ui-startup-debug-package contains corrected debug UI + engine.
 Physical audio/DPI
 question is pending through request_user_input_async (no reply yet).
 New PR check c245557 failed loading OpenAL before audio regression on Ubuntu.

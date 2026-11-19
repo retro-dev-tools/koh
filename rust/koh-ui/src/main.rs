@@ -571,11 +571,21 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             cx.bind_keys([KeyBinding::new("tab", FastForward, Some("Koh"))]);
+            let mut window_size = size(px(1040.), px(720.));
+            if let Some(display) = cx.primary_display() {
+                // Native frame clearance
+                window_size = window_size.min(
+                    &display
+                        .visible_bounds()
+                        .size
+                        .map(|dimension| (dimension - px(64.)).max(px(0.))),
+                );
+            }
             gpui_kit::open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                         None,
-                        size(px(1040.), px(720.)),
+                        window_size,
                         cx,
                     ))),
                     window_min_size: Some(size(px(680.), px(480.))),
@@ -592,5 +602,6 @@ fn main() {
                 },
             )
             .expect("open Koh window");
+            cx.activate(true);
         });
 }

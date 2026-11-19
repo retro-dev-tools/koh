@@ -490,3 +490,32 @@ now checks foreground ownership on both Windows and macOS, and posts macOS
 keys through the HID event route. The three local locator tests still pass;
 this new focus regression has not yet run remotely. Runtime startup activation
 is deliberately unchanged until the foreground check is observed.
+
+### Native startup correction
+
+The strengthened macOS check failed at the expected OS foreground assertion:
+`new desktop is not the foreground application`. Exact LCD pixels passed before
+that assertion, so the failure isolates startup activation. Primary completed
+log: `/tmp/koh-ui-macos-foreground-red.log`, run 44442207871, job 135287624302.
+Windows on that run passed native publishing, headless capture, exact 3x LCD,
+foreground ownership, Start, pause, save and close; its UTF-8 notice check also
+passed. Log: `/tmp/koh-ui-windows-native-success.log`; captures:
+`/tmp/koh-gpui-windows-native-window/`.
+
+The actual Windows capture also showed its titlebar clipped at the top of the
+1024x768 desktop. Initial content bounds filled the work area without leaving
+room for the native frame. Startup now reserves frame clearance when sizing
+to the display's visible area, then activates the application after opening
+the window. The Windows probe additionally checks DWM visible frame bounds
+against the monitor's work area. Remote confirmation of this correction is
+still required; earlier direct-input success does not close the focus gate.
+
+Local correction checks: Rust UI 8/8 including the published engine, zero
+ignored; focused Clippy with warnings denied; three image-verifier tests; all
+exit 0. A native 1024x768 X11 run placed its 960x704 client wholly on screen,
+matched the exact LCD oracle and closed normally. The standard native regression
+also passed rendering, Start, pause, save, clean child exit and inactive empty
+shortcuts. These runs used the debug frontend with the fresh NativeAOT engine.
+Logs: `/tmp/koh-ui-startup-tests.log`, `/tmp/koh-ui-startup-clippy.log`,
+`/tmp/koh-ui-startup-verifier-tests.log`, `/tmp/koh-ui-startup-small.log`,
+`/tmp/koh-ui-startup-standard-native.log`.
