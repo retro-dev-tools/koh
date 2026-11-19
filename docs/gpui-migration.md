@@ -1,7 +1,7 @@
 # GPUI desktop migration
 
-Status: GPUI implementation, KohUI removal and package integration complete;
-final native platform acceptance in progress.
+Status: GPUI implementation, KohUI removal, package integration and acceptance
+complete. Physical acceptance is user-reported; see the final entry below.
 Baseline: `9ebb6e5`.
 
 ## Whole-goal checkpoints
@@ -10,7 +10,7 @@ Draft [PR #56](https://github.com/retro-dev-tools/koh/pull/56) tracks this work.
 The bar counts completed checkpoints, not estimated effort.
 
 ```text
-[#########>] 9/10 complete; current: final native acceptance
+[##########] 10/10 complete
 ```
 
 | # | Checkpoint | State / evidence |
@@ -24,7 +24,7 @@ The bar counts completed checkpoints, not estimated effort.
 | 7 | Windowless engine session | Done: copied coherent snapshots, frame-boundary commands while paused, persistence, DAP coordination; nine NativeAOT process tests and real SDK 2048 run |
 | 8 | Complete GPUI Kit interface | Done: four inspectors, native picker, all joypad keys, focus/toolbar behavior, slate light/dark styling and accessible content; Linux native evidence below |
 | 9 | Complete KohUI removal and integration | Done: framework/backends/demo/tests removed; windowless engine, launch/editor/install/package/CI paths switched; checked dependency catalog |
-| 10 | Final native acceptance | Automated checks pass; physical listening and monitor transitions pending |
+| 10 | Final native acceptance | Done: full platform CI, native captures/input, recorded audio and user-reported physical acceptance |
 
 Keep progress reports and this ledger aligned with completed evidence.
 
@@ -597,10 +597,11 @@ Both extension jobs, reference checks, sample build, benchmark and all three
 desktop publish/headless/native-window jobs passed. Quick checks are green
 on the later documentation head as well.
 
-Checkpoint 10 still requires a physical result. With a ROM known to produce
-sound, check audible playback through pause/resume, reset, state save/load and
-held Tab/release. Move the window between physical monitors with different
-scaling and back; check readable controls, crisp integer LCD pixels and correct
-pointer targets. Recorded PCM and nested compositor evidence do not establish
-those physical results. The existing user question remains unanswered; no
-host audio service or display setting was changed to force acceptance.
+The final physical check requested audible playback through pause/resume,
+reset and state restore, plus movement between monitors with different scaling
+and back. After receiving launch instructions for the published desktop, the
+user reported on 2026-11-19: "everything seems fine". This closes checkpoint 10
+as user-reported acceptance of the requested checks. Monitor configurations and
+physical audio measurements were not independently captured. Recorded PCM and
+nested compositor evidence remain separate from that report. No host audio
+service or display setting was changed to force acceptance.

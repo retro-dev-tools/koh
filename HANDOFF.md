@@ -8,9 +8,12 @@ progress, preview commands and full parity/removal acceptance are in
 `docs/gpui-migration.md`; the wire contract is in `docs/engine-session.md`.
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
-Current progress9/10: KohUI removal and desktop package integration verified.
-Next unit: obtain physical listening + physical monitor-transition results;
-existing async user question remains pending. Full44447145986 at implementation
+Current progress10/10: migration and acceptance complete. On2026-11-19 the user
+reported "everything seems fine" after the sound/scaling checklist and published
+desktop launch instructions. Physical acceptance is user-reported; no hardware
+configuration or physical audio measurements were independently recorded.
+Keep PR draft for maintainer review; no merge/release authorized.
+Full44447145986 at implementation
 58f3746 COMPLETED SUCCESS, all13jobs. Linux2259/2259 in1772.477s,
 mac2259/2259 in1872.522s, Win2257/2257 in2093.503s. Each1opt-in UI engine test
 skip, separately passed locally; docs + selectedSDK artifact smoke pass.
@@ -27,7 +30,8 @@ shortcuts/child close PASS. Logs /tmp/koh-ui-startup-{windows,linux}-native-ci.l
 captures /tmp/koh-gpui-startup-{windows,linux}-native-window/.
 All three broader native suites passed. No runtime changes after58f3746.
 Managed554/554 both platforms, zero warnings/errors. QuickPR green.
-Keep goal9/10 until remaining gates are proven. Physical question pending.
+Final documentation-head PR checks: Rust1487/1487,1opt-in skip; managed554/554,
+zero build warnings/errors. Logs /tmp/koh-ui-final-doc-{rust,managed}-ci.log.
 New release Wayland roundtrip PASS, exit0: two owned Weston outputs scale1/2;
 exactLCD physical3x ->6x ->3x after actual drag there/back. Protocol independently
 set_buffer_scale1->2->1 with output enter/leave. Logs
@@ -35,7 +39,7 @@ set_buffer_scale1->2->1 with output enter/leave. Logs
 target/gpui-wayland-acceptance/transition4/. Temporary harness
 /tmp/koh-ui-wayland-transition.py and compositor-transition.py in parent artifact
 folder. Earlier harness straddled/cursor occluded; corrected, no product change.
-Owned servers cleaned; host display untouched. Physical proof still absent.
+Owned servers cleaned; host display untouched. Physical acceptance report above.
 Full44442207871 at3b2634f: Linux + Windows publish/window jobs PASS; Windows
 metadata UTF8 fix confirmed, foreground/input/state/save/close all pass.
 Mac job135287624302 fails actual AXFrontmost assertion as expected; log

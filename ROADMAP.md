@@ -8,13 +8,14 @@ Active user-requested migration (2026-11-18): replace the entire desktop UI
 with Rust + GPUI Kit and remove KohUI completely, including its backends,
 demo and build references. Preserve emulator/debugger behavior. The current
 inventory and acceptance gates are in [GPUI migration](docs/gpui-migration.md);
-implementation and integration are complete; physical acceptance is pending.
+implementation, integration and acceptance are complete. Physical acceptance
+was reported by the user on 2026-11-19.
 The user selected KDBG-to-DWARF migration first, then UI implementation.
 The initial DWARF writer and bounded native reader/CLI are implemented and
 preserve assembly expansion ancestry and pass 35 focused linker tests.
 The managed debugger, SDK, CLI, editor and fixtures now use DWARF `.elf`
 sidecars; production KDBG code is removed. The whole-goal checkpoint ledger
-is in the GPUI migration document (9/10). Local validation: zero-warning/error
+is in the GPUI migration document (10/10). Local validation: zero-warning/error
 solution build, all seven C# ROMs/debug sidecars, 579 fast tests passed with two
 existing graphics opt-ins skipped, and 44 extension tests passed under Xvfb.
 All 37 selected real compiler/debugger integration cases pass, including both
@@ -34,8 +35,9 @@ native2259/2259 Linux/macOS and2257/2257 Windows (one opt-in engine test skipped
 per platform, exercised separately locally), managed554/554 both hosts, all
 desktop publish/headless/native-window and artifact checks. The release Wayland
 two-output round trip preserves exactLCD at physical3x ->6x ->3x, independently
-confirmed by protocol buffer-scale1 ->2 ->1. Physical listening and monitor
-transitions remain open; core framebuffer-state and upstream AT-SPI state-flag
+confirmed by protocol buffer-scale1 ->2 ->1. The user reported "everything seems
+fine" after the physical sound/scaling checklist and desktop launch instructions;
+this closes physical acceptance as user-reported. Core framebuffer-state and upstream AT-SPI state-flag
 limitations are tracked separately in the migration document.
 
 Serve Game Boy hobbyists who want to write assembly or constrained C#, build a ROM, and diagnose problems without stitching together unrelated editor and debugger integrations. The differentiator is the connected development workflow: semantic assembly tooling plus C# compilation, sample games, and an emulator/debugger in one repository.
@@ -269,7 +271,7 @@ Dependency repair: SDK 10.0.115 and StreamJsonRpc 2.26.150 resolve to ILCompiler
 | 3 | Specify the supported surface | Medium / medium | Publish tested C# subset and RGBDS compatibility limits, backed by fixtures; document whether Koh.Sdk is checkout-only or independently consumable. |
 | 4 | Bound compiler-test memory | Medium / medium | Measure retained fixture/compiler state and establish a bounded-memory full-suite invocation before changing parallelism defaults. |
 
-Next migration gate: physical listening and monitor DPI transitions; user confirmation is pending. Automated desktop acceptance passed on Linux, Windows and macOS, including actual VS Code source debugging on Linux and a nested Wayland scale transition. This does not establish physical GPU or editor acceptance on every platform. Release ownership and attribution questions still await the rights holder. The extension's earlier `npm ci` reported 22 audit vulnerabilities (1 low, 9 moderate, 11 high, 1 critical); dependency triage remains a separate release-readiness increment. Treat the RGBDS fixture's BANK(symbol) coverage as bounded evidence, not full RGBDS compatibility.
+GPUI migration acceptance is complete; draft PR56 remains for maintainer review. Automated desktop acceptance passed on Linux, Windows and macOS, including actual VS Code source debugging on Linux and a nested Wayland scale transition; the final physical check is user-reported. This does not establish physical GPU or editor acceptance on every platform. Release ownership and attribution questions still await the rights holder. The extension's earlier `npm ci` reported 22 audit vulnerabilities (1 low, 9 moderate, 11 high, 1 critical); dependency triage remains a separate release-readiness increment. Treat the RGBDS fixture's BANK(symbol) coverage as bounded evidence, not full RGBDS compatibility.
 
 ## Boundaries
 
