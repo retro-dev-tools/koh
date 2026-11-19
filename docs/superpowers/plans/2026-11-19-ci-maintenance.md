@@ -96,6 +96,14 @@ Push, full hosted validation, package-only release runs and a draft PR are now
 authorized. No merge, protection change, tag or publication is authorized.
 macOS/Windows installer execution and public update behavior remain unvalidated.
 
+Draft PR60 is open. The first hosted PR run exposed that install-action treats
+unknown tools as Cargo crates; actionlint is a Go tool. Its installation now uses
+the official Linux binary with the release asset's pinned SHA-256. The exact
+download/checksum/extraction/PATH step and resulting lint binary pass locally.
+The extension package-only run44578770044 passed at2ee9fab and skipped its release
+job; remaining hosted validation is tracked on the PR. No public release was
+created.
+
 Local environment gotcha: stale shared NuGet scratch locks stalled tools/builds.
 A fresh `NUGET_SCRATCH` directory allowed normal tool restore, audited restore,
 build and tests without disabling auditing or changing package sources.
