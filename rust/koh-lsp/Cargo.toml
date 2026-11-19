@@ -1,0 +1,9 @@
+[package]
+name = "koh-lsp"
+version = "1.0.2"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json = "1"

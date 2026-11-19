@@ -3397,6 +3397,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "koh-lsp"
+version = "1.0.2"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "koh-objects"
 version = "1.0.2"
 dependencies = [
