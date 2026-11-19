@@ -18,7 +18,8 @@ Output: `build/2048.gbc`, `build/2048.sym`, and `build/2048.elf`. Open the ROM i
 
 The native `koh-test-host Verify2048` boots the ROM, exercises every game state,
 checks board rendering, and captures each state and all four slide directions.
-The Python driver uses Pillow to render scaled PNGs, contact sheets and the GIF.
+Rust also writes scaled PNGs, contact sheets, slide strips and the GIF using
+the PNG/GIF libraries. The optional Python driver only launches the native host.
 
 ```sh
 # Build the ROM first, then:
@@ -28,8 +29,8 @@ python3 scripts/verify-2048.py samples/asm/gb-2048/build/2048.gbc \
 
 The driver builds the Rust host unless `--no-build` is supplied; `--host`
 selects an existing executable. It exits nonzero if any assertion fails and
-retains captures for diagnosis. Python 3 and Pillow are required for the composite
-views; the Rust host alone writes raw PNG captures and its JSON manifest.
+retains captures for diagnosis. Python 3 is only required for this launcher;
+the Rust host alone writes all captures, composite views and its JSON manifest.
 
 ## Controls
 

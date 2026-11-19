@@ -48,19 +48,22 @@ tool path, exit status and native diagnostics. Cancellation kills the owned proc
 tree. Output identities resolve parent links before comparing with input paths;
 the Unix regression originally demonstrated a DLL being replaced through an alias.
 Compiler/linker failures preserve the prior ROM. Disabling debug generation removes
-the owned stale KDBG after successful linking, and re-enabling regenerates it.
+the owned stale ELF debug sidecar after successful linking, and re-enabling regenerates it.
 
 ## Retained asset pipeline
 
-`GenerateKohTileSheets`, `TileSheetConverter` and `PngReader` stay in the C# build
-task project. They are useful authoring tools, not compiler algorithms. Rust SDK
+`GenerateKohTileSheets` is a thin C# MSBuild process wrapper. PNG decoding,
+tile conversion and source emission run in `koh-compile --tile-sheets`; the
+managed converter/decoder are retired. Rust SDK
 tests supply checksum-valid four-color PNGs, verify exact generated 2bpp bytes and
-RGB555 bookends, compile a real consumer, then execute its result in the existing
+RGB555 bookends, compile a real consumer, then execute its result in the native
 emulator. A five-color PNG must fail with an authoring diagnostic and preserve
 the previous ROM. Unchanged builds must retain generated-source inclusion.
 
 This replaces the two compiler-owned tile-sheet TUnit methods with native test
-ownership; it does not claim broader PNG/checksum validation by the existing decoder.
+ownership. Native format/filter/alpha/naming tests supplement the actual SDK/ROM
+checks. An independent CLR oracle validates the original filename character
+semantics across the BMP. Decoder checksums and compression remain library-owned.
 
 ## Reproduction and evidence scope
 

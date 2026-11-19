@@ -3,6 +3,7 @@ mod common;
 mod debugger;
 mod emulator;
 mod games;
+mod presentation2048;
 mod verify2048;
 
 fn main() {

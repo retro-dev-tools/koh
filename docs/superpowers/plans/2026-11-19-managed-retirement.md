@@ -17,9 +17,10 @@ and native workflow gates. Execute inline; no merge or release.
   cases, then retire the managed tests and compatibility libraries.
 - [x] Remove C# emulator/boot/verification, opcode/object/common and native bridge
   source once callers are gone; preserve boot assembly and native build glue.
-- [ ] Update solutions, build targets, CI tasks, package versions and current docs.
+- [x] Update solutions, build targets, CI tasks, package versions and current docs.
   List every retained C# file category and its required .NET consumer.
-- [ ] Move tile-sheet conversion/PNG decoding to Rust; retain only its MSBuild wrapper.
+- [x] Move tile-sheet conversion/PNG decoding to Rust; retain only its MSBuild wrapper.
+- [x] Move 2048 image presentation to Rust; keep Python only as an optional launcher/test tool.
 - [ ] Run native suites, independent RGBDS verification, source-to-ROM builds,
   packaged editor/desktop checks and final PR CI. Re-read completed logs.
 

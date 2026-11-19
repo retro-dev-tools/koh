@@ -91,8 +91,9 @@ verify:
     run("cargo", "test", "-p", "koh-engine", "--bin", "koh-engine", "openal_null_backend_warmup_reset_and_restart", "--locked", "--", "--ignored")
     run("cargo", "test", "-p", "koh-engine", "--test", "session", "audio_resume_reset_and_restore_remain_operational", "--locked", "--", "--ignored")
     run("dotnet", "msbuild", "build.proj", "-t:BuildSample2048")
+    run("cargo", "build", "--release", "-p", "koh-test-host", "--locked")
     run(sys.executable, "scripts/test-verify-2048.py")
-    run(sys.executable, "scripts/verify-2048.py", "samples/asm/gb-2048/build/2048.gbc", out / "2048")
+    run(sys.executable, "scripts/verify-2048.py", "samples/asm/gb-2048/build/2048.gbc", out / "2048", "--no-build")
     run(bin / f"koh-engine{suffix}", "samples/asm/gb-2048/build/2048.gbc", "--frames=300", f"--screenshot={out / 'frame.png'}")
     with Image.open(out / "frame.png") as image:
         if image.size != (160, 144) or image.mode != "RGBA":

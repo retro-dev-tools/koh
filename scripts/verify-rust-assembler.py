@@ -10,7 +10,9 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "target/release" / ("koh-test-host.exe" if os.name == "nt" else "koh-test-host")
+TARGET = (ROOT / os.environ.get("CARGO_TARGET_DIR", "target")).resolve()
+SUFFIX = ".exe" if os.name == "nt" else ""
+HELPER = TARGET / "release" / f"koh-test-host{SUFFIX}"
 
 def run(args, *, expect=0):
     result = subprocess.run(list(map(str, args)), cwd=ROOT, text=True, capture_output=True)
@@ -231,8 +233,8 @@ def negative_cases(directory, assembler, linker):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-build", action="store_true")
-    parser.add_argument("--rust", type=Path, default=ROOT / "target/release/koh-asm")
-    parser.add_argument("--linker", type=Path, default=ROOT / "target/release/koh-link")
+    parser.add_argument("--rust", type=Path, default=TARGET / "release" / f"koh-asm{SUFFIX}")
+    parser.add_argument("--linker", type=Path, default=TARGET / "release" / f"koh-link{SUFFIX}")
     parser.add_argument("--host", type=Path, default=HELPER)
     parser.add_argument("--output", type=Path)
     options = parser.parse_args()

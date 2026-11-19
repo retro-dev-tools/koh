@@ -45,8 +45,8 @@
 
   <Target Name="KohGenerateTileSheets" DependsOnTargets="ResolveProjectReferences"
           Condition="'@(KohTileSheet)' != ''"
-          Inputs="@(KohTileSheet);$(KohBuildTasksAssembly)" Outputs="$(KohTileSheetsFile)">
-    <GenerateKohTileSheets Sheets="@(KohTileSheet)" OutputFile="$(KohTileSheetsFile)" Namespace="$(RootNamespace)" />
+          Inputs="@(KohTileSheet);$(KohBuildTasksAssembly);$(KohCompilerExecutable)" Outputs="$(KohTileSheetsFile)">
+    <GenerateKohTileSheets Sheets="@(KohTileSheet)" OutputFile="$(KohTileSheetsFile)" Namespace="$(RootNamespace)" CompilerPath="$(KohCompilerExecutable)" />
   </Target>
 
   <Target Name="KohIncludeTileSheets" BeforeTargets="CoreCompile" DependsOnTargets="KohGenerateTileSheets" Condition="'@(KohTileSheet)' != ''">

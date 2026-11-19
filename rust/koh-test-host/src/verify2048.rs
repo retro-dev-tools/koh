@@ -135,6 +135,12 @@ pub fn run(args: &[String]) -> Result {
     let [rom, output] = args else {
         return Err("Expected <rom> <output-directory>".into());
     };
+    let output = PathBuf::from(output);
+    match std::fs::remove_file(output.join("manifest.json")) {
+        Ok(()) => (),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error.to_string()),
+    }
     let mut machine = load(rom)?;
     boot(&mut machine)?;
     for _ in 0..600 {
@@ -146,7 +152,6 @@ pub fn run(args: &[String]) -> Result {
     if machine.boot_rom_mapped() {
         return Err("Boot did not complete after 600 frames".into());
     }
-    let output = PathBuf::from(output);
     std::fs::create_dir_all(output.join("frames")).map_err(|error| error.to_string())?;
     let mut v = Verifier::new(machine, output);
     v.frames(120)?;
@@ -216,6 +221,7 @@ pub fn run(args: &[String]) -> Result {
     v.frames(20)?;
     v.capture("win", "YOU WIN")?;
     v.check(v.machine.read_debug(0xc06e) == 3, "Triggered GS_WIN");
+    crate::presentation2048::render(&v.output, &v.sheet, &v.animations)?;
     write(v.output.join("manifest.json"), serde_json::to_vec_pretty(&json!({
         "sheet": v.sheet, "animations": v.animations, "passes": v.passes, "failures": v.failures,
     })).map_err(|error| error.to_string())?)?;

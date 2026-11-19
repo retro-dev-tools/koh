@@ -21,12 +21,12 @@ native tests exercise parse, includes, ELF assembly and ROM linking directly.
 | Area | Disposition |
 | --- | --- |
 | `Koh.GameBoy`, samples and compiler fixtures | C# source language and compiler/runtime contracts |
-| `Koh.Build.Tasks`, `Koh.Sdk` | .NET SDK/MSBuild integration |
+| `Koh.Build.Tasks`, `Koh.Sdk` | .NET SDK/MSBuild process wrappers; PNG/tile algorithms run in Rust |
 | `Koh.Native`, `Koh.Common`, `Koh.Objects` | C# source and reference tests retired; native build/NuGet glue remains |
 | Managed bridge/emulator benchmarks and `Koh.Superopt` | Decommissioned; native compiler measurement workloads remain |
 | `Koh.Opcodes` | Retired with managed superoptimizer; native debugger retains the 512-encoding oracle |
 | `Koh.Emulator`, `Koh.Boot` | Managed libraries/tests retired; boot assembly remains input to the native build |
-| `Koh.Verify`, 2048 verifier | Replaced by `koh-test-host Verify2048` and the Pillow presentation driver |
+| `Koh.Verify`, 2048 verifier | Replaced by `koh-test-host Verify2048`, including native PNG/GIF/contact output |
 | `tools/rust-asm-verify` execution helper | Replaced by `koh-test-host AssemblerVerify execute <rom>` |
 | C# oracle capture sources | Managed-emulator capture programs retired; independent .NET semantic oracles remain |
 
@@ -34,6 +34,12 @@ The user's 2026-11-19 clarification expands PR62 to all nonessential C# and
 supersedes the earlier [engine design](rust-engine/design.md) exclusions.
 The [retirement plan](superpowers/plans/2026-11-19-managed-retirement.md) tracks
 the remaining work. This audit does not claim the whole migration is complete.
+
+The tracked source census contains 159 C# files: 35 game API files, two MSBuild
+process wrappers, 22 game sample files, 97 compiler inputs/CLR semantic oracles,
+and three native-compiler measurement inputs. No C# source remains outside those
+owners. The build-only `Koh.Native.csproj` retains native NuGet/build integration;
+it contains no C# source and no managed bridge API.
 
 ## Local validation
 
@@ -53,7 +59,18 @@ The native 2048 verifier passes the same 11 game-state checks as the managed
 reference. All 63 captured state/animation images match the managed framebuffer
 pixels exactly, including each frame of all four slides. The presentation driver
 has tests for pixel positions, PNG dimensions, GIF timing and malformed images.
-Contact-sheet labels use Pillow's font; framebuffer regions retain exact pixels.
+All 11 complete PNG artifacts, including labels, and the 13-frame/780ms GIF
+playback match the managed reference exactly. PNG/GIF codecs run in Rust;
+the optional Python launcher uses only the standard library. Pillow is used
+solely for independent artifact tests.
+
+SDK PNG reading and tile conversion now run through `koh-compile --tile-sheets`.
+The MSBuild task only passes metadata/paths and logs process results. Native
+tests cover formats, all five filters, alpha, RGB555/2bpp data and failure
+preservation. An isolated actual SDK fixture builds a 32768-byte ROM with zero
+warnings/errors; invalid assets preserve the prior source and ROM. A tiny CLR
+semantic oracle checks all 63,488 BMP scalars, retaining original .NET filename
+casing/digit behavior, including Unicode cases found during review.
 
 Managed benchmark discovery and the standalone experimental superoptimizer are
 decommissioned rather than advertised as native replacements. Neither was a
