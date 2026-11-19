@@ -158,6 +158,7 @@ extension tag:
     lock = json.loads((extension / "package-lock.json").read_text())
     if sys.argv[1] != f"ext-v{version}" or lock["version"] != lock["packages"][""]["version"] or lock["version"] != version:
         sys.exit("tag must match package.json and package-lock.json")
+    shutil.rmtree(extension / "out", ignore_errors=True)
     out = pathlib.Path("artifacts/extension")
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True, exist_ok=True)
