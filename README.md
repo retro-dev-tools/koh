@@ -131,7 +131,8 @@ If restore fails with `NU1902` or `NU1903`, a dependency audit has found a vulne
 
 ### Test
 
-See [CI validation](docs/ci-validation.md) for which jobs run and the merge gate.
+Run `just` for common tasks, or `just ci` for the same checks as GitHub Actions.
+See [build, test and release](docs/ci-validation.md) for prerequisites and packaging.
 
 ```sh
 dotnet msbuild build.proj -t:Test

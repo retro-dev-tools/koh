@@ -34,7 +34,7 @@ cargo test --workspace --all-features --doc --locked
 ```
 
 The committed nextest configuration limits Roslyn/emulator concurrency and uses
-zero retries. CI runs native tests on Linux, Windows and macOS when Rust code changes.
+zero retries. `just ci` runs full acceptance on Linux, Windows and macOS in CI.
 Remaining .NET tests belong to live emulator, debugger, LSP, object/SDK bridge
 and standalone tool components. `build.proj -t:TestAll` runs both test ecosystems.
 

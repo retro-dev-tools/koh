@@ -50,7 +50,7 @@ Push-Location $repoRoot
 try {
     Write-Host "─── Publishing toolchain into $devBin ───" -ForegroundColor Cyan
 
-    dotnet publish src/Asm/Koh.Lsp -c Release -r win-x64 --self-contained -o $devBin
+    dotnet msbuild build.proj -t:PublishLanguageServer -p:LanguageServerRuntimeIdentifier=win-x64 "-p:LanguageServerPublishDir=$devBin"
     if ($LASTEXITCODE -ne 0) { throw "koh-lsp publish failed ($LASTEXITCODE)" }
 
     dotnet msbuild build.proj -t:PublishEmulatorApp -p:EmulatorRuntimeIdentifier=win-x64 "-p:EmulatorPublishDir=$devBin"
