@@ -1,5 +1,8 @@
 # Source debugging migration
 
+This document records the compiler migration's historical KDBG acceptance.
+The active debug-format cutover is documented in [DWARF migration](../dwarf-migration.md).
+
 Status: source-breakpoint acceptance passes for fixtures and the real2048 sample.
 Caller inspection uses the [documented exact-PC contract](native-unwind.md);
 arbitrary-instruction unwinding is explicitly unsupported. Final hosted validation

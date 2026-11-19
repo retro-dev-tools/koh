@@ -80,15 +80,15 @@ while (Console.ReadLine() is { } line)
         gb.Registers.Sp = state.GetProperty("sp").GetUInt16();
         foreach (var symbol in state.GetProperty("symbols").EnumerateArray())
             session.DebugInfo.SymbolMap.Add(
-                new KdbgParsedSymbol(
-                    KdbgSymbolKind.Label,
+                new DebugSymbol(
+                    DebugSymbolKind.Label,
                     0,
                     gb.Registers.Pc,
-                    0,
                     symbol.GetString()!,
                     null,
-                    null,
-                    0
+                    0,
+                    0,
+                    []
                 )
             );
         foreach (var write in state.GetProperty("writes").EnumerateArray())

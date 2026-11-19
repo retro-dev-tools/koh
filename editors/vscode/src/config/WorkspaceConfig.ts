@@ -12,6 +12,6 @@ export interface ResolvedTarget {
     name: string;
     entrypoint: string;          // absolute path
     romPath: string;             // absolute output path for the .gb
-    kdbgPath: string;            // absolute output path for the .kdbg
+    debugInfoPath: string;            // absolute output path for the .elf
     workspaceFolder: string;
 }

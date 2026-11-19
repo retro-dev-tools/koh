@@ -31,7 +31,7 @@ internal static class NativeStackUnwinder
             if (!IsMarker(symbol.Name))
                 continue;
             if (
-                symbol.Kind != KdbgSymbolKind.Label
+                symbol.Kind != DebugSymbolKind.Label
                 || !symbol.Name.StartsWith(VersionPrefix, StringComparison.Ordinal)
             )
                 return null;

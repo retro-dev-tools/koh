@@ -2,18 +2,24 @@ using System.Diagnostics;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
-using Koh.Emulator.App;
+using Koh.TestSupport;
 
 namespace Koh.Debugger.Tests;
 
 public class HeadlessDapProcessTests
 {
     [Test]
-    [Arguments("disconnect", true)]
-    [Arguments("terminate", true)]
-    [Arguments("eof", true)]
-    [Arguments("disconnect", false)]
-    public async Task HeadlessSession_DebugsWithoutDisplayAndExits(string ending, bool headless)
+    [Arguments("disconnect", true, false)]
+    [Arguments("terminate", true, false)]
+    [Arguments("eof", true, false)]
+    [Arguments("disconnect", false, false)]
+    [Arguments("disconnect", true, true)]
+    [Arguments("eof", true, true)]
+    public async Task HeadlessSession_DebugsWithoutDisplayAndExits(
+        string ending,
+        bool headless,
+        bool session
+    )
     {
         string directory = Path.Combine(Path.GetTempPath(), "koh-dap-" + Guid.NewGuid());
         Directory.CreateDirectory(directory);
@@ -28,35 +34,16 @@ public class HeadlessDapProcessTests
         rom[0x153] = 0xFC;
         await File.WriteAllBytesAsync(romPath, rom);
         string pipeName = "koh-test-" + Guid.NewGuid();
-        string testAssembly = typeof(HeadlessDapProcessTests).Assembly.Location;
-        var start = new ProcessStartInfo
-        {
-            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        foreach (
-            string argument in new[]
-            {
-                "exec",
-                "--runtimeconfig",
-                Path.ChangeExtension(testAssembly, ".runtimeconfig.json"),
-                "--depsfile",
-                Path.ChangeExtension(testAssembly, ".deps.json"),
-                typeof(EmulatorLoop).Assembly.Location,
-                romPath,
-                "--dap=" + pipeName,
-            }
-        )
-            start.ArgumentList.Add(argument);
+        string debugPath = Path.Combine(directory, "game.elf");
+        await File.WriteAllBytesAsync(
+            debugPath,
+            DebugFixture.Mapping(0, 0x150, 4, "fixture.asm", 7)
+        );
+        var start = EmulatorProcess.StartInfo(romPath, "--dap=" + pipeName);
         if (headless)
             start.ArgumentList.Add("--headless");
-        start.Environment.Remove("DISPLAY");
-        start.Environment.Remove("WAYLAND_DISPLAY");
-        start.Environment["ALSOFT_DRIVERS"] = "unavailable";
-        start.Environment["SDL_VIDEODRIVER"] = "unavailable";
-        start.Environment["SDL_RENDER_DRIVER"] = "unavailable";
+        if (session)
+            start.ArgumentList.Add("--session");
         using var process = Process.Start(start)!;
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
@@ -106,16 +93,29 @@ public class HeadlessDapProcessTests
                 }
             }
             await Request("initialize", new { adapterID = "koh" });
-            await Request("launch", new { stopOnEntry = true });
+            await Request("launch", new { stopOnEntry = true, debugInfo = debugPath });
             await Request("configurationDone", new { });
             var stack = await Request("stackTrace", new { threadId = 1 });
             await Assert
                 .That(stack.GetProperty("body").GetProperty("stackFrames").GetArrayLength())
                 .IsGreaterThan(0);
-            await Request(
-                "setInstructionBreakpoints",
-                new { breakpoints = new[] { new { instructionReference = "0x0150" } } }
+            var breakpoint = await Request(
+                "setBreakpoints",
+                new
+                {
+                    source = new { path = "fixture.asm" },
+                    breakpoints = new[] { new { line = 7 } },
+                }
             );
+            await Assert
+                .That(
+                    breakpoint
+                        .GetProperty("body")
+                        .GetProperty("breakpoints")[0]
+                        .GetProperty("verified")
+                        .GetBoolean()
+                )
+                .IsTrue();
             await Request("continue", new { threadId = 1 });
             JsonElement stopped;
             do
@@ -152,19 +152,15 @@ public class HeadlessDapProcessTests
             await stdout;
             if (process.ExitCode != 0)
                 throw new InvalidOperationException($"Emulator exit {process.ExitCode}: {errors}");
+            await Assert
+                .That(errors.Contains("graphics unavailable", StringComparison.Ordinal))
+                .IsFalse();
             if (headless)
             {
-                await Assert
-                    .That(errors.Contains("graphics unavailable", StringComparison.Ordinal))
-                    .IsFalse();
                 await Assert
                     .That(errors.Contains("audio unavailable", StringComparison.Ordinal))
                     .IsFalse();
             }
-            else
-                await Assert
-                    .That(errors.Contains("graphics unavailable", StringComparison.Ordinal))
-                    .IsTrue();
         }
         catch (Exception ex) when (process.HasExited)
         {

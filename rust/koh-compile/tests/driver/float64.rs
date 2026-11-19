@@ -367,7 +367,7 @@ fn roslyn_binary64_arithmetic_and_storage_preserve_all_bits(
             },
         )
         .unwrap();
-        assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+        assert!(linked.dwarf().unwrap().starts_with(b"\x7fELF"));
         let report = execute_mode(
             host,
             directory.path(),

@@ -125,7 +125,7 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task, ICancelableT
             var references = ReferencePaths.Select(item => Resolve(item.ItemSpec)).ToArray();
             var output = Resolve(OutputPath);
             var obj = Resolve(ObjectPath);
-            var debug = Path.ChangeExtension(output, ".kdbg");
+            var debug = Path.ChangeExtension(output, ".elf");
             var pdb = string.IsNullOrEmpty(PdbPath)
                 ? Path.ChangeExtension(assembly, ".pdb")
                 : Resolve(PdbPath);
@@ -164,7 +164,7 @@ public sealed class CompileKohRom : Microsoft.Build.Utilities.Task, ICancelableT
                 return false;
             arguments = ["-o", output];
             if (EmitDebugInfo)
-                arguments.AddRange(["--kdbg", debug]);
+                arguments.AddRange(["--debug", debug]);
             if (CgbOnly)
                 arguments.Add("--cgb-only");
             else if (CgbCompatible)

@@ -56,14 +56,14 @@ fn debugger_breaks_inside_a_linq_selector_and_unwinds(
         .find(|p| p.file.ends_with("Program.cs") && p.line as usize == line)
         .unwrap();
     let rom = directory.path().join("LINQ debug.gb");
-    let kdbg = rom.with_extension("kdbg");
+    let debug = rom.with_extension("elf");
     std::fs::write(&rom, &linked.rom).unwrap();
-    std::fs::write(&kdbg, linked.kdbg().unwrap()).unwrap();
+    std::fs::write(&debug, linked.dwarf().unwrap()).unwrap();
     let mut requests = Vec::new();
     for (command, arguments) in [
         (
             "launch",
-            json!({"program":rom,"debugInfo":kdbg,"hardwareMode":if color {"cgb"} else {"dmg"}}),
+            json!({"program":rom,"debugInfo":debug,"hardwareMode":if color {"cgb"} else {"dmg"}}),
         ),
         (
             "setBreakpoints",
@@ -316,7 +316,7 @@ fn linq_metadata_contracts_and_debug_provenance(host: &Host, #[case] configurati
             foreign,
             "{entry}"
         );
-        assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+        assert!(linked.dwarf().unwrap().starts_with(b"\x7fELF"));
         let report = execute_mode(
             host,
             directory.path(),

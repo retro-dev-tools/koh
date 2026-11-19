@@ -1,14 +1,12 @@
 using Koh.Emulator;
 using Koh.Emulator.Cpu;
-using KohUI.Theme;
 
 namespace Koh.Emulator.App;
 
+public readonly record struct RgbColor(byte R, byte G, byte B);
+
 /// <summary>
-/// Immutable snapshot of the CPU's register state after a frame.
-/// Published by <see cref="EmulatorLoop"/> per-frame via a volatile
-/// reference write so the UI thread can read a consistent set without
-/// reaching into the live <see cref="GameBoySystem"/>.
+/// Immutable snapshot of the CPU's register state, taken on the emulator thread.
 /// </summary>
 public sealed record CpuSnapshot(
     ushort Pc,
@@ -49,7 +47,7 @@ public sealed record CpuSnapshot(
 /// Snapshot of PPU palette state. DMG and CGB share this shape: DMG
 /// fills the first BG / OBJ0 / OBJ1 palettes from BGP/OBP0/OBP1 byte
 /// decoding, CGB fills all 8 of each from its palette RAM. Colours are
-/// packed into <see cref="KohColor"/> (RGB8) at snapshot time so the
+/// packed into <see cref="RgbColor"/> (RGB8) at snapshot time so the
 /// UI doesn't need to know about BGR555 encoding.
 /// </summary>
 public sealed record PaletteSnapshot(
@@ -57,8 +55,8 @@ public sealed record PaletteSnapshot(
     byte Bgp,
     byte Obp0,
     byte Obp1,
-    KohColor[] BgColors, // [palette * 4 + slot]; length = 4 (DMG) or 32 (CGB)
-    KohColor[] ObjColors
+    RgbColor[] BgColors, // [palette * 4 + slot]; length = 4 (DMG) or 32 (CGB)
+    RgbColor[] ObjColors
 )
 {
     public static PaletteSnapshot From(GameBoySystem sys, PaletteSnapshot? existing = null)
@@ -69,11 +67,11 @@ public sealed record PaletteSnapshot(
         var bg =
             existing is not null && existing.BgColors.Length == bgLen
                 ? existing.BgColors
-                : new KohColor[bgLen];
+                : new RgbColor[bgLen];
         var obj =
             existing is not null && existing.ObjColors.Length == objLen
                 ? existing.ObjColors
-                : new KohColor[objLen];
+                : new RgbColor[objLen];
         if (cgb)
         {
             for (int p = 0; p < 8; p++)
@@ -94,7 +92,7 @@ public sealed record PaletteSnapshot(
 
     // Two bits per slot, 00→white, 01→light grey, 10→dark grey,
     // 11→black. Green-tinted to match a real DMG screen.
-    private static readonly KohColor[] s_dmgShades =
+    private static readonly RgbColor[] s_dmgShades =
     [
         new(0x9b, 0xbc, 0x0f),
         new(0x8b, 0xac, 0x0f),
@@ -102,7 +100,7 @@ public sealed record PaletteSnapshot(
         new(0x0f, 0x38, 0x0f),
     ];
 
-    private static void DmgDecodeInto(byte palette, KohColor[] dest, int offset)
+    private static void DmgDecodeInto(byte palette, RgbColor[] dest, int offset)
     {
         dest[offset + 0] = s_dmgShades[(palette >> 0) & 3];
         dest[offset + 1] = s_dmgShades[(palette >> 2) & 3];
@@ -110,7 +108,7 @@ public sealed record PaletteSnapshot(
         dest[offset + 3] = s_dmgShades[(palette >> 6) & 3];
     }
 
-    private static KohColor Bgr555ToRgb(ushort v)
+    private static RgbColor Bgr555ToRgb(ushort v)
     {
         int r5 = v & 0x1f;
         int g5 = (v >> 5) & 0x1f;
@@ -120,7 +118,7 @@ public sealed record PaletteSnapshot(
         byte r = (byte)((r5 << 3) | (r5 >> 2));
         byte g = (byte)((g5 << 3) | (g5 >> 2));
         byte b = (byte)((b5 << 3) | (b5 >> 2));
-        return new KohColor(r, g, b);
+        return new RgbColor(r, g, b);
     }
 }
 
@@ -196,7 +194,7 @@ public sealed record VramSnapshot(byte[] Rgba, int Width, int Height)
     // the same tile byte can map to any shade depending on which
     // palette the background layer uses at render time. A neutral
     // gradient lets the eye identify tiles independently of palette.
-    private static readonly KohColor[] s_shades =
+    private static readonly RgbColor[] s_shades =
     [
         new(0xff, 0xff, 0xff), // 00 → white
         new(0xc0, 0xc0, 0xc0),

@@ -19,6 +19,9 @@
     <KohNativeLinkerName>koh-link</KohNativeLinkerName>
     <KohNativeLinkerName Condition="('$(RuntimeIdentifier)' == '' and '$(OS)' == 'Windows_NT') or $(RuntimeIdentifier.StartsWith('win-'))">koh-link.exe</KohNativeLinkerName>
     <KohNativeLinker>$([System.IO.Path]::Combine($([System.IO.Path]::GetDirectoryName('$(KohNativeAssembler)')), '$(KohNativeLinkerName)'))</KohNativeLinker>
+    <KohNativeUiName>koh-emulator</KohNativeUiName>
+    <KohNativeUiName Condition="('$(RuntimeIdentifier)' == '' and '$(OS)' == 'Windows_NT') or $(RuntimeIdentifier.StartsWith('win-'))">koh-emulator.exe</KohNativeUiName>
+    <KohNativeUi>$([System.IO.Path]::Combine($([System.IO.Path]::GetDirectoryName('$(KohNativeAssembler)')), '$(KohNativeUiName)'))</KohNativeUi>
     <KohNativeHostRid>$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</KohNativeHostRid>
     <KohNativeNeedsHostTool Condition="'$(RuntimeIdentifier)' != '' and '$(RuntimeIdentifier)' != '$(KohNativeHostRid)'">true</KohNativeNeedsHostTool>
     <KohNativeHostExecutableName>koh-asm</KohNativeHostExecutableName>
@@ -47,4 +50,14 @@
   <Target Name="GetNativeHostAssemblerPath" DependsOnTargets="BuildRustAssembler" Returns="$(KohNativeHostAssembler)" />
   <Target Name="GetNativeLinkerPath" DependsOnTargets="BuildRustAssembler" Returns="$(KohNativeLinker)" />
   <Target Name="GetNativeHostLinkerPath" DependsOnTargets="BuildRustAssembler" Returns="$(KohNativeHostLinker)" />
+  <Target Name="VerifyRustUiNotices">
+    <Exec WorkingDirectory="$(KohRepositoryRoot)" Command="python &quot;$(KohRepositoryRoot)scripts/verify-rust-ui-notices.py&quot; --target $(KohNativeTargetTriple)" Condition="'$(KohNativeTargetTriple)' != ''" />
+    <Exec WorkingDirectory="$(KohRepositoryRoot)" Command="python &quot;$(KohRepositoryRoot)scripts/verify-rust-ui-notices.py&quot;" Condition="'$(KohNativeTargetTriple)' == ''" />
+  </Target>
+  <Target Name="BuildRustUi" DependsOnTargets="VerifyRustUiNotices">
+    <Error Condition="'$(RuntimeIdentifier)' != '' and '$(KohNativeTargetTriple)' == ''" Text="No Rust target mapping for RuntimeIdentifier '$(RuntimeIdentifier)'." />
+    <Exec WorkingDirectory="$(KohRepositoryRoot)" Command="cargo build --release --package koh-ui --locked --target-dir &quot;$(KohNativeCargoTargetDir)&quot; $(KohNativeTargetArgument)" />
+    <Error Condition="!Exists('$(KohNativeUi)')" Text="Native desktop was not produced: $(KohNativeUi)" />
+  </Target>
+  <Target Name="GetNativeUiPath" DependsOnTargets="BuildRustUi" Returns="$(KohNativeUi)" />
 </Project>

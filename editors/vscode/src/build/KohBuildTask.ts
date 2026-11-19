@@ -19,7 +19,7 @@ export function createBuildTask(binaries: KohBinaries, target: ResolvedTarget): 
     const execution = new vscode.ShellExecution(
         `${mkdirCmd} && ` +
         `"${binaries.asm}" "${target.entrypoint}" -o "${objectPath}" && ` +
-        `"${binaries.link}" "${objectPath}" -o "${target.romPath}" -n "${symPath}" -d "${target.kdbgPath}"`,
+        `"${binaries.link}" "${objectPath}" -o "${target.romPath}" -n "${symPath}" -d "${target.debugInfoPath}"`,
         { cwd: target.workspaceFolder }
     );
 

@@ -1,9 +1,8 @@
 using Koh.Emulator.App;
-using KohUI;
-using KohUI.Backends.Sdl3;
 
 string? dapPipe = null;
 bool headless = false;
+bool engineSession = false;
 string? screenshotPath = null;
 int frames = 120;
 string? inputScriptPath = null;
@@ -17,6 +16,8 @@ foreach (var arg in args)
 {
     if (arg == "--headless")
         headless = true;
+    else if (arg == "--session")
+        engineSession = true;
     else if (arg.StartsWith("--boot-rom=", StringComparison.Ordinal))
         bootRomPath = arg["--boot-rom=".Length..];
     else if (arg.StartsWith("--boot-rom-dmg=", StringComparison.Ordinal))
@@ -42,27 +43,53 @@ foreach (var arg in args)
         positional.Add(arg);
 }
 
-string romPath = positional.Count > 0 ? positional[0] : FindDefaultRom();
-EmulatorApp.BootRoms = new BootRomResolver(bootRomPath, bootRomDmgPath, bootRomCgbPath);
-if (headless && dapPipe is null && screenshotPath is null && !mode3ReportRequested)
+var bootRoms = new BootRomResolver(bootRomPath, bootRomDmgPath, bootRomCgbPath);
+if (engineSession)
 {
-    Console.Error.WriteLine("--headless requires --dap, --screenshot or --mode3-report");
-    return 1;
+    if (
+        positional.Count > 1
+        || screenshotPath is not null
+        || mode3ReportRequested
+        || inputScriptPath is not null
+    )
+    {
+        Console.Error.WriteLine(
+            "--session accepts one ROM and cannot use screenshot, report or input-script modes"
+        );
+        return 1;
+    }
+}
+else
+{
+    if (positional.Count != 1)
+    {
+        Console.Error.WriteLine(
+            "Use koh-emulator for the desktop, or pass one ROM with --session, --dap, --screenshot or --mode3-report."
+        );
+        return 1;
+    }
+    if (screenshotPath is not null || mode3ReportRequested)
+    {
+        return HeadlessRunner.Run(
+            positional[0],
+            screenshotPath,
+            frames,
+            inputScriptPath,
+            mode3ReportRequested,
+            mode3ReportPath,
+            bootRoms
+        );
+    }
+    if (dapPipe is null)
+    {
+        Console.Error.WriteLine(
+            "Use koh-emulator for the desktop, or select --session, --dap, --screenshot or --mode3-report."
+        );
+        return 1;
+    }
 }
 
-if (screenshotPath is not null || mode3ReportRequested)
-{
-    return HeadlessRunner.Run(
-        romPath,
-        screenshotPath,
-        frames,
-        inputScriptPath,
-        mode3ReportRequested,
-        mode3ReportPath,
-        EmulatorApp.BootRoms
-    );
-}
-
+string log = engineSession ? "[koh-engine]" : "[koh-dap]";
 using var cancellation = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) =>
 {
@@ -76,127 +103,48 @@ if (!headless)
     {
         audio = new AudioSink();
     }
-    catch (Exception ex) when (dapPipe is not null)
+    catch (Exception ex)
     {
-        Console.Error.WriteLine($"[koh-dap] audio unavailable: {ex.Message}");
+        Console.Error.WriteLine($"{log} audio unavailable: {ex.Message}");
     }
 }
 using var audioLifetime = audio;
 using var loop = new EmulatorLoop(audio);
-var loaded = EmulatorApp.LoadRomFromDisk(romPath);
-if (loaded is LoadRomFailed failure)
-{
-    Console.Error.WriteLine(failure.Error);
-    return 1;
-}
-if (loaded is LoadRomSucceeded success)
-    loop.SetSystem(success.System, success.Path);
-using var dapServer = dapPipe is not null ? new DapServerHost(dapPipe, loop) : null;
-if (dapServer is not null)
-    _ = dapServer.Completion.ContinueWith(
-        _ =>
-        {
-            try
-            {
-                cancellation.Cancel();
-            }
-            catch (ObjectDisposedException) { }
-        },
-        TaskScheduler.Default
-    );
-else
-    loop.Resume();
-
-if (headless)
-{
-    await WaitForSessionEnd();
-    return 0;
-}
-
-var runner = new Runner<EmulatorModel, EmulatorMsg>(
-    initialModel: new EmulatorModel(
-        Loop: loop,
-        RomPath: romPath,
-        FrameCount: 0,
-        Status: $"Loaded {Path.GetFileName(romPath)}",
-        ShowDebug: false
-    ),
-    update: EmulatorApp.Update,
-    view: EmulatorApp.View
-);
-
-var backend = new Sdl3Backend<EmulatorModel, EmulatorMsg>(
-    runner,
-    title: "Koh Emulator",
-    onTick: () => new Tick(),
-    onKeyDown: name =>
-        name == "Tab"
-            ? new SetFastForward(true)
-            : EmulatorApp.MapShortcut(name)
-                ?? (EmulatorApp.MapKey(name) is { } btn ? new JoypadDown(btn) : null),
-    onKeyUp: name =>
-        name == "Tab"
-            ? new SetFastForward(false)
-            : (EmulatorApp.MapKey(name) is { } btn ? new JoypadUp(btn) : null)
-);
-
+var session = new EngineSession(loop, bootRoms);
 try
 {
-    backend.Run(cancellation.Token);
+    if (positional.Count == 1)
+        loop.Execute(() => session.Load(positional[0], paused: dapPipe is not null));
+    using var dap = dapPipe is not null ? new DapServerHost(dapPipe, loop) : null;
+    if (!engineSession)
+    {
+        await dap!.Completion.WaitAsync(cancellation.Token);
+        return 0;
+    }
+    if (dap is not null)
+        _ = dap.Completion.ContinueWith(
+            _ =>
+            {
+                try
+                {
+                    cancellation.Cancel();
+                }
+                catch (ObjectDisposedException) { }
+            },
+            TaskScheduler.Default
+        );
+    using var input = new StreamReader(
+        Console.OpenStandardInput(),
+        new System.Text.UTF8Encoding(false, true)
+    );
+    return await session.RunAsync(input, Console.OpenStandardOutput(), cancellation.Token);
 }
-catch (Exception ex) when (dapServer is not null)
+catch (OperationCanceledException)
 {
-    Console.Error.WriteLine($"[koh-dap] graphics unavailable; continuing headlessly: {ex.Message}");
-    await WaitForSessionEnd();
+    return 0;
 }
 catch (Exception ex)
 {
-    Console.Error.WriteLine($"[koh-emulator] graphics failed: {ex.Message}");
+    Console.Error.WriteLine($"{log} {ex.Message}");
     return 1;
-}
-finally
-{
-    await runner.DisposeAsync();
-}
-
-return 0;
-
-async Task WaitForSessionEnd()
-{
-    try
-    {
-        await dapServer!.Completion.WaitAsync(cancellation.Token);
-    }
-    catch (OperationCanceledException) { }
-}
-
-static string FindDefaultRom()
-{
-    var dir = AppContext.BaseDirectory;
-    while (dir is not null)
-    {
-        var candidate = Path.Combine(dir, ".playwright-cli", "azure-dreams.gbc");
-        if (File.Exists(candidate))
-            return candidate;
-        dir = Path.GetDirectoryName(dir);
-    }
-    dir = AppContext.BaseDirectory;
-    while (dir is not null)
-    {
-        var candidate = Path.Combine(
-            dir,
-            "tests",
-            "fixtures",
-            "test-roms",
-            "blargg",
-            "cpu_instrs",
-            "cpu_instrs.gb"
-        );
-        if (File.Exists(candidate))
-            return candidate;
-        dir = Path.GetDirectoryName(dir);
-    }
-    throw new FileNotFoundException(
-        "no default ROM found. Pass a path as arg1 or place azure-dreams.gbc under .playwright-cli/."
-    );
 }

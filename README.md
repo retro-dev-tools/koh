@@ -22,7 +22,8 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 | `koh-lsp` | Language server for diagnostics, navigation, and refactoring |
 | VS Code extension | VS Code integration for Koh projects |
 | `Koh.Sdk` | MSBuild integration that compiles C# games to Game Boy ROMs |
-| `Koh.Emulator.App` | Desktop emulator and debug adapter |
+| `koh-emulator` | Rust + GPUI Kit desktop emulator |
+| `Koh.Emulator.App` | Windowless engine, debug adapter and headless captures |
 
 ## Features
 
@@ -55,7 +56,7 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 - ROM bank assignment
 - section placement and alignment
 - symbol resolution and patching
-- `.sym` and `.kdbg` output
+- `.sym` and `.elf` output
 - canonical [ELF32/SM83 ABI](docs/rust-linker/elf32-sm83.md) with checked complex relocations
 
 ### C# compiler
@@ -63,7 +64,7 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 The .NET SDK/Roslyn builds game DLLs and optional Portable PDBs. The Rust compiler
 resolves reachable game/runtime references, verifies typed IR and emits ELF32/SM83
 for the native linker. Ordinary game `dotnet build` runs this pipeline through
-Koh.Sdk; the existing C# emulator/debugger runs the ROM and consumes KDBG.
+Koh.Sdk; the existing C# emulator/debugger runs the ROM and consumes DWARF.
 See the [supported language contract](docs/rust-compiler/supported-subset.md),
 [runtime boundaries](docs/rust-compiler/runtime-boundaries.md),
 [ABI](docs/rust-compiler/sm83-abi.md) and [validation record](docs/rust-compiler/progress.md).
@@ -86,7 +87,8 @@ See the [roadmap](ROADMAP.md) for current gaps and acceptance criteria, and [CON
 ### Requirements
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [Rust 1.88 or newer](https://www.rust-lang.org/tools/install) with Cargo
+- [Rust](https://www.rust-lang.org/tools/install) with Cargo: 1.88+ for native tools, 1.92+ for the desktop/workspace
+- Python 3.11+ for desktop publication and notice verification
 - [Node.js](https://nodejs.org) and npm only when developing the VS Code extension
 
 Run commands below from the repository root. SDK selection is controlled by `global.json`.
@@ -105,7 +107,7 @@ For assembly:
 dotnet msbuild build.proj -t:BuildSample2048
 ```
 
-The ROM is written to `samples/asm/gb-2048/build/2048.gbc`, with source debug information in `2048.kdbg`. See the [build and debug walkthrough](docs/build-and-debug.md) for emulator commands and a VS Code launch configuration.
+The ROM is written to `samples/asm/gb-2048/build/2048.gbc`, with source debug information in `2048.elf`. See the [build and debug walkthrough](docs/build-and-debug.md) for emulator commands and a VS Code launch configuration.
 
 For C#:
 
@@ -117,13 +119,19 @@ The SDK writes `samples/csharp/gb-2048-v2/2048v2.gb`. See the [sample guide](sam
 
 Headless emulator captures use `--screenshot=frame.png --frames=300` with a ROM path. Screenshot output supports PNG only; other filename extensions are rejected. PNG encoding uses .NET directly and requires no image-library license key.
 
-The native emulator uses SDL3's 2D Renderer API for presentation, windows and input. Native SDL libraries are included in platform publishes; OpenAL still provides audio. Headless DAP sessions use `--headless --dap=<endpoint>` and initialize neither video nor audio. See [SDL3 rendering and validation](docs/sdl3.md) for renderer selection, software fallback and platform verification limits.
+The desktop is Rust + GPUI Kit: integer-scale LCD, transport, native ROM picker,
+CPU, palettes, tiles and memory inspectors. A windowless C# engine owns execution,
+OpenAL audio and DAP. Publishing places both executables together; the UI resolves
+the engine beside itself. Starting without a ROM opens an empty window with an
+Open ROM action. See [GPUI desktop](docs/gpui-migration.md) for native dependencies,
+controls, validation and current platform limits. Headless DAP and capture modes
+initialize neither video nor audio.
 
 If restore fails with `NU1902` or `NU1903`, a dependency audit has found a vulnerability. Report the package, version, and advisory URL; do not disable auditing to obtain a passing result. See the [roadmap](ROADMAP.md) for verification status.
 
 ### Test
 
-See [CI validation](docs/ci-validation.md) for PR checks and the full merge gate.
+See [CI validation](docs/ci-validation.md) for which jobs run and the merge gate.
 
 ```sh
 dotnet msbuild build.proj -t:Test
@@ -140,7 +148,7 @@ Invoke as `dotnet msbuild build.proj -t:<Target>` (no external tool install).
 | `BuildSample2048`     | Build the assembly 2048 sample ROM                          |
 | `Benchmark`           | Run benchmarks                                              |
 | `PublishDev`          | Publish the LSP server for local VS Code debugging          |
-| `PublishEmulatorApp`  | NativeAOT-publish the KohUI emulator for the host (`-p:EmulatorRuntimeIdentifier=<rid>` to override) |
+| `PublishEmulatorApp`  | Publish the Rust desktop and NativeAOT engine together (`-p:EmulatorRuntimeIdentifier=<rid>` to override) |
 | `RunEmulator`         | Publish the emulator and launch the host executable         |
 
 Quick-launch the emulator:
@@ -186,7 +194,6 @@ EntryPoint:
 
 | Sample | Description |
 |--------|-------------|
-| [`samples/ui/KohUI.Demo`](samples/ui/KohUI.Demo/) | Counter app showing off KohUI (the .NET UI framework strand of Koh) |
 | [`samples/asm/gb-2048`](samples/asm/gb-2048/) | 2048 game ROM for Game Boy Color demonstrating multi-bank assembly, GBC hardware features, and SRAM saves |
 | [`samples/csharp/gb-2048-v2`](samples/csharp/gb-2048-v2/) | C# 2048 using scenes, input, and tile assets |
 | [`samples/csharp/gb-jrpg`](samples/csharp/gb-jrpg/) | CGB mini-JRPG using PNG assets, sprites, dialogue, and encounters |
@@ -196,14 +203,14 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 ## Repository Layout
 
 ```text
-rust/         koh-asm, koh-link, koh-compile (CIL compiler), koh-objects (ELF ABI)
+rust/         koh-asm, koh-link, koh-compile (CIL compiler), koh-objects (ELF ABI),
+              koh-ui (GPUI Kit desktop)
 src/
   Common/     Koh.Common (diagnostics, source text), Koh.Opcodes (SM83 opcode table),
-              Koh.Objects (compiler output concepts and .kdbg reader)
+              Koh.Objects (compiler output concepts and debug records)
   Asm/        Koh.Native (native bridge), Koh.Lsp (language server)
   Compiler/   Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
   Emulator/   Koh.Emulator, Koh.Debugger, Koh.Boot (boot ROMs), Koh.Verify, Koh.Emulator.App
-  UI/         KohUI, KohUI.Backends.Sdl3, KohUI.Backends.Dom
 tests/        mirrors src/ by area; tests/fixtures holds external test ROMs
 tools/        Koh.Superopt, benchmarks/
 samples/      asm/, csharp/, ui/

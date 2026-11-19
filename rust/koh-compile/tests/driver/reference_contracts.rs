@@ -236,7 +236,7 @@ fn structured_finally_runs_on_normal_exits(
                     .iter()
                     .any(|p| p.file.ends_with("Program.cs") && p.line == line)
             );
-            assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+            assert!(linked.dwarf().unwrap().starts_with(b"\x7fELF"));
         }
         let text = execute_mode(
             host,

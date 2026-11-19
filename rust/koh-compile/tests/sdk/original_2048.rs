@@ -78,7 +78,7 @@ fn original_2048_sdk_boots_and_plays(#[case] configuration: &str, #[case] cgb: b
         u16::from_be_bytes(linked.rom[0x14e..0x150].try_into().unwrap()),
         checksum
     );
-    assert!(rom.with_extension("kdbg").is_file());
+    assert!(rom.with_extension("elf").is_file());
     let symbol = |name: &str| {
         linked
             .symbols

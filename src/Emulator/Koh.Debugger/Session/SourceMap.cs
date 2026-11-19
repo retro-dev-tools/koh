@@ -13,13 +13,16 @@ public sealed class SourceMap
     );
     private readonly List<SourceMapEntry> _entries = [];
 
-    public void Add(string file, uint line, BankedAddress address, byte byteCount = 1)
+    public void Add(string file, uint line, BankedAddress address, uint byteCount = 1)
     {
+        byteCount = Math.Max(1u, byteCount);
+        if (byteCount > 0x10000u - address.Address)
+            throw new ArgumentOutOfRangeException(nameof(byteCount));
         var key = (file, line);
         if (!_byLine.TryGetValue(key, out var list))
             _byLine[key] = list = new();
         list.Add(address);
-        _entries.Add(new SourceMapEntry(file, line, address, Math.Max((byte)1, byteCount)));
+        _entries.Add(new SourceMapEntry(file, line, address, byteCount));
     }
 
     public IReadOnlyList<BankedAddress> Lookup(string file, uint line)
@@ -50,7 +53,7 @@ public sealed class SourceMap
         string File,
         uint Line,
         BankedAddress Address,
-        byte ByteCount
+        uint ByteCount
     );
 
     private sealed class SourceLineComparer : IEqualityComparer<(string File, uint Line)>

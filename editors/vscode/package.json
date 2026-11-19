@@ -100,11 +100,11 @@
               },
               "debugInfo": {
                 "type": "string",
-                "description": "Path to .kdbg (phase 3+)"
+                "description": "Path to .elf (phase 3+)"
               },
               "emulatorPath": {
                 "type": "string",
-                "description": "Override path to Koh.Emulator.App executable"
+                "description": "Override path to the koh-emulator desktop executable"
               },
               "hardwareMode": {
                 "type": "string",
@@ -159,7 +159,7 @@
           "type": "string",
           "default": "",
           "scope": "machine",
-          "markdownDescription": "Absolute path to `Koh.Emulator.App` binary for debug-adapter sessions. Leave empty to use the emulator shipped with the active toolchain. Overridden per-session by `emulatorPath` in `launch.json`."
+          "markdownDescription": "Absolute path to the `koh-emulator` desktop for debug-adapter sessions. Leave empty to use the desktop shipped with the active toolchain. Overridden per-session by `emulatorPath` in `launch.json`."
         }
       }
     }

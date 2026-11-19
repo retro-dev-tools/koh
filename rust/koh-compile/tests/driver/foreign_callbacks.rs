@@ -262,7 +262,7 @@ fn callbacks_preserve_foreign_argument_scopes(
             library_body,
             "{entry}: reached library bodies only"
         );
-        assert!(linked.kdbg().unwrap().starts_with(b"KDBG"));
+        assert!(linked.dwarf().unwrap().starts_with(b"\x7fELF"));
         let text = execute_mode(
             host,
             directory.path(),

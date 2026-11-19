@@ -20,7 +20,7 @@ public sealed class SetBreakpointsHandler
 
         // Phase 1: breakpoints are stored but never halt execution (advertising set
         // excludes actual halt behavior). We still resolve source locations against
-        // .kdbg and return verified results to VS Code so the gutter shows a red marker.
+        // .elf and return verified results to VS Code so the gutter shows a red marker.
 
         _session.Breakpoints.ClearAll();
 

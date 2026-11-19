@@ -41,7 +41,7 @@ fn json_to_elf_to_rom_sym_debug_and_report() {
     let elf = dir.join("code.o");
     let rom = dir.join("code.gb");
     let sym = dir.join("code.sym");
-    let debug = dir.join("code.kdbg");
+    let debug = dir.join("code.elf");
     let report = dir.join("code.json");
     let mut child = Command::new(env!("CARGO_BIN_EXE_koh-link"))
         .args(["--emit-elf", "-o"])
@@ -90,7 +90,7 @@ fn json_to_elf_to_rom_sym_debug_and_report() {
             .unwrap()
             .contains("00:0000 Start")
     );
-    assert_eq!(&std::fs::read(&debug).unwrap()[..4], b"KDBG");
+    assert_eq!(&std::fs::read(&debug).unwrap()[..4], b"\x7fELF");
     let value: serde_json::Value = serde_json::from_slice(&std::fs::read(report).unwrap()).unwrap();
     assert_eq!(value["symbols"][0]["value"], 0);
     assert_eq!(value["lines"][0]["file"], "input.asm");
@@ -159,8 +159,8 @@ fn long_aliases_version_and_default_outputs_with_spaces() {
         .arg(&output)
         .arg("--sym")
         .arg(dir.join("explicit.sym"))
-        .arg("--kdbg")
-        .arg(dir.join("explicit.kdbg"))
+        .arg("--debug")
+        .arg(dir.join("explicit.elf"))
         .arg(&elf)
         .output()
         .unwrap();
@@ -249,7 +249,7 @@ fn separate_processes_produce_identical_elf_and_link_artifacts() {
             .arg("-n")
             .arg(run.join("image.sym"))
             .arg("-d")
-            .arg(run.join("image.kdbg"))
+            .arg(run.join("image.elf"))
             .arg("--report-json")
             .arg(run.join("image.json"))
             .arg(run.join("consumer.o"))
@@ -271,7 +271,7 @@ fn separate_processes_produce_identical_elf_and_link_artifacts() {
         "provider.o",
         "image.gb",
         "image.sym",
-        "image.kdbg",
+        "image.elf",
         "image.json",
     ] {
         let first = std::fs::read(runs[0].join(artifact)).unwrap();

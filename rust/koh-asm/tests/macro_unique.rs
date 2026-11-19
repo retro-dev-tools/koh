@@ -215,24 +215,10 @@ fn load_debug_lines_use_execution_addresses_and_keep_macro_expansions() {
         );
     }
     assert_eq!(linked.lines[2].count, 2);
-    let debug = linked.kdbg().unwrap();
-    let u32_at =
-        |offset| u32::from_le_bytes(debug[offset..offset + 4].try_into().unwrap()) as usize;
-    let map = u32_at(24);
-    assert_eq!(u32_at(map), 3);
-    let addresses: Vec<_> = (0..3)
-        .map(|index| {
-            let offset = map + 4 + index * 16;
-            u16::from_le_bytes(debug[offset + 2..offset + 4].try_into().unwrap())
-        })
-        .collect();
-    assert_eq!(addresses, [0x103, 0xff80, 0xff81]);
-    assert_eq!(u32_at(map + 4 + 12), u32::MAX as usize);
-    for index in 1..3 {
-        let expansion = u32_at(map + 4 + index * 16 + 12);
-        assert_eq!(
-            u16::from_le_bytes(debug[expansion..expansion + 2].try_into().unwrap()),
-            2
-        );
-    }
+    let debug = linked.dwarf().unwrap();
+    let restored_debug = koh_link::read_dwarf(&debug).unwrap();
+    assert_eq!(
+        serde_json::to_value(&restored_debug.lines).unwrap(),
+        serde_json::to_value(&linked.lines).unwrap()
+    );
 }

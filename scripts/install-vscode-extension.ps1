@@ -3,7 +3,7 @@
 # a working install with one invocation:
 #
 #   1. Publish koh-lsp (self-contained), koh-asm, koh-link, and
-#      Koh.Emulator.App into the canonical per-user toolchain path
+#      koh-emulator into the canonical per-user toolchain path
 #      (%LOCALAPPDATA%\Koh\toolchain\dev\bin). This mirrors what the
 #      Windows installer would do — extension auto-discovers it.
 #   2. Point %LOCALAPPDATA%\Koh\toolchain\current at the "dev" version.
@@ -53,7 +53,7 @@ try {
     dotnet publish src/Asm/Koh.Lsp -c Release -r win-x64 --self-contained -o $devBin
     if ($LASTEXITCODE -ne 0) { throw "koh-lsp publish failed ($LASTEXITCODE)" }
 
-    dotnet publish src/Emulator/Koh.Emulator.App -c Release -r win-x64 -o $devBin
+    dotnet msbuild build.proj -t:PublishEmulatorApp -p:EmulatorRuntimeIdentifier=win-x64 "-p:EmulatorPublishDir=$devBin"
     if ($LASTEXITCODE -ne 0) { throw "emulator publish failed ($LASTEXITCODE)" }
 
     # Metadata file + current pointer — same layout the Inno Setup

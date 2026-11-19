@@ -25,6 +25,8 @@ disclaimers.
 | [crc32fast](https://docs.rs/crate/crc32fast/1.5.5/source/Cargo.toml) | 1.5.5 | MIT OR Apache-2.0 | [MIT](rust-assembler/crc32fast-license.txt) |
 | [equivalent](https://docs.rs/crate/equivalent/1.0.3/source/Cargo.toml) | 1.0.3 | Apache-2.0 OR MIT | [MIT](rust-assembler/equivalent-license.txt) |
 | [foldhash](https://docs.rs/crate/foldhash/0.2.0/source/Cargo.toml) | 0.2.0 | Zlib | [Zlib](rust-assembler/foldhash-license.txt) |
+| [fnv](https://docs.rs/crate/fnv/1.0.7/source/Cargo.toml) | 1.0.7 | Apache-2.0 / MIT | [MIT](rust-assembler/fnv-MIT.txt) |
+| [gimli](https://docs.rs/crate/gimli/0.34.0/source/Cargo.toml) | 0.34.0 | MIT OR Apache-2.0 | [MIT](rust-assembler/gimli-MIT.txt) |
 | [hashbrown](https://docs.rs/crate/hashbrown/0.17.1/source/Cargo.toml) | 0.17.1 | MIT OR Apache-2.0 | [MIT](rust-assembler/hashbrown-license.txt) |
 | [indexmap](https://docs.rs/crate/indexmap/2.14.2/source/Cargo.toml) | 2.14.2 | Apache-2.0 OR MIT | [MIT](rust-assembler/indexmap-license.txt) |
 | [object](https://docs.rs/crate/object/0.40.0/source/Cargo.toml) | 0.40.0 | Apache-2.0 OR MIT | [MIT](rust-assembler/object-license.txt) |
@@ -33,6 +35,7 @@ disclaimers.
 | [proc-macro2](https://docs.rs/crate/proc-macro2/1.0.107/source/Cargo.toml) | 1.0.107 | MIT OR Apache-2.0 | [MIT](rust-assembler/MIT.txt) |
 | [quote](https://docs.rs/crate/quote/1.0.47/source/Cargo.toml) | 1.0.47 | MIT OR Apache-2.0 | [MIT](rust-assembler/MIT.txt) |
 | [serde](https://docs.rs/crate/serde/1.0.229/source/Cargo.toml) | 1.0.229 | MIT OR Apache-2.0 | [MIT](rust-assembler/MIT.txt) |
+| [stable_deref_trait](https://docs.rs/crate/stable_deref_trait/1.2.1/source/Cargo.toml) | 1.2.1 | MIT OR Apache-2.0 | [MIT](rust-assembler/stable_deref_trait-MIT.txt) |
 | [serde_core](https://docs.rs/crate/serde_core/1.0.229/source/Cargo.toml) | 1.0.229 | MIT OR Apache-2.0 | [MIT](rust-assembler/MIT.txt) |
 | [serde_derive](https://docs.rs/crate/serde_derive/1.0.229/source/Cargo.toml) | 1.0.229 | MIT OR Apache-2.0 | [MIT](rust-assembler/MIT.txt) |
 | [serde_json](https://docs.rs/crate/serde_json/1.0.154/source/Cargo.toml) | 1.0.154 | MIT OR Apache-2.0 | [MIT](rust-assembler/MIT.txt), plus the attribution below |

@@ -186,7 +186,7 @@ public static class HeadlessRunner
     }
 
     /// <summary>
-    /// Best-effort PC -> "FunctionName (file:line)" resolution against a loaded <c>.kdbg</c>.
+    /// Best-effort PC -> "FunctionName (file:line)" resolution against a loaded <c>.elf</c>.
     /// <see cref="SymbolMap"/> only exposes an exact-key address lookup (<c>LookupByAddress</c>),
     /// which essentially never hits for a violation's mid-function PC, so this does its own
     /// nearest-symbol-at-or-below scan over <see cref="SymbolMap.All"/> grouped by bank.
@@ -195,24 +195,28 @@ public static class HeadlessRunner
     private sealed class SymbolResolver
     {
         private readonly DebugInfoLoader? _loader;
-        private readonly List<KdbgParsedSymbol> _symbolsByBankThenAddress;
+        private readonly List<DebugSymbol> _symbolsByBankThenAddress;
 
         private SymbolResolver(DebugInfoLoader? loader)
         {
             _loader = loader;
             _symbolsByBankThenAddress = loader is null
                 ? []
-                : loader.SymbolMap.All.OrderBy(s => s.Bank).ThenBy(s => s.Address).ToList();
+                : loader
+                    .SymbolMap.All.Where(s => s.Kind != DebugSymbolKind.Constant)
+                    .OrderBy(s => s.Bank)
+                    .ThenBy(s => s.Address)
+                    .ToList();
         }
 
         public static SymbolResolver TryLoad(string romPath)
         {
-            string kdbgPath = Path.ChangeExtension(romPath, ".kdbg");
-            if (!File.Exists(kdbgPath))
+            string debugInfoPath = Path.ChangeExtension(romPath, ".elf");
+            if (!File.Exists(debugInfoPath))
                 return new SymbolResolver(null);
 
             var loader = new DebugInfoLoader();
-            loader.Load(File.ReadAllBytes(kdbgPath));
+            loader.Load(File.ReadAllBytes(debugInfoPath));
             return new SymbolResolver(loader);
         }
 
@@ -224,9 +228,9 @@ public static class HeadlessRunner
             SourceLocation? location = _loader?.SourceMap.Lookup(new BankedAddress(bank, pc));
 
             // A single-bank (unbanked) ROM's code in $4000-$7FFF is placed by the linker via a
-            // fixed-address section with no explicit bank, so DebugInfoPopulator records it at kdbg
+            // fixed-address section with no explicit bank, so DebugInfoPopulator records it at debug
             // bank 0 -- while Cartridge.CurrentRomBank reports the hardware convention (bank 1 for
-            // that window, even on an MBC-less cart). Retry at kdbg bank 0 before giving up, so an
+            // that window, even on an MBC-less cart). Retry at debug bank 0 before giving up, so an
             // unbanked ROM's own functions still resolve instead of falling back to raw hex.
             if (bank != 0)
             {
@@ -245,7 +249,7 @@ public static class HeadlessRunner
 
         private string? NearestEnclosingSymbolName(byte bank, ushort pc)
         {
-            KdbgParsedSymbol? best = null;
+            DebugSymbol? best = null;
             foreach (var sym in _symbolsByBankThenAddress)
             {
                 if (sym.Bank != bank || sym.Address > pc)

@@ -234,13 +234,13 @@ deliberately occupies 0104 and is not a cartridge logo. Their byte assertions
 remain unchanged. Cartridge boot and header checks use normal output instead.
 
 SYM lists address labels as `bank:address name`; absolute constants are omitted.
-Ordering is deterministic by bank, address and name. KDBG remains version 1,
-retaining source paths, line ranges, symbol definitions and macro call stacks;
-line runs longer than 255 bytes split into records. Its byte-wide bank field and
-16-bit symbol value field are existing format limits: requesting KDBG with an
-unrepresentable bank or constant fails explicitly. ROM/SYM linking without KDBG
-remains available, including through managed `LinkOptions.EmitDebugInfo=false`.
-There is no DWARF or debugger-format migration in this ABI.
+Ordering is deterministic by bank, address and name. Debug output is a separate
+ELF32 file containing DWARF 5 source ranges and symbol definitions. It preserves
+32-bit banked addresses, signed constants and assembly expansion ancestry;
+ranges no longer split at 255 bytes. ROM/SYM linking without debug output remains
+available through managed `LinkOptions.EmitDebugInfo=false`. The existing
+exact-PC stack convention is unchanged. See the [DWARF profile and validation
+status](../dwarf-migration.md); object placement/relocations remain ABI 1.
 
 CLI outputs are written through temporary files and renamed, with the ROM last.
 Input/output aliasing is rejected, and validation failures preserve existing ROM

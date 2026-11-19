@@ -119,16 +119,13 @@ public class StepHandlersTests
     [Test]
     public async Task StackTrace_Includes_Source_When_DebugInfo_Maps_Current_Pc()
     {
-        var builder = new DebugInfoBuilder();
-        builder.AddAddressMapping(
+        byte[] debugBytes = DebugFixture.Mapping(
             bank: 0,
             address: 0x0100,
             byteCount: 1,
             sourceFile: "src/main.asm",
             line: 12
         );
-        using var kdbgStream = new MemoryStream();
-        KdbgFileWriter.Write(kdbgStream, builder);
 
         var rom = TestRom.Create();
         rom[0x147] = 0x00;
@@ -136,7 +133,7 @@ public class StepHandlersTests
 
         var dispatcher = new DapDispatcher();
         var session = new DebugSession();
-        session.Launch(rom, kdbgStream.ToArray(), Koh.Emulator.HardwareMode.Dmg);
+        session.Launch(rom, debugBytes, Koh.Emulator.HardwareMode.Dmg);
         HandlerRegistration.RegisterAll(dispatcher, session, _ => Array.Empty<byte>());
 
         var responses = new List<byte[]>();

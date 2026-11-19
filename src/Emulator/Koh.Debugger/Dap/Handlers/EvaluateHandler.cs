@@ -8,7 +8,7 @@ namespace Koh.Debugger.Dap.Handlers;
 /// <summary>
 /// Evaluates simple expressions in the DAP Watch / REPL: hex literals
 /// (<c>$1234</c>, <c>0x1234</c>), decimal literals, register names
-/// (<c>A</c>, <c>HL</c>, <c>PC</c>), and symbol names from the loaded .kdbg.
+/// (<c>A</c>, <c>HL</c>, <c>PC</c>), and symbol names from the loaded .elf.
 /// </summary>
 public sealed class EvaluateHandler
 {
@@ -45,7 +45,8 @@ public sealed class EvaluateHandler
         var sym = _session.DebugInfo.SymbolMap.Lookup(expr);
         if (sym is not null)
         {
-            int addr = sym.Address;
+            if (sym.Kind == Koh.Objects.DebugSymbolKind.Constant)
+                return Success(sym.Value, "constant");
             return new Response
             {
                 Success = true,
@@ -74,7 +75,7 @@ public sealed class EvaluateHandler
             {
                 Result = result,
                 Type = kind,
-                MemoryReference = value <= 0xFFFF ? "0x" + value.ToString("X4") : null,
+                MemoryReference = value is >= 0 and <= 0xFFFF ? "0x" + value.ToString("X4") : null,
             },
         };
     }
@@ -111,11 +112,7 @@ public sealed class EvaluateHandler
         return int.TryParse(expr, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
     }
 
-    private static bool TryEvaluateRegister(
-        Emulator.GameBoySystem gb,
-        string name,
-        out int value
-    )
+    private static bool TryEvaluateRegister(Emulator.GameBoySystem gb, string name, out int value)
     {
         ref var r = ref gb.Registers;
         value = name.ToUpperInvariant() switch

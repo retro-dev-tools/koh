@@ -26,7 +26,7 @@ public sealed class DebugSession
 
     public void Launch(
         ReadOnlyMemory<byte> romBytes,
-        ReadOnlyMemory<byte> kdbgBytes,
+        ReadOnlyMemory<byte> debugBytes,
         HardwareMode? mode = null
     )
     {
@@ -39,7 +39,7 @@ public sealed class DebugSession
         // A boot ROM that locks up (bad header) stops in place after the cap.
         for (int i = 0; i < 10_000_000 && system.BootRomMapped; i++)
             system.StepInstruction();
-        DebugInfo.Load(kdbgBytes);
+        DebugInfo.Load(debugBytes);
         AdoptSystem(system);
     }
 
@@ -48,7 +48,7 @@ public sealed class DebugSession
     /// wire the session's watchpoints + breakpoint checker onto it.
     /// Use this instead of <see cref="Launch"/> when the emulator
     /// host owns the system lifecycle and the debugger is attaching
-    /// to an existing instance (the typical KohUI-emulator + DAP
+    /// to an existing instance (the typical desktop + DAP
     /// adapter flow) rather than booting the ROM itself.
     /// </summary>
     public void AdoptSystem(GameBoySystem system)

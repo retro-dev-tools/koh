@@ -28,21 +28,12 @@
     <Project Path="tests/Emulator/Koh.Debugger.Tests/Koh.Debugger.Tests.csproj" />
     <Project Path="tests/Emulator/Koh.Emulator.Tests/Koh.Emulator.Tests.csproj" />
   </Folder>
-  <Folder Name="/UI/">
-    <Project Path="src/UI/KohUI.Backends.Dom/KohUI.Backends.Dom.csproj" />
-    <Project Path="src/UI/KohUI.Backends.Sdl3/KohUI.Backends.Sdl3.csproj" />
-    <Project Path="src/UI/KohUI/KohUI.csproj" />
-    <Project Path="tests/UI/KohUI.Tests.E2E/KohUI.Tests.E2E.csproj" />
-    <Project Path="tests/UI/KohUI.Tests/KohUI.Tests.csproj" />
-    <Project Path="tests/UI/KohUI.Sdl3.Tests/KohUI.Sdl3.Tests.csproj" />
-  </Folder>
   <Folder Name="/Tools/">
     <Project Path="tests/Tools/Koh.Superopt.Tests/Koh.Superopt.Tests.csproj" />
     <Project Path="tools/Koh.Superopt/Koh.Superopt.csproj" />
     <Project Path="tools/benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/Samples/">
-    <Project Path="samples/ui/KohUI.Demo/KohUI.Demo.csproj" />
     <Project Path="samples/csharp/gb-2048-cs/Gb2048CSharp.csproj" />
     <Project Path="samples/csharp/gb-2048-v2/Gb2048V2.csproj" />
     <Project Path="samples/asm/gb-2048/verify/Gb2048Verify.csproj" />

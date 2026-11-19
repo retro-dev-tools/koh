@@ -1,3 +1,242 @@
+# Current work: DWARF then GPUI
+
+2026-11-18: fetched and fast-forwarded master to `9ebb6e5` (compiler PR55 merged).
+Active branch `feat/gpui-ui`. User requires complete KohUI removal and selected
+KDBG-to-DWARF migration before continuing Rust + GPUI Kit UI implementation.
+The DWARF prerequisite and windowless engine are implemented. Current UI
+progress, preview commands and full parity/removal acceptance are in
+`docs/gpui-migration.md`; the wire contract is in `docs/engine-session.md`.
+
+Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
+Current progress10/10: migration and acceptance complete. On2026-11-19 the user
+reported "everything seems fine" after the sound/scaling checklist and published
+desktop launch instructions. Physical acceptance is user-reported; no hardware
+configuration or physical audio measurements were independently recorded.
+Keep PR draft for maintainer review; no merge/release authorized.
+Full44447145986 at implementation
+58f3746 COMPLETED SUCCESS, all13jobs. Linux2259/2259 in1772.477s,
+mac2259/2259 in1872.522s, Win2257/2257 in2093.503s. Each1opt-in UI engine test
+skip, separately passed locally; docs + selectedSDK artifact smoke pass.
+Logs /tmp/koh-ui-startup-{linux,macos,windows}-full-ci.log. No CI jobs live.
+Mac publish job
+135303782548 PASSES AXFrontmost/global HID/exact2xLCD/paused-state/save/close;
+title+paused captures reviewed, whole native frame visible. Log
+/tmp/koh-ui-startup-macos-native-ci.log; captures
+/tmp/koh-gpui-startup-macos-native-window/. Windows frame guard + Linux publish
+also PASS; all three desktop jobs green. Win exact2xLCD/foreground/DWM frame
+workarea/input/paused saves/native close PASS; title capture reviewed, frame
+fully visible at1024x768. Linux capture reviewed too, exactLCD/input/state/empty
+shortcuts/child close PASS. Logs /tmp/koh-ui-startup-{windows,linux}-native-ci.log;
+captures /tmp/koh-gpui-startup-{windows,linux}-native-window/.
+All three broader native suites passed. No runtime changes after58f3746.
+Managed554/554 both platforms, zero warnings/errors. QuickPR green.
+Final documentation-head PR checks: Rust1487/1487,1opt-in skip; managed554/554,
+zero build warnings/errors. Logs /tmp/koh-ui-final-doc-{rust,managed}-ci.log.
+New release Wayland roundtrip PASS, exit0: two owned Weston outputs scale1/2;
+exactLCD physical3x ->6x ->3x after actual drag there/back. Protocol independently
+set_buffer_scale1->2->1 with output enter/leave. Logs
+/tmp/koh-ui-wayland-transition4.log; artifacts
+target/gpui-wayland-acceptance/transition4/. Temporary harness
+/tmp/koh-ui-wayland-transition.py and compositor-transition.py in parent artifact
+folder. Earlier harness straddled/cursor occluded; corrected, no product change.
+Owned servers cleaned; host display untouched. Physical acceptance report above.
+Full44442207871 at3b2634f: Linux + Windows publish/window jobs PASS; Windows
+metadata UTF8 fix confirmed, foreground/input/state/save/close all pass.
+Mac job135287624302 fails actual AXFrontmost assertion as expected; log
+/tmp/koh-ui-macos-foreground-red.log. No API-error ambiguity: exact LCD passed
+then CFBooleanGetValue was false. Window was visible but Finder active.
+Windows capture also clips titlebar at1024x768. Source correction now reserves
+native frame clearance from visible display area, then cx.activate(true).
+Windows verifier checks DWM visible frame inside monitor work area.
+Local8Rust UI tests incl AOT engine,3locator cases,Clippy all pass. New native
+1024x768 client960x704 fits, exact LCD/native close pass; standard X11 rendering,
+input/pause/save/empty shortcuts/child close pass. Debug frontend + fresh AOT
+engine. Logs /tmp/koh-ui-startup-*.log, /tmp/koh-ui-startup-small.png.
+Local PublishDev now exit0; root publish + editors/vscode/server contain corrected
+releaseUI SHA256 68e9ed54a9c3b45c5592a68c54f7d0808aa06efa9e514ea5946080d1c6c447f0.
+Published editor UI native oracle/input/pause/save/empty shortcuts/child exit PASS.
+Logs /tmp/koh-ui-startup-publishdev.log and startup-release-window.log.
+/tmp/koh-gpui-package UI remains pre-startup; don't use for final UI proof.
+/tmp/koh-ui-startup-debug-package contains corrected debug UI + engine.
+Physical audio/DPI
+question is pending through request_user_input_async (no reply yet).
+New PR check c245557 failed loading OpenAL before audio regression on Ubuntu.
+Reproduced in owned existing container with copied .NET runtime/test assembly.
+Silk.NET distro fallback omits Ubuntu. Test child now prepends bundled portable
+native-assets directory to LD_LIBRARY_PATH only; host + Ubuntu regression pass.
+Logs /tmp/koh-ui-audio-ubuntu-loader-{red,green}.log, host-green.log.
+Older full44432391455 now terminal: native2259Linux/macOS and2257Windows passed,
+each1opt-in skip, docs/SDK artifacts pass. Overall red only for known fixed
+Windows notices/Linux LCD locator. New current full44437937356 c245557 live but
+uses old failing test-loader setup; replace its obsolete validation after fix
+is pushed, because of the demonstrated test failure, not observation timeout.
+Audio Reset issue discovered and fixed: add SourceRewind after clearing stopped
+source, so frame-sized buffers accumulate for warmup again. Isolated real
+OpenAL null-driver regression fails before, passes after (3 playback sessions).
+Managed fast554/554 and fresh-engine debugger50/50 pass, zero skips. Release
+CI build zero warnings/errors; new root publish exit0. Logs /tmp/koh-ui-audio-reset-*.
+Actual GUI wave capture after keyboard R passes (9.92sec, peak12001, pausedRMS0.5007):
+/tmp/koh-gpui-reset-gui-audio-native.log; pointer /tmp/koh-gpui-reset-gui-audio-root.txt.
+Real assembly2048 NativeAOT PCM: input/resume/reset audible-signal, normal reset
+pacing190frames/3sec, fast-forward50frames/.25sec; /tmp/koh-gpui-audio-reset-wave-green.log.
+This proves PCM, not actual speakers/headphones. No host audio settings changed.
+Added scripts/verify-gpui-platform.py and locator tests; CI publish jobs now
+run actual screen oracle/input/save/close on Windows/macOS. Pillow13.0.0 is
+CI-only. Three local locator tests pass, actual APIs not yet executed on those
+platforms. macOS permission failures remain visible; do not modify TCC.
+Pause requires two completed byte-identical raw states, not just static LCD.
+Full run44435097844 (7eb3831) pending behind live old compiler suites; new
+validation head will include these checks. No timeout-triggered restarts.
+Native Wayland scale1/2, exact physical integer replication, Start and pause
+passed (logs /tmp/koh-gpui-wayland-native1h.log and native2d.log).
+Real VS Code source breakpoint at Program.cs:10, stepping/memory and simultaneous
+mapped editor+GPUI capture passed; /tmp/koh-gpui-vscode-coexistence.log, screenshot
+docs/images/gpui-vscode.png. Separate existing DAP setExceptionBreakpoints
+unsupported diagnostic recorded as proposal; source debugging works.
+Empty game shortcuts now ignored until ROM snapshot loaded; expanded native
+regression passes with final release package, /tmp/koh-ui-final-shortcuts-package.log.
+Focused Rust8/8 incl fresh engine; Clippy/format pass. Release build8m35s exit0;
+root publish /tmp/koh-ui-empty-publish.log exit0.
+Full CI44432391455 at5a0b04b: macOS publish/headless passed, both managed and
+extension platforms passed; native suites still live at last read. Windows
+notice-check failure fixed with .gitattributes (383 exact-byte Windows-style
+checkout checks pass). Linux window-check locator included white inspector
+tab: actual LCD artifact exactly matches oracle; locator fixed and local final
+package passes. Await new pushed-head validation; do not restart live jobs for
+observation timeout.
+Fresh package /tmp/koh-gpui-package; older /tmp/koh-gpui-engine-native is stale.
+Empty startup/picker: /tmp/koh-gpui-empty-picker-native.log exit0 (no default ROM,
+inactive transport, no disabled click actions, valid/spaced/invalid selection).
+Real SDK2048 transport: /tmp/koh-gpui-transport-native-final.log exit0 (exact LCD,
+P/F5/R/F9, exact CPU restore; resume refreshes legacy-format LCD; close0).
+Focused8/8inclNativeAOT, build/Clippy/format exit0; /tmp/koh-gpui-polish-*.log.
+Hosted checks pass atfedce21, run44416460511; new increment checks pending.
+Input/polish increment: both Shift keys activate Select through combined GPUI
+modifier state; release on internal/window focus loss and picker opening.
+Tab requires a scoped FastForward action: GPUI action dispatch precedes raw
+key handlers, so capture_key_down alone does not prevent Root tab traversal.
+Slate light/dark theme, blue primary controls and amber paused status applied.
+CPU labels need aria_value (not aria_label) to expose AT-SPI text. Status,
+memory validation and tile-bank descriptions now have accessible content.
+Native all-key/focus/theme/AT-SPI checks: /tmp/koh-gpui-polish-native-final.log.
+Actual GTK portal cancel, spaced-path load and invalid-ROM retention/error:
+/tmp/koh-gpui-picker-native-final.log. Bounded harnesses under
+/tmp/koh-gpui-preview; run them serially (shared X capture/probe paths).
+Use GSETTINGS_BACKEND=memory for the whole private D-Bus test session: a
+private bus alone still persists dconf. Host toolkit-accessibility reads false
+after cleanup. Do not write host theme/accessibility settings for future tests.
+Separate proposals: core raw states omit framebuffer pixels (paused restore
+needs Resume to redraw); Linux AccessKit adapter misreports disabled-button
+SENSITIVE flags despite removing their click action. No core format/role change.
+Inspector increment: CPU/Palettes/Tiles/Memory tabs, conditional detailed snapshots,
+integer-scale cached tile images with explicit release, validated hex entry,
+wrapping PageUp/PageDown/Home. Normal memory pane fits hex+ASCII; small windows
+scroll. Focused tests incl NativeAOT client8/8, build/Clippy/format exit0.
+Native DMG palette/tile pixels match restored native snapshot; CGB fixture's
+distinct bank0/bank1 images match too, including scrolled bank1. Reviewed memory
+FFF0 wrap, invalid entry and680x480 layout. Logs /tmp/koh-gpui-inspectors-*.log;
+bounded harnesses /tmp/koh-gpui-preview/run_inspectors_oracle.py and
+run_cgb_inspectors.py. Curated docs/images/gpui-memory.png is actual capture.
+Inspector increment evidence predates the completed input/polish work above.
+KohUI deletion/package/notices and final platform/audio/DAP acceptance remain.
+Hosted PR checks pass at3642a44, run44413679545. No full-suite rerun required for
+inspector-only Rust change; earlier workspace1484/1484 remains prior evidence.
+Production now emits and consumes DWARF: -d/--debug, SDK/editor/sample .elf
+sidecars, neutral records, managed native-reader binding, updated fixtures.
+KDBG writer/reader/format/kind/builder removed, no fallback retained. Range
+counts support600bytes; signed constants stay values, not code addresses.
+The emulator still rejects banks above255 explicitly; native metadata preserves
+wide banks. Loading invalid data preserves maps; symbol-free loading clears them.
+Assembly expansion ancestry uses the documented vendor extension.
+
+Final local checks: CI solution build exit0, zero warnings/errors, all7C# ROMs;
+fast suite581total/579passed/0failed/2existing opt-in SDL skips, including49
+debugger tests, exit0.35Rust linker cases pass. Workspace all-target/all-feature
+check passes with existing unused cube-helper warning.44extension tests pass
+under owned Xvfb, which was stopped. All7SDK ELF sidecars parse with symbols/
+sources. See docs/dwarf-migration.md for exact completed logs and limitations.
+All3new Cargo notices checked against archives/source and copied output.
+Focused Clippy/format checks pass; pre-existing all-target findings unchanged.
+
+Real C# source-breakpoint/stack/SDK debugger acceptance passed: 37/37 selected
+cases, exit0, 244.779seconds; 619 cases outside the filter. Final log:
+/tmp/koh-dwarf-source-debugger-tests-final.log. Both SDK2048 variants pass.
+DebuggerHost's injected-symbol fixture uses the neutral record constructor.
+Hosted22f9ef4 failed1/1480Rust fast cases: assembler macro test retained KDBG
+offset assertions. Replaced with full decoded DWARF range/ancestry comparison;
+all149assembler tests pass, exit0, /tmp/koh-dwarf-macro-acceptance.log.
+Hosted Rust checks passed at a481017, run44393108491.
+Windowless engine session implemented; see docs/engine-session.md for protocol.
+Commands execute on the emulator thread between frames, including while paused.
+DAP uses the same queue. Replies copy LCD/CPU/palette/VRAM/memory data.
+Save/restore replies reflect completed work; corrupt restore rolls back the core.
+EOF/Quit/oversized input flush SRAM after joining the worker. Audio pacing uses
+stderr. Cancellation reads raw stdin asynchronously, not blocking Console.In.
+Nine process tests pass against fresh Linux NativeAOT, including DWARF source
+breakpoints/stepping, DMG/CGB, actual joypad edges, saves and shutdown.
+Native build /tmp/koh-gpui-engine-native/Koh.Emulator.App, SHA256
+0f4be5e41e9e67f53943633a94242797e52c2bd1aff37fd222215dc5cc468398.
+Native SDK2048v2 smoke:123frames,8638408T-cycles,changed opaque LCD,save/restore,
+exit0. Logs /tmp/koh-engine-native-process-tests.log and
+/tmp/koh-engine-native-2048.log. Native publish /tmp/koh-engine-native-publish.log.
+Tests can use KOH_TEST_EMULATOR=<absolute native binary> to exercise published
+engine; otherwise use the managed test-host runtime.
+Connected GPUI preview now exists in rust/koh-ui, binary koh-emulator. Uses
+gpui-kit0.10.0 with matched gpui-pre0.3.12, image/base64/serde for pixels/IPC.
+The async worker owns the real engine; bounds/validates replies and rejects
+overlong commands without ending the current session. Shutdown waits for the
+engine's completed persistence; no automatic forced kill. The renderer copies
+RGBA to BGRA and scales to integer physical pixels. Replaced images are
+explicitly released from GPUI's sprite atlas. CPU inspector and transport/
+picker code exist; all four inspectors now render real snapshots. Full input,
+accessibility and polish are still pending.
+Preview: KOH_ENGINE=/tmp/koh-gpui-engine-native/Koh.Emulator.App
+CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 cargo run -p koh-ui -- <ROM>.
+Default engine lookup is relative to the UI executable; packaging is not done.
+New member requires Linux desktop build headers; PR/full workflows updated.
+No previously locked Cargo package versions removed; new Kit graph adds739.
+Workspace fast Rust:1484/1484 pass, one explicitly ignored native-client test;
+/tmp/koh-gpui-workspace-fast.log. Native-client test separately executed with
+KOH_TEST_ENGINE=<engine> cargo test -p koh-ui --lib --locked -- --ignored.
+That test checks real debug snapshots, oversized path recovery, save and exit.
+Native Xvfb window ran actual SDK2048v2; waits for title pixel oracle, Enter
+reaches score screen, exact integer LCD pixels, P freezes rendering, F5 saves,
+WM close exits0. /tmp/koh-gpui-window-bounded-final.log. Curated screenshot
+docs/images/gpui-desktop.png is from that window, not a mock. Null OpenAL driver
+used: no audible-output claim. Rust headless PNG is byte-identical to direct
+engine output, /tmp/koh-gpui-headless.log.
+Owned native harness remains /tmp/koh-gpui-preview/run_window.py and helper
+x11_capture.py; all processes are bounded/owned and cleaned up. ImageMagick
+import lacks X11 support, so screenshots use XGetImage and Pillow. Wait for
+actual X11 mapping before focus/input; window existence alone is too early.
+Next: palette/tile/memory panels, memory navigation/input/focus/accessibility,
+right Shift/Select parity via GPUI modifier events, light/dark slate polish and
+resize acceptance. Then remove ALL KohUI/backends/demo/tests/dependencies and
+update launch/package/CI. Preserve DAP and headless entry points. The UI still
+uses the legacy engine project, so framework removal has NOT happened yet.
+No agents spawned. Hosted PR checks passed at0822698 (run44396773962);
+new UI increment needs fresh hosted checks after push.
+User authorized opening a draft PR and keeping it updated; push this branch and
+update its description as increments land. No merge or release authorized.
+User requests an ASCII progress bar and detailed checkpoints. Whole-goal ledger
+is in `docs/gpui-migration.md`: [#######>--]7/10 checkpoints complete, not effort.
+
+Host gotcha: a stopped orphan aspire-managed template-search process holds the
+shared NuGet lock. Leave it alone. Use NUGET_SCRATCH=/tmp/koh-nuget-scratch on
+all dotnet/cargo-driven dotnet checks. Pinned SDK:
+/home/minorum/.local/share/koh-dotnet-10.0.115; set PATH,DOTNET_ROOT,KOH_DOTNET.
+DOTNET_PROCESSOR_COUNT=4; serial builds/tests. No NuGet audit suppression.
+Final fast log /tmp/koh-engine-fast-tests-final.log; build log
+/tmp/koh-engine-solution-build.log. No local build/test process live at commit.
+
+Unrelated modified `samples/csharp/gb-jrpg/screenshots/battle.png` remains intact,
+SHA256 `fb818583b6de0e55a9e61ff2768157a702621f4bb21bf91fa1d21b19376c1454`.
+Stage only task files. Builds run serially in `target/debug`.
+Edit/LSP tools unavailable; use apply_patch and targeted source reads.
+Vault AGENTS.md and vault-observer skill not found at inspected paths.
+
+The compiler handoff below is historical:
+
 # Native compiler migration handoff
 
 ## Current integrated removal

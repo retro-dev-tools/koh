@@ -62,8 +62,8 @@ public static unsafe class Program {
     assert!(result.status.success(), "{}", report(&result));
     let bytes = std::fs::read(&rom).unwrap();
     assert_eq!(bytes[0x143] & 0x80 != 0, color);
-    let kdbg = std::fs::read(rom.with_extension("kdbg")).unwrap();
-    assert!(kdbg.starts_with(b"KDBG"));
+    let debug = std::fs::read(rom.with_extension("elf")).unwrap();
+    assert!(debug.starts_with(b"\x7fELF"));
     let modified = std::fs::metadata(&rom).unwrap().modified().unwrap();
     let result = build(&project, configuration, &properties);
     assert!(result.status.success(), "{}", report(&result));
