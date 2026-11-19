@@ -10,12 +10,13 @@ fmt:
     dotnet tool restore
     dotnet csharpier format .
 
-# Check formatting and native lints.
+# Check formatting and workflow/installer lint.
 lint:
     cargo fmt --all -- --check
     dotnet tool restore
     dotnet csharpier check .
-    cargo clippy -p koh-emulator -p koh-debugger -p koh-engine -p koh-test-host -p koh-lsp --all-targets --no-deps --locked -- -D warnings
+    actionlint -color
+    shellcheck installers/unix/koh-install.sh.template
 
 msrv:
     cargo +1.88.0 check --workspace --exclude koh-ui --exclude koh-test-host --lib --bins --all-features --locked
@@ -47,9 +48,27 @@ build:
     shutil.copy2(root / f"target/release/koh-compile{suffix}", bin)
     run("dotnet", "build", "Koh.Ci.slnf", "-c", "Release", "-m:1")
 
-# Full platform acceptance, including packaged binaries and the real editor.
+# Build and test native and managed components.
 [script("python")]
 test: build
+    import os, pathlib, subprocess
+    def run(*args, **kwargs): subprocess.run([str(a) for a in args], check=True, **kwargs)
+    root = pathlib.Path.cwd()
+    bin = root / "artifacts/bin"
+    suffix = ".exe" if os.name == "nt" else ""
+    os.environ["PATH"] = str(bin) + os.pathsep + os.environ["PATH"]
+    for key in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
+        os.environ[key] = str(bin) + (os.pathsep + os.environ[key] if os.environ.get(key) else "")
+    os.environ.update(KOH_LSP_TEST_BINARY=str(bin / f"koh-lsp{suffix}"),
+                      KOH_COMPILE=str(bin / f"koh-compile{suffix}"), KOH_LINK=str(bin / f"koh-link{suffix}"))
+    run("cargo", "clippy", "-p", "koh-emulator", "-p", "koh-debugger", "-p", "koh-engine", "-p", "koh-test-host", "-p", "koh-lsp", "--all-targets", "--no-deps", "--locked", "--", "-D", "warnings")
+    run("cargo", "nextest", "run", "--workspace", "--all-features", "--locked", "--no-fail-fast")
+    run("cargo", "test", "--doc", "--workspace", "--all-features", "--locked")
+    run("dotnet", "test", "--solution", "Koh.Ci.slnf", "-c", "Release", "--no-build", "--max-parallel-test-modules", "1")
+
+# Verify built packages, native windows, audio and real editor/debugger use.
+[script("python")]
+verify:
     import hashlib, json, os, pathlib, shutil, subprocess, sys
     from PIL import Image
     def run(*args, **kwargs): subprocess.run([str(a) for a in args], check=True, **kwargs)
@@ -57,7 +76,8 @@ test: build
     bin = root / "artifacts/bin"
     notices = bin / "licenses/rust-lsp"
     for package in json.loads((notices / "manifest.json").read_text())["packages"]:
-        assert hashlib.sha256((notices / package["notice_file"]).read_bytes()).hexdigest() == package["notice_sha256"], package["name"]
+        if hashlib.sha256((notices / package["notice_file"]).read_bytes()).hexdigest() != package["notice_sha256"]:
+            raise RuntimeError(f"LSP notice hash mismatch: {package['name']}")
     out = root / "artifacts/validation"
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True, exist_ok=True)
@@ -65,18 +85,14 @@ test: build
     os.environ["PATH"] = str(bin) + os.pathsep + os.environ["PATH"]
     for key in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
         os.environ[key] = str(bin) + (os.pathsep + os.environ[key] if os.environ.get(key) else "")
-    os.environ.update(KOH_LSP_TEST_BINARY=str(bin / f"koh-lsp{suffix}"),
-                      KOH_COMPILE=str(bin / f"koh-compile{suffix}"), KOH_LINK=str(bin / f"koh-link{suffix}"))
-    run("cargo", "nextest", "run", "--workspace", "--all-features", "--locked", "--no-fail-fast")
-    run("cargo", "test", "--doc", "--workspace", "--all-features", "--locked")
-    run("dotnet", "test", "--solution", "Koh.Ci.slnf", "-c", "Release", "--no-build", "--max-parallel-test-modules", "1")
     os.environ["ALSOFT_DRIVERS"] = "null"
     run("cargo", "test", "-p", "koh-engine", "--bin", "koh-engine", "openal_null_backend_warmup_reset_and_restart", "--locked", "--", "--ignored")
     run("cargo", "test", "-p", "koh-engine", "--test", "session", "audio_resume_reset_and_restore_remain_operational", "--locked", "--", "--ignored")
     run("dotnet", "msbuild", "build.proj", "-t:BuildSample2048")
     run(bin / f"koh-engine{suffix}", "samples/asm/gb-2048/build/2048.gbc", "--frames=300", f"--screenshot={out / 'frame.png'}")
     with Image.open(out / "frame.png") as image:
-        assert image.size == (160, 144) and image.mode == "RGBA"
+        if image.size != (160, 144) or image.mode != "RGBA":
+            raise RuntimeError(f"Expected 160x144 RGBA frame, got {image.size} {image.mode}")
         image.verify()
     with Image.open(out / "frame.png") as image:
         image.load()
@@ -94,8 +110,6 @@ test: build
     run(npm, "audit", "--omit=dev", "--audit-level=high", cwd="editors/vscode")
     run(*(["xvfb-run", "-a"] if linux else []), npm, "test", cwd="editors/vscode")
     if linux:
-        run("actionlint", "-color")
-        run("shellcheck", "installers/unix/koh-install.sh.template")
         rgbds = root / "artifacts/rgbds"
         if not rgbds.exists():
             run("git", "clone", "--depth", "1", "--branch", "v1.0.1", "https://github.com/gbdev/rgbds.git", rgbds)
@@ -107,7 +121,12 @@ test: build
         run("dotnet", "build", "tools/benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj", "-c", "Release", "-m:1")
         run("dotnet", "run", "--project", "tools/benchmarks/Koh.Benchmarks", "-c", "Release", "--no-build", "--", "--list", "flat")
 
-ci: lint test
+# Match the host's CI phases; platform-independent lint runs on Linux.
+[script("python")]
+ci:
+    import subprocess, sys
+    phases = (["lint"] if sys.platform == "linux" else []) + ["test", "verify"]
+    subprocess.run(["just", *phases], check=True)
 
 # Host toolchain archive and installer; no publication.
 [script("python")]
@@ -140,10 +159,13 @@ package tag:
     run("dotnet", "build", "samples/csharp/gb-gfx-demo/GbGfxDemo.csproj", "-c", "Release", "-m:1",
         f"-p:KohCompilerExecutable={bin / ('koh-compile' + suffix)}", f"-p:KohLinkExecutable={bin / ('koh-link' + suffix)}", f"-p:KohRomPath={out / 'smoke.gb'}")
     run(bin / f"koh-engine{suffix}", out / "smoke.gb", "--headless", "--frames=1200", f"--screenshot={out / 'smoke.png'}", f"--mode3-report={out / 'mode3.txt'}")
-    assert (out / "smoke.png").stat().st_size > 0
-    assert "Mode-3 write violations: 0 total" in (out / "mode3.txt").read_text()
+    if (out / "smoke.png").stat().st_size == 0:
+        raise RuntimeError("Packaged engine produced an empty screenshot")
+    if "Mode-3 write violations: 0 total" not in (out / "mode3.txt").read_text():
+        raise RuntimeError("Packaged engine reported Mode-3 write violations")
     for notice in ("rust-assembler-dependencies.md", "rust-runtime/COPYRIGHT-library.html", "rust-ui/manifest.json", "rust-lsp/manifest.json"):
-        assert (bin / "licenses" / notice).is_file(), notice
+        if not (bin / "licenses" / notice).is_file():
+            raise FileNotFoundError(bin / "licenses" / notice)
     assets = [archive]
     if os.name == "nt":
         payload = root / "installers/windows/payload"

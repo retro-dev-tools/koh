@@ -7,6 +7,8 @@ Developer interface: docs/ci-validation.md. Final results are recorded on PR #60
 Root agent owns implementation, local tests, hosted runs and PR updates.
 Read-only review identified stale outputs; cleanup and Windows argument forwarding
 are fixed. No extra framework or helper modules were needed.
+PR review follow-up separates lint/test/verify, replaces production assertions,
+and documents four required contexts. Protection was inspected, never changed.
 Verify using `just ci`, `just msrv`, `just package tools-v0.1.6-rc.1`,
 `just extension ext-v0.1.5`; inspect actual completed logs and archive contents.
 Local logs: /tmp/koh-simplify-{lint,test,actionlint}.log. Local SDK/tools under

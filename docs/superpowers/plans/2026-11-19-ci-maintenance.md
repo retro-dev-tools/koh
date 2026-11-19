@@ -54,5 +54,12 @@ Fourteen boundary/fresh-output assertions pass. Local VSIX packaging exits 0;
 the obsolete seeded VSIX is removed, and production audit finds 0 vulnerabilities.
 These checks alone are not hosted acceptance.
 
+PR review follow-up: lint/test/verify are separate named CI phases; independent
+lint runs once on Linux, native Clippy remains on every platform. Production
+recipe checks raise explicit errors; 13 real corrupt/missing-fixture cases pass
+with PYTHONOPTIMIZE=1. Required-context documentation names all three platform
+checks and MSRV, app15368, strict:true. Live read-only inspection still shows
+seven obsolete contexts; an administrator must replace them before merge.
+
 Hosted acceptance, downloaded artifact integrity and final limitations:
 https://github.com/retro-dev-tools/koh/pull/60

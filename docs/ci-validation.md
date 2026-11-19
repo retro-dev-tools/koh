@@ -11,9 +11,10 @@ Run `just` to list tasks:
 | Command | Purpose |
 | --- | --- |
 | `just fmt` | Format Rust and C# |
-| `just lint` | Check formatting and selected native Clippy lints |
+| `just lint` | Check formatting, workflows and installer shell syntax |
 | `just build` | Build managed projects and host native binaries in artifacts/bin |
-| `just test` | Build, then run full platform/package/editor acceptance |
+| `just test` | Build, native Clippy, Rust/doctest and managed tests |
+| `just verify` | Verify built packages, GUI/audio and editor/debugger integration |
 | `just ci` | Lint and full acceptance, exactly as CI |
 | `just msrv` | Check core production crates on Rust 1.88.0 |
 | `just run [ROM/options...]` | Publish and launch the desktop |
@@ -34,7 +35,10 @@ independent assembler/linker comparisons. Windows needs MSVC build tools;
 Windows packaging also needs Inno Setup 6. macOS packages use the host architecture.
 
 CI runs the same full Linux, Windows and macOS tasks for every PR, master push
-and manual run. MSRV covers core libraries/binaries; UI and test-host require
+and manual run. Named lint, build/test and integration steps isolate failures;
+platform-independent lint runs early, once on Linux. `just ci` selects the same
+phases for the host; `just verify` uses the outputs of `just build`/`just test`.
+MSRV covers core libraries/binaries; UI and test-host require
 newer Rust and run on stable. Nextest retains zero retries and bounded Roslyn
 concurrency. The tests include packaged LSP stdio, source-to-ROM execution,
 native audio resets, framebuffer PNGs, native windows and actual VS Code
@@ -60,5 +64,9 @@ test the actual installers/editor update path, and deliberately publish using
 PR jobs use read-only tokens and no persisted checkout credentials. Only the
 draft job receives contents:write. Action refs remain pinned and Dependabot
 maintains them. Repository protection is managed separately: the intended
-required contexts are `check (ubuntu-latest)` and `msrv`; replacing obsolete
-contexts requires an administrator. This refactoring changes no repository rules.
+required contexts are `check (ubuntu-latest)`, `check (windows-latest)`,
+`check (macos-latest)` and `msrv`. All four run on every PR without path filters
+or conditional job skips. An administrator must replace the seven obsolete
+contexts with these four, bind each to GitHub Actions (`app_id: 15368`), and retain
+`strict: true` (require an up-to-date branch) before merging. This refactoring
+changes no repository rules automatically.
