@@ -38,7 +38,7 @@ jobs:
           dotnet-version: 10.0.x
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
       - uses: actions/setup-python@v5
@@ -65,7 +65,7 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo +stable fmt --all -- --check
       - name: Check native engine lints
-        run: cargo clippy -p koh-emulator -p koh-debugger -p koh-engine -p koh-test-host --all-targets --no-deps --locked -- -D warnings
+        run: cargo clippy -p koh-emulator -p koh-debugger -p koh-engine -p koh-test-host -p koh-lsp --all-targets --no-deps --locked -- -D warnings
       - name: Check Rust targets
         run: cargo check --workspace --all-targets --all-features --locked
       - name: Test Rust workspace
@@ -86,8 +86,19 @@ jobs:
           KOH_COMPILE: ${{ github.workspace }}/target/release/koh-compile${{ runner.os == 'Windows' && '.exe' || '' }}
           KOH_LINK: ${{ github.workspace }}/target/release/koh-link${{ runner.os == 'Windows' && '.exe' || '' }}
         run: cargo +stable nextest run -p koh-compile --test sdk --locked -E 'test(sdk_dotnet_run)'
-      - name: Publish native-backed language server
-        run: dotnet publish src/Asm/Koh.Lsp -c Release --no-self-contained -o artifacts/language-server -m:1
+      - name: Publish and smoke-test native language server
+        shell: bash
+        run: |
+          dotnet msbuild build.proj -t:PublishLanguageServer
+          rid=$(dotnet msbuild build.proj -nologo -getProperty:LanguageServerRuntimeIdentifier)
+          server="$PWD/artifacts/language-server/$rid/koh-lsp"
+          linker="$PWD/artifacts/language-server/$rid/koh-link"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            server="$(cygpath -m "$server.exe")"
+            linker="$(cygpath -m "$linker.exe")"
+          fi
+          "$linker" --version
+          KOH_LSP_TEST_BINARY="$server" cargo test -p koh-lsp --test stdio --locked
       - name: Publish desktop and native engine
         run: |
           dotnet msbuild build.proj -t:PublishEmulatorApp
@@ -159,11 +170,14 @@ jobs:
           fixture="$RUNNER_TEMP/native-dap-fixture"
           cargo run -p koh-debugger --example fixture --locked -- "$fixture"
           desktop="$PWD/artifacts/emulator/${{ steps.desktop.outputs.rid }}/koh-emulator"
+          language_server="$PWD/artifacts/language-server/${{ steps.desktop.outputs.rid }}"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             desktop="$(cygpath -m "$desktop.exe")"
             fixture="$(cygpath -m "$fixture")"
+            language_server="$(cygpath -m "$language_server")"
           fi
           export KOH_TEST_DESKTOP="$desktop"
+          export KOH_TEST_LSP_DIR="$language_server"
           export KOH_TEST_DAP_ROM="$fixture/fixture.gb"
           export KOH_TEST_DAP_ELF="$fixture/fixture.elf"
           export ALSOFT_DRIVERS=null

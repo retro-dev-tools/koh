@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
-import * as os from 'os';
+import os = require('os');
 import * as path from 'path';
 import { Logger } from '../core/Logger';
 import { executableName, toolchainRoot } from '../toolchain/paths';
@@ -30,6 +30,8 @@ function seedManagedVersion(root: string, version: string): string {
  */
 function withScratchToolchainRoot(): { root: string; cleanup: () => void } {
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'koh-tc-test-'));
+    const homedir = os.homedir;
+    os.homedir = () => scratch;
     const saved = {
         LOCALAPPDATA: process.env.LOCALAPPDATA,
         XDG_DATA_HOME: process.env.XDG_DATA_HOME,
@@ -49,6 +51,7 @@ function withScratchToolchainRoot(): { root: string; cleanup: () => void } {
     return {
         root,
         cleanup: () => {
+            os.homedir = homedir;
             process.env.LOCALAPPDATA = saved.LOCALAPPDATA;
             process.env.XDG_DATA_HOME = saved.XDG_DATA_HOME;
             process.env.HOME = saved.HOME;
@@ -72,6 +75,25 @@ suite('ToolchainResolver (filesystem)', () => {
 
     setup(() => { ctx = withScratchToolchainRoot(); });
     teardown(() => { ctx.cleanup(); });
+
+    test('scratch root isolates macOS when homedir ignores HOME', () => {
+        const platform = process.platform;
+        const homedir = os.homedir;
+        try {
+            Object.defineProperty(process, 'platform', { value: 'darwin' });
+            os.homedir = () => path.join(os.tmpdir(), 'koh-simulated-home');
+            const fixture = withScratchToolchainRoot();
+            try {
+                const relative = path.relative(process.env.XDG_DATA_HOME!, fixture.root);
+                assert.ok(!relative.startsWith('..') && !path.isAbsolute(relative), relative);
+            } finally {
+                fixture.cleanup();
+            }
+        } finally {
+            os.homedir = homedir;
+            Object.defineProperty(process, 'platform', { value: platform });
+        }
+    });
 
     test('returns null when no toolchain is installed anywhere', () => {
         // Empty scratch root, no `current` pointer, no settings override,

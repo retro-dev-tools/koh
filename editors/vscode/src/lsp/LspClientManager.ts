@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { ChildProcess, spawn } from 'child_process';
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -11,6 +12,9 @@ import { executableName } from '../toolchain/paths';
 
 export class LspClientManager implements vscode.Disposable {
     private client: LanguageClient | undefined;
+    private serverClosed: Promise<void> | undefined;
+    private server: ChildProcess | undefined;
+    private configSaves: vscode.Disposable | undefined;
 
     constructor(
         private readonly log: Logger,
@@ -27,9 +31,18 @@ export class LspClientManager implements vscode.Disposable {
         const serverPath = path.join(loc.binDir, executableName('koh-lsp'));
         this.log.info(`using koh-lsp (${loc.source}, ${loc.version}): ${serverPath}`);
 
-        const serverOptions: ServerOptions = {
-            command: serverPath,
-            args: [],
+        const serverOptions: ServerOptions = async () => {
+            const child = spawn(serverPath, [], {
+                cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+                windowsHide: true,
+            });
+            this.serverClosed = new Promise(resolve => child.once('close', () => resolve()));
+            this.server = child;
+            await new Promise<void>((resolve, reject) => {
+                child.once('spawn', resolve);
+                child.once('error', reject);
+            });
+            return child;
         };
 
         const clientOptions: LanguageClientOptions = {
@@ -45,14 +58,37 @@ export class LspClientManager implements vscode.Disposable {
         this.log.info('Starting language client...');
         try {
             await this.client.start();
+            const client = this.client;
+            this.configSaves = vscode.workspace.onDidSaveTextDocument(document => {
+                const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+                if (root && document.uri.scheme === 'file' && path.relative(root.fsPath, document.uri.fsPath).toLowerCase() === 'koh.yaml') {
+                    void client.sendNotification('textDocument/didSave', { textDocument: { uri: document.uri.toString() } })
+                        .catch(error => this.log.error(`Config reload failed: ${error}`));
+                }
+            });
             this.log.info('Language client started successfully');
         } catch (e) {
+            this.client = undefined;
+            this.server?.kill();
             this.log.error(`Failed to start: ${e}`);
             this.log.show();
         }
     }
 
     async dispose(): Promise<void> {
-        await this.client?.stop();
+        this.configSaves?.dispose();
+        this.configSaves = undefined;
+        const client = this.client;
+        this.client = undefined;
+        try {
+            await client?.stop();
+        } catch (error) {
+            this.server?.kill();
+            throw error;
+        } finally {
+            await this.serverClosed;
+            this.serverClosed = undefined;
+            this.server = undefined;
+        }
     }
 }

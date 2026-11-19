@@ -55,7 +55,6 @@ export class KohExtension {
         const hasToolchain = await this.uiFlow.promptInstallIfMissing();
         if (hasToolchain) {
             await this.lsp.start();
-            this.disposables.add(this.lsp);
             this.disposables.add(this.buildTasks.register());
             const dapFactory = new KohDapAdapterFactory(this.log, this.toolchain);
             this.disposables.add(vscode.debug.registerDebugAdapterDescriptorFactory('koh', dapFactory));
@@ -99,6 +98,10 @@ export class KohExtension {
     }
 
     async dispose(): Promise<void> {
-        this.disposables.dispose();
+        try {
+            await this.lsp.dispose();
+        } finally {
+            this.disposables.dispose();
+        }
     }
 }

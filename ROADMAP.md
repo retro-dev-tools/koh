@@ -4,6 +4,20 @@ Assessment date: 2026-11-14. Source baseline: `c2fddcf`, with pre-existing uncom
 
 ## Product direction
 
+Active user-requested LSP migration (2026-11-19): replace the managed language
+server with native Rust while retaining the `koh-asm --serve-json` worker.
+Configuration/workspace ownership, diagnostic notifications, hover, definition,
+references, rename, semantic tokens, inlay hints, signatures, document symbols
+and completion now run through native stdio. Local native checks pass61/61
+with strict Clippy;198 legacy cases have native replacements and nine unused
+private API cases are obsolete. Publishing now builds native koh-lsp with its assembler
+worker and preserves the linker; managed LSP source/tests and solution references
+are retired. Local packaged VS Code acceptance and297 retained managed tests
+pass. Review fixes are addressed; draft PR59 is open. Platform acceptance
+continues in the independent Native LSP workflow after full CI hit an unchanged
+SDK graphics-run timeout. See [LSP migration](docs/rust-lsp/design.md) and
+[current evidence](docs/rust-lsp/evidence.md).
+
 Active user-requested migration (2026-11-19): rewrite the production emulator
 engine and debugger in Rust. Core machine/boot/state compatibility, DWARF
 debugger and native execution hosts are committed. Fresh checks cover 92 core,

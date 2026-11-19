@@ -1,0 +1,221 @@
+# Managed LSP test inventory
+
+Baseline: master `065cf05`, inspected 2026-11-19.
+This is a source-method inventory, not execution evidence. Parameterized rows
+must also be checked against runner discovery before claiming complete coverage.
+Pending means no native replacement has been implemented or verified.
+
+| Managed source | Test method | Native replacement |
+| --- | --- | --- |
+| Config/KohProjectFileLoaderTests.cs | ValidSingleProject_ReturnsConfigured | tests/config.rs::valid_single_project_retains_its_name_and_absolute_entrypoint |
+| Config/KohProjectFileLoaderTests.cs | ValidMultiProject_ReturnsConfiguredWithAll | tests/config.rs::valid_projects_normalize_paths_and_ignore_unrelated_fields |
+| Config/KohProjectFileLoaderTests.cs | MissingConfigFile_ReturnsMissing | tests/config.rs::absent_config_selects_heuristics |
+| Config/KohProjectFileLoaderTests.cs | InvalidYamlSyntax_ReturnsInvalid | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Config/KohProjectFileLoaderTests.cs | MissingVersion_ReturnsInvalid | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Config/KohProjectFileLoaderTests.cs | MissingProjects_ReturnsInvalid | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Config/KohProjectFileLoaderTests.cs | EmptyProjects_ReturnsInvalid | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Config/KohProjectFileLoaderTests.cs | MissingProjectName_ReturnsInvalid | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Config/KohProjectFileLoaderTests.cs | MissingProjectEntrypoint_ReturnsInvalid | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Config/KohProjectFileLoaderTests.cs | DuplicateProjectNames_ReturnsInvalid | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Config/KohProjectFileLoaderTests.cs | DuplicateNormalizedEntrypoints_ReturnsInvalid | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Config/KohProjectFileLoaderTests.cs | RelativePathNormalization_ProducesAbsolutePath | tests/config.rs::valid_projects_normalize_paths_and_ignore_unrelated_fields |
+| Config/KohProjectFileLoaderTests.cs | InvalidConfig_BlocksHeuristicFallback | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Config/KohProjectFileLoaderTests.cs | UnsupportedVersion_ReturnsInvalid | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Config/KohProjectFileLoaderTests.cs | EmptyFile_ReturnsInvalid | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Config/KohProjectFileLoaderTests.cs | AbsoluteEntrypoint_ReturnsInvalid | tests/config.rs::invalid_configuration_does_not_become_heuristic |
+| Discovery/EntrypointDiscoveryServiceTests.cs | SingleEntrypoint_TrueRoot_IsDiscovered | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | MultiEntrypoint_BothDiscovered_CorrectOrder | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | StandaloneAsm_NoIncludes_IsCandidate | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | DirectOpenInc_StandaloneFallback | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | SharedInclude_OwnedByHighestScoringEntrypoint | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | DeterministicPrimaryOwner_ShortestDistance_Wins | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | DeterministicPrimaryOwner_AlphabeticTieBreaker | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | CycleHandling_DoesNotInfiniteLoop | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | CycleHandling_WithOpenFile_BreaksTie | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | EntrypointOwnsItself | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | IncFile_IncludedByAsm_NotACandidate | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | OpenAsm_NotIncludedByStrongerCandidate | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | MixedScores_HigherScoreWinsOwnership | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/EntrypointDiscoveryServiceTests.cs | FileNotReachableByAnyEntrypoint_NotInOwnership | tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/IncludeDiscoveryServiceTests.cs | SimpleInclude_IsExtracted | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | MultipleIncludes_AreAllExtracted | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | CaseInsensitive_Include | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | CommentedOutInclude_IsIgnored | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | InlineComment_DoesNotAffectExtraction | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | IncludeAfterLabel_IsExtracted | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | MalformedInclude_NoClosingQuote_DoesNotCrash | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | MalformedInclude_NoQuotes_DoesNotCrash | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | EmptyFile_DoesNotCrash | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | FilePath_IsNormalized | tests/paths.rs::normalization_does_not_require_the_file_to_exist |
+| Discovery/IncludeDiscoveryServiceTests.cs | RelativePath_ResolvedToContainingFileDirectory | tests/workspace.rs::missing_relative_include_is_resolved_from_its_containing_file |
+| Discovery/IncludeDiscoveryServiceTests.cs | BlockComment_IncludeInsideIsIgnored | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | MultiLineBlockComment_IncludeInsideIsIgnored | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | OverlayText_OverridesDiskContent | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | IncludeKeywordInsideIdentifier_IsNotExtracted | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | LeadingWhitespace_IsHandled | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/IncludeDiscoveryServiceTests.cs | EmptyQuotedPath_IsIgnored | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
+| Discovery/WorkspaceGraphTests.cs | UpsertFile_AddsForwardEdges | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | UpsertFile_AddsReverseEdges | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | UpsertFile_ReplacesOldEdges | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | UpsertFile_RemovesStaleReverseEdges | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | RemoveFile_RemovesForwardAndReverseEdges | Obsolete private Graph.RemoveFile API; graph rebuilds and close behavior covered by tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| Discovery/WorkspaceGraphTests.cs | RemoveFile_RemovesIncomingEdgesFromOtherFiles | Obsolete private Graph.RemoveFile API; graph rebuilds and close behavior covered by tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| Discovery/WorkspaceGraphTests.cs | RemoveFile_NonExistentFile_DoesNotThrow | Obsolete private Graph.RemoveFile API; graph rebuilds and close behavior covered by tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| Discovery/WorkspaceGraphTests.cs | GetIncludes_UnknownFile_ReturnsEmpty | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | GetIncluders_UnknownFile_ReturnsEmpty | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_SingleFile_ReturnsSelf | tests/graph.rs::reachable_files_handle_chains_diamonds_and_cycles |
+| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_Chain_ReturnsAll | tests/graph.rs::reachable_files_handle_chains_diamonds_and_cycles |
+| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_Cycle_DoesNotInfiniteLoop | tests/graph.rs::reachable_files_handle_chains_diamonds_and_cycles |
+| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_Diamond_ReturnsAllOnce | tests/graph.rs::reachable_files_handle_chains_diamonds_and_cycles |
+| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_FindsCorrectEntrypoint | Obsolete private endpoint-query API; ownership covered by tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_FileIsItsOwnEntrypoint | Obsolete private endpoint-query API; ownership covered by tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_NoMatchingEntrypoint_ReturnsEmpty | Obsolete private endpoint-query API; ownership covered by tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_Cycle_DoesNotInfiniteLoop | Obsolete private endpoint-query API; ownership covered by tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/WorkspaceGraphTests.cs | CaseInsensitivePaths | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | MultipleIncluders_AllTracked | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_MultipleEntrypointsReachFile | Obsolete private endpoint-query API; ownership covered by tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| InlayHintTests.cs | ConstantReference_GetsHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
+| InlayHintTests.cs | ConstantDeclaration_GetsNoHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
+| InlayHintTests.cs | LabelDeclaration_GetsNoHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
+| InlayHintTests.cs | UnresolvedSymbol_GetsNoHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
+| InlayHintTests.cs | Keyword_GetsNoHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
+| InlayHintTests.cs | StringConstant_GetsNoHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
+| InlayHintTests.cs | MacroDeclaration_GetsNoHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
+| InlayHintTests.cs | MacroCall_GetsNoHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
+| InlayHintTests.cs | LabelReference_GetsAddressHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
+| InlayHintTests.cs | ConstantReference_GetsHexAndDecimal | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
+| InlayHintTests.cs | NoDuplicateHints | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
+| NativeBridgeTests.cs | NativeWarningsReachSemanticAndEmissionDiagnostics | tests/bridge.rs::warnings_keep_utf16_spans_in_analysis_and_emission |
+| NativeBridgeTests.cs | NativeAssemblyProducesInstructionBytes | tests/bridge.rs::worker_preserves_instruction_bytes_virtual_dynamic_and_binary_overlays |
+| NativeBridgeTests.cs | NativeAnalysisOffsetsUseUtf16 | tests/worker.rs::real_worker_handles_multiple_requests_and_utf16_spans |
+| NativeBridgeTests.cs | VirtualIncludeIsPassedToNativeAssembly | tests/bridge.rs::worker_preserves_instruction_bytes_virtual_dynamic_and_binary_overlays |
+| NativeBridgeTests.cs | DynamicIncludeUsesVirtualOverlay | tests/bridge.rs::worker_preserves_instruction_bytes_virtual_dynamic_and_binary_overlays |
+| NativeBridgeTests.cs | BinaryOverlayIsPassedToNativeAssembly | tests/bridge.rs::worker_preserves_instruction_bytes_virtual_dynamic_and_binary_overlays |
+| NativeBridgeTests.cs | TextAndBinaryReadsUseSeparateOverlaySnapshots | tests/bridge.rs::worker_preserves_instruction_bytes_virtual_dynamic_and_binary_overlays |
+| NativeBridgeTests.cs | UnsavedTextDoesNotReplacePhysicalIncbinData | tests/workspace.rs::unsaved_text_does_not_replace_physical_incbin_bytes |
+| NativeClientTests.cs | UnreadLargeRequestTimesOutAndClientCanRestart | tests/worker.rs::unread_large_request_times_out_and_a_fresh_worker_can_start |
+| PositionUtilitiesTests.cs | ToOffset_FirstLine_FirstChar | tests/paths.rs::utf16_positions_and_crlf_boundaries_are_preserved |
+| PositionUtilitiesTests.cs | ToOffset_FirstLine_MidChar | tests/paths.rs::utf16_positions_and_crlf_boundaries_are_preserved |
+| PositionUtilitiesTests.cs | ToOffset_SecondLine | tests/paths.rs::utf16_positions_and_crlf_boundaries_are_preserved |
+| PositionUtilitiesTests.cs | ToOffset_CharacterClampedToLineLength | tests/paths.rs::utf16_positions_and_crlf_boundaries_are_preserved |
+| PositionUtilitiesTests.cs | ToOffset_OutOfRangeLine_ReturnsEndOfText | tests/paths.rs::utf16_positions_and_crlf_boundaries_are_preserved |
+| PositionUtilitiesTests.cs | ToLspPosition_RoundTrip | tests/paths.rs::utf16_positions_and_crlf_boundaries_are_preserved |
+| PositionUtilitiesTests.cs | ToLspDiagnostic_ErrorSeverity | tests/server.rs::diagnostics_keep_severity_source_message_and_ranges |
+| PositionUtilitiesTests.cs | ToLspDiagnostic_WarningSeverity | tests/server.rs::diagnostics_keep_severity_source_message_and_ranges |
+| PositionUtilitiesTests.cs | ToLspDiagnostic_DefaultSpan_MapsToZeroZero | tests/server.rs::diagnostics_keep_severity_source_message_and_ranges |
+| PositionUtilitiesTests.cs | ToLspDiagnostic_NonDefaultSpan_MapsToCorrectRange | tests/server.rs::diagnostics_keep_severity_source_message_and_ranges |
+| Projects/ProjectContextManagerTests.cs | OneCompilationPerEntrypoint_TwoEntrypoints_ProduceTwoProjects | tests/workspace.rs::configured_projects_isolate_symbols_diagnostics_and_unrelated_files |
+| Projects/ProjectContextManagerTests.cs | OneCompilationPerEntrypoint_EachHasCorrectEntrypoint | tests/workspace.rs::configured_projects_isolate_symbols_diagnostics_and_unrelated_files |
+| Projects/ProjectContextManagerTests.cs | ConfiguredMode_UsesOnlyConfiguredEntrypoints | tests/workspace.rs::included_only_open_file_uses_root_context_and_unsaved_overlay |
+| Projects/ProjectContextManagerTests.cs | ConfiguredMode_DoesNotIncludeHeuristicCandidates | tests/workspace.rs::configured_projects_isolate_symbols_diagnostics_and_unrelated_files |
+| Projects/ProjectContextManagerTests.cs | SharedIncludeEdit_RebuildsBothAffectedProjects | tests/workspace.rs::shared_include_edit_rebuilds_all_owning_projects |
+| Projects/ProjectContextManagerTests.cs | UnrelatedProject_NotRebuiltWhenOtherChanges | tests/workspace.rs::editing_one_project_preserves_unrelated_project_analysis |
+| Projects/ProjectContextManagerTests.cs | FileOutsideConfiguredProjects_HasNoPrimaryOwner | tests/workspace.rs::configured_projects_isolate_symbols_diagnostics_and_unrelated_files |
+| Projects/ProjectContextManagerTests.cs | FileInsideConfiguredProject_HasPrimaryOwner | tests/workspace.rs::included_only_open_file_uses_root_context_and_unsaved_overlay |
+| Projects/ProjectContextManagerTests.cs | InvalidConfig_NoProjectsBuilt | tests/workspace.rs::invalid_config_is_parse_only_until_reload_and_open_state_is_preserved |
+| Projects/ProjectContextManagerTests.cs | InvalidConfig_UpdateDocumentDoesNotCreateProjects | tests/workspace.rs::invalid_config_is_parse_only_until_reload_and_open_state_is_preserved |
+| Projects/ProjectContextManagerTests.cs | InvalidConfig_SurfacesErrors | tests/workspace.rs::invalid_config_is_parse_only_until_reload_and_open_state_is_preserved |
+| Projects/ProjectContextManagerTests.cs | GetProjectContextsFor_SharedFile_ReturnsMultipleProjects | tests/workspace.rs::shared_include_has_separate_contexts_and_deterministic_primary_owner |
+| Projects/ProjectContextManagerTests.cs | HeuristicMode_PrimaryOwnerIsDeterministic | tests/workspace.rs::heuristic_shared_file_owner_is_alphabetically_deterministic |
+| Projects/ProjectContextManagerTests.cs | RemoveDocument_RemovesFromHeuristicProjects | tests/workspace.rs::heuristic_shared_file_owner_is_alphabetically_deterministic |
+| Projects/ProjectContextManagerTests.cs | ConfiguredMode_PrimaryOwnerIsDeterministic | tests/workspace.rs::shared_include_has_separate_contexts_and_deterministic_primary_owner |
+| Projects/ProjectIsolationTests.cs | TwoConfiguredProjects_DoNotShareSymbols | tests/workspace.rs::configured_projects_isolate_symbols_diagnostics_and_unrelated_files |
+| Projects/ProjectIsolationTests.cs | DiagnosticsDontLeakAcrossProjects | tests/workspace.rs::configured_projects_isolate_symbols_diagnostics_and_unrelated_files |
+| Projects/ProjectIsolationTests.cs | SharedIncludeInMultipleProjects_SeparateContexts | tests/workspace.rs::shared_include_has_separate_contexts_and_deterministic_primary_owner |
+| Projects/ProjectIsolationTests.cs | OrphanAsmGetsStandaloneAnalysis_HeuristicMode | tests/workspace.rs::heuristic_orphan_sources_keep_independent_analysis |
+| Projects/ProjectIsolationTests.cs | OpenIncGetsStandaloneAnalysis_HeuristicMode | tests/workspace.rs::heuristic_orphan_sources_keep_independent_analysis |
+| Projects/ProjectIsolationTests.cs | IncludedFile_HasPrimaryOwner_WhenEntrypointNotOpened | tests/workspace.rs::included_only_open_file_uses_root_context_and_unsaved_overlay |
+| Projects/ProjectIsolationTests.cs | IncludedFile_NoDiagnosticErrors_WhenMacrosDefinedInEarlierInclude | tests/workspace.rs::included_only_open_file_uses_root_context_and_unsaved_overlay |
+| Projects/ProjectIsolationTests.cs | FileOutsideConfiguredProjects_NotAutoAssigned | tests/workspace.rs::configured_projects_isolate_symbols_diagnostics_and_unrelated_files |
+| RenameTests.cs | Rename_GlobalLabel_RenamesDeclarationAndAllReferences | tests/symbols.rs::rename_targets_include_numeric_string_constants_macros_and_reference_origins |
+| RenameTests.cs | Rename_LocalLabel_RenamesOnlyCurrentScopedSymbol | tests/symbols.rs::resolve_and_occurrences_preserve_types_contexts_and_local_scope |
+| RenameTests.cs | Rename_Constant_RenamesDeclarationAndReferences | tests/symbols.rs::rename_targets_include_numeric_string_constants_macros_and_reference_origins |
+| RenameTests.cs | Rename_StringConstant_RenamesDeclarationAndReferences | tests/symbols.rs::rename_targets_include_numeric_string_constants_macros_and_reference_origins |
+| RenameTests.cs | Rename_Macro_RenamesDefinitionAndCallSites | tests/symbols.rs::rename_targets_include_numeric_string_constants_macros_and_reference_origins |
+| RenameTests.cs | Rename_FromReference_RenamesDeclarationToo | tests/symbols.rs::rename_targets_include_numeric_string_constants_macros_and_reference_origins |
+| RenameTests.cs | Rename_ExportedSymbol_UpdatesExportDirective | tests/symbols.rs::owner_local_and_exported_occurrences_do_not_conflate_shadowed_symbols |
+| RenameTests.cs | Rename_ExportedAcrossMultipleLoadedDocs_Works | tests/symbols.rs::owner_local_and_exported_occurrences_do_not_conflate_shadowed_symbols |
+| RenameTests.cs | Rename_OwnerLocalAcrossIncludeRootAndIncludedDocs_Works | tests/symbols.rs::include_owned_symbol_finds_root_references_and_included_declaration |
+| RenameTests.cs | Rename_SameNameDifferentOwner_NotTouched | tests/symbols.rs::owner_local_and_exported_occurrences_do_not_conflate_shadowed_symbols |
+| RenameTests.cs | Rename_ShadowingOwnerLocal_NotTouchedWhenRenamingExported | tests/symbols.rs::owner_local_and_exported_occurrences_do_not_conflate_shadowed_symbols |
+| RenameTests.cs | Rename_UnresolvedLookalike_NotTouched | tests/symbols.rs::resolve_and_occurrences_preserve_types_contexts_and_local_scope |
+| RenameTests.cs | PrepareRename_Keyword_ReturnsNull | tests/symbols.rs::resolve_and_occurrences_preserve_types_contexts_and_local_scope |
+| RenameTests.cs | PrepareRename_Register_ReturnsNull | tests/symbols.rs::resolve_and_occurrences_preserve_types_contexts_and_local_scope |
+| RenameTests.cs | Rename_ToReservedKeyword_ReturnsNull | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| RenameTests.cs | Rename_ToInvalidIdentifier_ReturnsNull | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| RenameTests.cs | Rename_LocalToGlobalForm_ReturnsNull | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| RenameTests.cs | Rename_GlobalToLocalForm_ReturnsNull | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| RenameTests.cs | Rename_ToExistingOwnerLocalCollision_ReturnsNull | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| RenameTests.cs | Rename_ToExistingExportedCollision_ReturnsNull | tests/symbols.rs::rename_rejects_exported_collisions_and_allows_unrelated_owner_local_names |
+| RenameTests.cs | Rename_LocalToSameNameInDifferentScope_Allowed | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| ResolverPolicyTests.cs | EntrypointReadfileUsesRootPolicyAndByteLimit | tests/resolver.rs::readfile_uses_entrypoint_root_and_byte_limit_for_disk_and_overlays |
+| ResolverPolicyTests.cs | CustomAndEntrypointResolversControlNestedPhysicalAndVirtualIncludes | tests/resolver.rs::explicit_resolution_mappings_control_nested_physical_and_virtual_includes |
+| SemanticTokenTests.cs | InstructionKeyword_ClassifiedAsKeyword | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | Register_ClassifiedAsRegister | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | Directive_ClassifiedAsDirective | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | Number_ClassifiedAsNumber | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | String_ClassifiedAsString | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | Comment_ClassifiedAsComment | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | LocalLabel_ClassifiedAsLabel | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | Operator_ClassifiedAsOperator | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | ConditionFlag_ClassifiedAsConditionFlag | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | Identifier_ClassifiedAsVariable | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | SectionType_ClassifiedAsSectionType | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | MacroParam_ClassifiedAsParameter | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | MultipleTokens_DeltaEncodingIsCorrect | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SemanticTokenTests.cs | EmptySource_ReturnsEmptyData | tests/tokens.rs::semantic_categories_and_delta_encoding_match_the_existing_legend |
+| SignatureHelpTests.cs | MacroCall_ShowsCorrectArity | tests/server.rs::macro_signatures_preserve_arity_active_parameter_and_null_cases |
+| SignatureHelpTests.cs | MacroCall_SecondArg_ReportsActiveParameter1 | tests/server.rs::macro_signatures_preserve_arity_active_parameter_and_null_cases |
+| SignatureHelpTests.cs | ZeroArgMacro_ShowsZeroParams | tests/server.rs::macro_signatures_preserve_arity_active_parameter_and_null_cases |
+| SignatureHelpTests.cs | UndefinedMacro_ReturnsNull | tests/server.rs::macro_signatures_preserve_arity_active_parameter_and_null_cases |
+| SignatureHelpTests.cs | NotInMacroCall_ReturnsNull | tests/server.rs::macro_signatures_preserve_arity_active_parameter_and_null_cases |
+| SignatureHelpTests.cs | MacroCall_FirstArg_ReportsActiveParameter0 | tests/server.rs::macro_signatures_preserve_arity_active_parameter_and_null_cases |
+| Source/WorkspaceOverlayResolverTests.cs | FileExists_ReturnsTrueForOverlayPath | tests/workspace.rs::overlay_text_updates_case_insensitively_and_close_restores_disk_reads |
+| Source/WorkspaceOverlayResolverTests.cs | FileExists_ReturnsTrueForDiskFile | tests/workspace.rs::overlay_text_updates_case_insensitively_and_close_restores_disk_reads |
+| Source/WorkspaceOverlayResolverTests.cs | FileExists_ReturnsFalseForMissingFile | tests/workspace.rs::overlay_text_updates_case_insensitively_and_close_restores_disk_reads |
+| Source/WorkspaceOverlayResolverTests.cs | ReadAllText_ReturnsOverlayTextWhenAvailable | tests/workspace.rs::overlay_text_updates_case_insensitively_and_close_restores_disk_reads |
+| Source/WorkspaceOverlayResolverTests.cs | ReadAllText_FallsBackToDiskWhenNoOverlay | tests/workspace.rs::overlay_text_updates_case_insensitively_and_close_restores_disk_reads |
+| Source/WorkspaceOverlayResolverTests.cs | ReadAllText_FallsBackToDiskAfterOverlayRemoved | tests/workspace.rs::overlay_text_updates_case_insensitively_and_close_restores_disk_reads |
+| Source/WorkspaceOverlayResolverTests.cs | ReadAllBytes_AlwaysDelegatesToDisk | tests/workspace.rs::unsaved_text_does_not_replace_physical_incbin_bytes |
+| Source/WorkspaceOverlayResolverTests.cs | ResolvePath_DelegatesToInnerResolver | Obsolete private adapter delegation; native worker resolution mappings replace the C# VirtualFileResolver seam (tests/resolver.rs) |
+| Source/WorkspaceOverlayResolverTests.cs | FileExists_IsCaseInsensitive | tests/workspace.rs::overlay_text_updates_case_insensitively_and_close_restores_disk_reads |
+| Source/WorkspaceOverlayResolverTests.cs | SetOverlayText_UpdatesExistingOverlay | tests/workspace.rs::overlay_text_updates_case_insensitively_and_close_restores_disk_reads |
+| SymbolFinderTests.cs | ResolveAt_GlobalLabel_ResolvesCorrectly | tests/symbols.rs::resolve_and_occurrences_preserve_types_contexts_and_local_scope |
+| SymbolFinderTests.cs | ResolveAt_LocalLabel_UsesCorrectScope | tests/symbols.rs::resolve_and_occurrences_preserve_types_contexts_and_local_scope |
+| SymbolFinderTests.cs | ResolveAt_UnresolvedLookalike_ReturnsNull | tests/symbols.rs::resolve_and_occurrences_preserve_types_contexts_and_local_scope |
+| SymbolFinderTests.cs | ResolveAt_Keyword_ReturnsNull | tests/symbols.rs::resolve_and_occurrences_preserve_types_contexts_and_local_scope |
+| SymbolFinderTests.cs | ResolveAt_Reference_ResolvesSymbol | tests/symbols.rs::resolve_and_occurrences_preserve_types_contexts_and_local_scope |
+| SymbolFinderTests.cs | FindAllOccurrences_OwnerLocalSymbol_StaysWithinOwner | tests/symbols.rs::owner_local_and_exported_occurrences_do_not_conflate_shadowed_symbols |
+| SymbolFinderTests.cs | FindAllOccurrences_ExportedSymbol_SpansAllLoadedDocuments | tests/symbols.rs::owner_local_and_exported_occurrences_do_not_conflate_shadowed_symbols |
+| SymbolFinderTests.cs | FindAllOccurrences_ShadowingOwnerLocal_DoesNotMatchExported | tests/symbols.rs::owner_local_and_exported_occurrences_do_not_conflate_shadowed_symbols |
+| SymbolFinderTests.cs | FindAllOccurrences_SameTextDifferentOwners_DoesNotConflate | tests/symbols.rs::owner_local_and_exported_occurrences_do_not_conflate_shadowed_symbols |
+| SymbolFinderTests.cs | FindAllOccurrences_IncludeOwnedSymbol_FindsRootAndIncludedDocs | tests/symbols.rs::include_owned_symbol_finds_root_references_and_included_declaration |
+| SymbolFinderTests.cs | FindAllOccurrences_ExportDirective_IsIncludedForExportedSymbol | tests/symbols.rs::owner_local_and_exported_occurrences_do_not_conflate_shadowed_symbols |
+| SymbolFinderTests.cs | FindAllOccurrences_ExcludeDeclarations | tests/symbols.rs::include_owned_symbol_finds_root_references_and_included_declaration |
+| SymbolFinderTests.cs | ValidateRename_ValidName_ReturnsNull | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| SymbolFinderTests.cs | ValidateRename_OwnerLocalCollision_Rejected | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| SymbolFinderTests.cs | ValidateRename_ExportedCollision_Rejected | tests/symbols.rs::owner_local_and_exported_occurrences_do_not_conflate_shadowed_symbols |
+| SymbolFinderTests.cs | ValidateRename_LocalToGlobal_Rejected | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| SymbolFinderTests.cs | ValidateRename_GlobalToLocal_Rejected | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| SymbolFinderTests.cs | ValidateRename_ToKeyword_Rejected | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| SymbolFinderTests.cs | ValidateRename_ToRegister_Rejected | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| SymbolFinderTests.cs | ValidateRename_ToInvalidIdentifier_Rejected | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| SymbolFinderTests.cs | ValidateRename_EmptyName_Rejected | tests/symbols.rs::rename_rejects_invalid_forms_keywords_registers_and_collisions |
+| SymbolFinderTests.cs | ResolveAt_Constant_ResolvesCorrectly | tests/symbols.rs::rename_targets_include_numeric_string_constants_macros_and_reference_origins |
+| SymbolFinderTests.cs | ResolveAt_MacroCall_ResolvesCorrectly | tests/symbols.rs::rename_targets_include_numeric_string_constants_macros_and_reference_origins |
+| SyntaxKindCoverageTests.cs | AllSyntaxKinds_AreCoveredOrExplicitlyExcluded | tests/tokens.rs::every_baseline_syntax_kind_is_classified_or_explicitly_excluded |
+| SyntaxKindCoverageTests.cs | ClassifiedAndUnclassified_DoNotOverlap | tests/tokens.rs::every_baseline_syntax_kind_is_classified_or_explicitly_excluded |
+| WorkspaceTests.cs | GetDocument_UnknownUri_ReturnsNull | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| WorkspaceTests.cs | GetDocumentDiagnostics_UnknownUri_ReturnsNulls | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| WorkspaceTests.cs | OpenDocument_ThenGetDocument_ReturnsDocument | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| WorkspaceTests.cs | ChangeDocument_UpdatesContent | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| WorkspaceTests.cs | CloseDocument_RemovesDocument | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| WorkspaceTests.cs | OpenDocumentUris_TracksOpenFiles | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| WorkspaceTests.cs | CaseInsensitiveUri | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| WorkspaceTests.cs | GetModel_ReturnsEmitModel | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| WorkspaceTests.cs | Diagnostics_ParseErrors_Reported | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+
+After fb4c22f, the unused graph removal and endpoint-query APIs are absent.
+Their eight private API cases are obsolete; ownership, include changes and
+close behavior remain covered through workspace and discovery tests.
+Final inventory:198 native replacements,9 justified obsolete, zero pending.

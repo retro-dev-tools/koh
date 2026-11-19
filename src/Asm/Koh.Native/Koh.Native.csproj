@@ -6,7 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Silk.NET.OpenAL.Soft.Native" GeneratePathProperty="true" ExcludeAssets="all" PrivateAssets="all" />
-    <InternalsVisibleTo Include="Koh.Lsp.Tests" />
     <ProjectReference Include="../../Common/Koh.Common/Koh.Common.csproj" />
     <ProjectReference Include="../../Common/Koh.Objects/Koh.Objects.csproj" />
   </ItemGroup>
