@@ -781,6 +781,17 @@ fn legacy_windowless_session_parameter_matrix() {
             client.request(json!({"command":"load","path":format!("{}.missing",path.display())}))["ok"],
             false
         );
+        let unsupported = temp.path("unsupported-mbc2.gb");
+        let mut bytes = fs::read(&path).unwrap();
+        bytes[0x147] = 5;
+        bytes[0x14d] = bytes[0x134..=0x14c]
+            .iter()
+            .fold(0u8, |value, byte| value.wrapping_sub(*byte).wrapping_sub(1));
+        fs::write(&unsupported, bytes).unwrap();
+        assert_eq!(
+            client.request(json!({"command":"load","path":unsupported}))["ok"],
+            false
+        );
         assert_eq!(
             client.request(json!({"command":"reset","debug":"invalid"}))["ok"],
             false

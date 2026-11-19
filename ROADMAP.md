@@ -14,8 +14,9 @@ Full compiler regression and platform acceptance remain in progress; see
 [engine migration](docs/rust-engine/design.md).
 Verification tooling is excluded pending separate design. Keep existing C#
 emulator/boot dependencies for unchanged verification and development tools;
-the Rust production engine has no managed fallback. Keep draft PR57 stacked
-on accepted UI PR56; no merge or release.
+the Rust production engine has no managed fallback. UI PR56 is merged; engine
+PR57 is rebased onto master `622770f` at the user's request. Keep it draft;
+no engine merge or release.
 
 Completed user-requested migration (2026-11-18): replace the entire desktop UI
 with Rust + GPUI Kit and remove KohUI completely, including its backends,

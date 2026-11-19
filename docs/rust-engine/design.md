@@ -6,7 +6,7 @@ Replace the production emulator, debugger and engine host with Rust while
 preserving the accepted GPUI desktop, ROM behavior, source debugging, headless
 commands, persistence and shutdown. The user authorized this next migration on
 2026-11-19. The LSP, C# game-authoring library and MSBuild integration remain
-separate. Do not merge or release either migration branch.
+separate. Keep the engine PR draft; do not merge or release it.
 
 User clarification: all verification tooling is out of scope pending deeper
 design. Leave `Koh.Verify`, the 2048 verifier and `tools/rust-asm-verify`
@@ -14,8 +14,10 @@ unchanged. Retain the C# emulator and boot libraries for existing development
 tools, including superoptimizer and benchmarks. Deferred Rust tool ports stay
 outside this worktree. Native compiler execution fixtures remain in scope.
 
-Baseline: `e1336b0`, accepted UI PR56 atop master `9ebb6e5`. Worktree:
-`/home/minorum/projekty/koh-rust-engine`, branch `feat/rust-engine`.
+Compatibility-oracle baseline: `e1336b0`. UI PR56 is merged. The user requested
+rebasing the engine PR onto newest master `622770f` on 2026-11-19; only engine
+commits are replayed, preserving the merged UI and ELF fixes. Worktree:
+`/home/minorum/projekty/koh-rust-engine`, branch `feat/rust-engine`, PR57 base master.
 
 ## Architecture
 

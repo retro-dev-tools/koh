@@ -4,7 +4,21 @@ Latest user steering: ALL verification tooling is out of scope pending deeper
 thinking. Existing Koh.Verify, sample verifier and rust-asm-verify stay unchanged.
 Retain C# emulator/boot for existing development tools; no production fallback.
 Set aside untracked koh-verify and koh-superopt ports outside the worktree.
-DraftenginePR57 https://github.com/retro-dev-tools/koh/pull/57 stackedonUI56.
+Draft engine PR57 https://github.com/retro-dev-tools/koh/pull/57 now targets master.
+
+Latest steering: rebase PR57 on newest master. UI56 merged as 622770f8f4954a0cc91b900473f9bc34b98ae772.
+Replayed17 engine commits with --onto origin/master e1336b0; old UI history is
+not duplicated. Backup branch backup/rust-engine-pre-master-76b4c25 preserves
+the pre-rebase work and tested watchpoint/stack follow-up. Range-diff evidence:
+/tmp/koh-engine-rebase-range-diff.log. Only integration conflict resolution
+changes the replay: keep master's caches and required emulator-aot-publish
+job name; preserve retirement of the C# production host. New master MBC2 load
+recovery assertion ported to Rust; /tmp/koh-engine-rebase-windowless.log passes
+all three original parameter cases, exit0. Current package/window evidence below
+is PRE-REBASE and must not be claimed as final new-base acceptance.
+Stopped local17163 for rebase after1735pass/one interrupted case/327unrun;
+/tmp/koh-engine-compiler-regression-final.log is NOT a passing full run. Old CI
+44507932402 cancellation requested; rerun validation on rebased source.
 
 Current native cutover, 2026-11-19:
 - Final root native publish PASSED exit0 /tmp/koh-engine-publish-final.log.
