@@ -10,7 +10,8 @@
 
 ## Global constraints
 
-Preserve the ten compatibility gates in the spec and raw version-2 states.
+Preserve the ten compatibility gates in the spec, raw session states and the
+separate STES/version-2 SaveStateFile utility format.
 Keep C# game authoring/LSP supported. No managed engine fallback at cutover.
 Serial builds per target; independent agent target directories only. No merge
 or release. Real completed logs, test dispositions and independently captured

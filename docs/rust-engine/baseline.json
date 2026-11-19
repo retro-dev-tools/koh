@@ -1,0 +1,24 @@
+{
+  "source_commit": "e1336b048a67549ed99a8849ac78479213f570c8",
+  "managed_fast_suite": {
+    "passed": 554,
+    "failed": 0,
+    "skipped": 0,
+    "log": "/tmp/koh-engine-csharp-baseline.log"
+  },
+  "source_test_methods": 224,
+  "methods_by_project": {
+    "Koh.Emulator.Tests": 165,
+    "Koh.Debugger.Tests": 43,
+    "Koh.Boot.Tests": 16
+  },
+  "reference_directory": "/tmp/koh-engine-reference-e1336b0",
+  "reference_sha256": {
+    "Koh.Emulator.App": "3b5069460020f225b107bec72b9da7f8cb7368c4afdc4ffc0d0d24c1c8b74e35",
+    "koh-asm": "f982066cfc15b38cab4c26d3f8b833ec88a158ca487306cd4f7480078205734c",
+    "libopenal.so": "7162b88c6c1fea862746f688ee0a9267a72033f5ea5b82af74d304ec5061a1dc",
+    "koh-link": "b9c152ecc9cdc8a4d3601326fdf5a6e8b2552086e547096b2253bcbf9b1c60fe"
+  },
+  "cpu_oracle_cases": 2048,
+  "note": "Source methods inventoried; parametrized runtime cases require disposition review. C#-oracle coverage marked review until mapped method assertions have been checked."
+}

@@ -38,7 +38,7 @@ managed runtime is allowed behind the final Rust executable.
 
 The shared core exposes `HardwareMode::{Dmg,Cgb}`, `Interrupts { iflag: u8,
 ie: u8 }`, `Registers` and bounded little-endian `StateReader`/`StateWriter`.
-State primitive order/width matches the C# raw version-2 format. Readers return
+State primitive order/width matches the C# raw payload. Readers return
 `std::io::Result`; never panic on malformed external state.
 
 CPU: `Cpu { registers: Registers, halted: bool, stopped: bool, ime: bool,
@@ -68,6 +68,20 @@ Port all four channels, lengths, envelopes, sweep, wave restrictions, power and
 Each component provides `write_state(&self, &mut StateWriter)` and
 `read_state(&mut self, &mut StateReader<'_>)->std::io::Result<()>`.
 
+Debugger/host boundary: `koh_debugger::Debugger::default()`;
+`handle(&mut self, request: &serde_json::Value, machine: &mut Machine)->Reply`,
+where `Reply { response: Value, events: Vec<Value>, action: Action }` and
+`Action::{None,Continue,Pause,StepIn,Next,StepOut,Disconnect}`. The host owns
+pause/run state and applies actions after the response, forwarding events.
+`step(&mut self, machine: &mut Machine, action: Action)->Vec<Value>` performs
+the requested step and produces stopped events. `run_frame(&mut self,
+machine: &mut Machine)->Option<Value>` runs to the next frame or debugger stop;
+the returned event pauses the host. DAP `launch` adopts the already-loaded
+machine, matching the current actual host; it loads the requested ELF metadata
+and accepts stopOnEntry. `load_debug_info(&mut self, path: &Path)` returns a
+recoverable error for malformed/missing metadata. Root supplies the Cargo
+workspace membership; each owning worker supplies its crate manifest.
+
 ## Compatibility gates
 
 1. CPU instructions, flags, cycle ordering, interrupts/EI/HALT/STOP and wrapping.
@@ -77,7 +91,9 @@ Each component provides `write_state(&self, &mut StateWriter)` and
    must preserve the existing audio warmup fix and normal pacing.
 5. Boot ROMs assemble from the existing source; do not fabricate post-boot
    register state. Preserve overrides and reject family/length mismatch.
-6. Existing `.sav` bytes and version-2 `.state` interoperability both directions.
+6. Existing `.sav` bytes and raw session `.state` interoperability both directions.
+   The separate `SaveStateFile` utility retains its STES/version-2/hash wrapper;
+   the current desktop session saves the machine payload without that wrapper.
    Corrupt restore rolls back; failed loads/writes preserve the working session.
 7. Session validation: duplicate keys, UTF-16 request budget 16384, depth 8,
    signed-64-bit IDs, field types/ranges, coherent version-1 snapshots and bounded
@@ -111,5 +127,8 @@ while any C# project remains. No root LICENSE ownership claim is invented.
 
 ## Progress
 
-`[----------] 0/10` completed compatibility checkpoints. Implementation is not
-yet started; this document defines the target, not proof of completion.
+`[####------] 4/10` plan checkpoints: baseline/state foundation, CPU, PPU and APU
+components verified. Bus/full-machine integration, boot/persistence, engine,
+debugger, removal/integration and final acceptance remain open. Detailed source
+method dispositions are in `test-disposition.csv`; `review` entries have grouped
+Rust/oracle coverage but are not closed until their assertions are checked.

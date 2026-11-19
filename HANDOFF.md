@@ -16,6 +16,25 @@ No agent edits root Cargo files/shared state/lib or another component. No shared
 build target: use /tmp/koh-engine-{cpu,ppu,apu}-target for isolated checks, or
 coordinate serial checks. No simultaneous root builds. Commit owned files only.
 
+Foundation state primitives and timer now implemented, red/green logs
+/tmp/koh-engine-{state,timer}-*.log;12/12 core tests pass. Managed baseline
+554/554 fresh, exit0 /tmp/koh-engine-csharp-baseline.log. CPU worker delivered
+12 CPU tests +2048 independent C# state/timed-bus cases, parent integration next.
+After CPU acceptance the same worker owns cartridge.rs only (MBC/RTC/header),
+with no shared file edits. PPU/APU workers capture independent C# oracles via
+assembly references to original core DLL, private /tmp project outputs.
+After cartridge acceptance its worker owns rust/koh-engine/** (CLI/session/
+audio/headless/DAPtransport) and APU worker owns rust/koh-debugger/** (DAP logic/
+symbols/expressions/breakpoints/stepping). Root owns rootCargo/buildintegration,
+testsdispositions, oracle baselines and finalreview. Agentworkers coordinate
+the debugger API in design, with parent notified before changing signatures.
+CPU ae1b49a integrated24/24 tests pass, including2048C# traces. PPU/APU workers
+delivered independently oracle-checked components; parent integration next.
+After PPU integration its worker owns bus.rs/machine.rs/serial.rs/dma.rs/boot.rs
+and owned tests/helpers only; core fields/API discussed in task message. Root
+keeps state/timer/shared Cargo/lib and engine/debugger host ownership. APU worker
+will review independent whole-machine fixtures or debugger primitives next.
+
 Verification: component RED/GREEN cases, existing C# oracle, exact legacy state
 order, same-ROM DMG/CGB frames/PCM, process/session/DAP and real UI/VSCode,
 complete test disposition, native packages and platform CI. Full scope and API
