@@ -137,8 +137,8 @@ fn int128_operators_preserve_every_result_byte(
         ("SignedOverflow", "THROW:System.OverflowException"),
         ("RemainderOverflow", "THROW:System.OverflowException"),
     ] {
-        let result = super::support::dotnet()
-            .arg(&managed.dll)
+        let result = managed
+            .command()
             .arg(&assembly)
             .arg(entry)
             .output()

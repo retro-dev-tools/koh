@@ -244,8 +244,8 @@ fn cube_boots_and_animates(
     };
     let rom = directory.path().join("cube.gb");
     std::fs::write(&rom, &linked.rom).unwrap();
-    let output = dotnet()
-        .arg(&cube_host.dll)
+    let output = cube_host
+        .command()
         .arg(&rom)
         .args([
             first.to_string(),

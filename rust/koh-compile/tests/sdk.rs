@@ -201,9 +201,9 @@ public static int Main() {
         .iter()
         .find(|symbol| symbol.name == "__koh_exit")
         .unwrap();
-    let executed = support::dotnet()
+    let executed = host
+        .command()
         .current_dir(host.directory.path())
-        .arg(&host.dll)
         .args([
             "--native-video",
             &format!("{:x}:{:x}", exit.bank.unwrap_or(0), exit.value),
@@ -383,8 +383,8 @@ public static int Main() {
         .iter()
         .find(|symbol| symbol.name == "__koh_exit")
         .unwrap();
-    let executed = support::dotnet()
-        .arg(&host.dll)
+    let executed = host
+        .command()
         .args([
             "--native",
             &format!("{:x}:{:x}", exit.bank.unwrap_or(0), exit.value),

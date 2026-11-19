@@ -76,8 +76,8 @@ fn sdk_compiles_actual_float_addition_without_managed_runtime_execution(
         .find(|symbol| symbol.name == "__koh_exit")
         .unwrap();
     let host = support::build_host();
-    let output = support::dotnet()
-        .arg(&host.dll)
+    let output = host
+        .command()
         .args([
             "--native-heap",
             &format!("{:x}:{:x}", stop.bank.unwrap_or(0), stop.value),

@@ -515,8 +515,8 @@ fn roslyn_wide_arithmetic_vectors_match_ordered_rom_bytes(
         let (directory, images) = images(host, configuration, &source);
         let resolver = Resolver::new(&[&images[0], &images[1]]).unwrap();
         for group in &groups {
-            let result = super::dotnet()
-                .arg(&managed.dll)
+            let result = managed
+                .command()
                 .arg(
                     directory
                         .path()

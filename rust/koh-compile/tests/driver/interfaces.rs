@@ -68,8 +68,8 @@ fn interface_calls_through_static_storage_execute(
         "DefaultInterface",
     ] {
         if entry != "LegacyHardware" {
-            let result = super::dotnet()
-                .arg(&managed.dll)
+            let result = managed
+                .command()
                 .arg(
                     directory
                         .path()
@@ -135,8 +135,8 @@ fn interface_calls_through_static_storage_execute(
         ("InvalidCast", "0A", "System.InvalidCastException"),
         ("NullReceiver", "04", "System.NullReferenceException"),
     ] {
-        let result = super::dotnet()
-            .arg(&managed.dll)
+        let result = managed
+            .command()
             .arg(
                 directory
                     .path()
@@ -389,8 +389,8 @@ fn interface_metadata_contracts_diagnose_and_inherited_memberref_bodies_execute(
         assert!(error.contains(needle), "{label}: {error}");
     }
     for (entry, needle) in [("BoxedInterface", "0x008c")] {
-        let result = super::dotnet()
-            .arg(&managed.dll)
+        let result = managed
+            .command()
             .arg(
                 directory
                     .path()
@@ -482,12 +482,7 @@ fn interface_metadata_contracts_diagnose_and_inherited_memberref_bodies_execute(
             .path()
             .join(format!("bin/{configuration}/net10.0/{label}.dll"));
         std::fs::write(&path, &bytes).unwrap();
-        let result = super::dotnet()
-            .arg(&managed.dll)
-            .arg(&path)
-            .arg(entry)
-            .output()
-            .unwrap();
+        let result = managed.command().arg(&path).arg(entry).output().unwrap();
         assert!(
             result.status.success(),
             "{}",

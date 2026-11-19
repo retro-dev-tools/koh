@@ -30,8 +30,8 @@ fn palette_guard_observes_actual_unsafe_rom_writes(host: &Host, #[case] configur
         .unwrap();
     let rom = directory.path().join("unsafe palette.gb");
     std::fs::write(&rom, &linked.rom).unwrap();
-    let result = super::support::dotnet()
-        .arg(&host.dll)
+    let result = host
+        .command()
         .args([
             "--native-sprites",
             &format!("{:x}:{:x}", stop.bank.unwrap_or(0), stop.value),
@@ -59,8 +59,8 @@ fn desktop_dma_library_copies_the_actual_page(
     #[case] configuration: &str,
 ) {
     let (directory, _) = gameboy_images(host, configuration, "SpriteContracts");
-    let result = super::support::dotnet()
-        .arg(&managed.dll)
+    let result = managed
+        .command()
         .arg(
             directory
                 .path()

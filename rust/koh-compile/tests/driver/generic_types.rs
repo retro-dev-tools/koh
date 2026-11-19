@@ -452,8 +452,8 @@ fn inherited_member_references_bind_the_closed_base(
         .path()
         .join(format!("bin/{configuration}/net10.0/ClosedTypes.dll"));
     std::fs::write(&assembly, &bytes).unwrap();
-    let result = super::dotnet()
-        .arg(&managed.dll)
+    let result = managed
+        .command()
         .arg(&assembly)
         .arg("InheritedMembers")
         .output()

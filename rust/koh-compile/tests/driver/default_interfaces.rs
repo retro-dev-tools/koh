@@ -108,8 +108,8 @@ fn most_specific_default_interface_bodies_execute(
         "BoundDelegate",
         "Referenced",
     ] {
-        let managed = super::dotnet()
-            .arg(&managed.dll)
+        let managed = managed
+            .command()
             .arg(output.join("DefaultInterfaces.dll"))
             .arg(entry)
             .output()
@@ -166,8 +166,8 @@ fn most_specific_default_interface_bodies_execute(
         }
     }
     assert!(errors.is_empty(), "{}", errors.join("\n"));
-    let managed_result = super::dotnet()
-        .arg(&managed.dll)
+    let managed_result = managed
+        .command()
         .arg(output.join("DefaultInterfaces.dll"))
         .arg("NullReceiver")
         .output()
@@ -249,12 +249,7 @@ fn default_interface_ambiguities_reabstraction_and_invalid_bodies_diagnose(
         bytes[at + 6..at + 8].copy_from_slice(&flags.to_le_bytes());
         let path = output.join(format!("{owner}Invalid.dll"));
         std::fs::write(&path, &bytes).unwrap();
-        let result = super::dotnet()
-            .arg(&managed.dll)
-            .arg(&path)
-            .arg(entry)
-            .output()
-            .unwrap();
+        let result = managed.command().arg(&path).arg(entry).output().unwrap();
         assert!(
             result.status.success(),
             "{}",
@@ -359,12 +354,7 @@ fn final_interface_body_tokens_call_and_capture_exact_implementation(
         );
         let path = output.join(format!("{entry}.dll"));
         std::fs::write(&path, &bytes).unwrap();
-        let result = super::dotnet()
-            .arg(&managed.dll)
-            .arg(&path)
-            .arg(entry)
-            .output()
-            .unwrap();
+        let result = managed.command().arg(&path).arg(entry).output().unwrap();
         assert!(
             result.status.success(),
             "{}",

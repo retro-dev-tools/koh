@@ -3390,6 +3390,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "koh-test-host"
+version = "1.0.2"
+dependencies = [
+ "koh-debugger",
+ "koh-emulator",
+ "koh-link",
+ "png 0.18.1",
+ "serde_json",
+]
+
+[[package]]
 name = "koh-ui"
 version = "1.0.2"
 dependencies = [

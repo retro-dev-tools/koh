@@ -273,8 +273,8 @@ fn source_document<'a>(lines: &'a [koh_link::LinkedLine], source: &Path, line: u
 
 pub(super) fn debugger_replies(debugger: &Host, requests: &[String]) -> Vec<serde_json::Value> {
     use std::{io::Write, process::Stdio};
-    let mut child = super::dotnet()
-        .arg(&debugger.dll)
+    let mut child = debugger
+        .command()
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

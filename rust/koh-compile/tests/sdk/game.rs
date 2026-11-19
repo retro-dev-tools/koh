@@ -281,8 +281,8 @@ fn sdk_2048_scene_game_obeys_rules_and_draws_tiles(#[case] configuration: &str, 
         ));
     }
     std::fs::write(&script, actions).unwrap();
-    let executed = support::dotnet()
-        .arg(&host.dll)
+    let executed = host
+        .command()
         .arg(&rom)
         .arg(format!("{:x}", symbol("__koh_abort")))
         .arg(&script)
@@ -455,8 +455,8 @@ fn sdk_jrpg_dialogue_and_battle_preserve_hero_state(#[case] configuration: &str)
     let host = support::build_fixture_host("GameHost");
     let script = directory.path().join("input.txt");
     std::fs::write(&script, "299:dump:earlyTitle\n1200:dump:title\n1300:press:Start\n1310:release:Start\n1600:dump:initial\n1700:press:Left\n1702:release:Left\n1900:dump:moved\n").unwrap();
-    let executed = support::dotnet()
-        .arg(&host.dll)
+    let executed = host
+        .command()
         .arg(&rom)
         .arg(format!("{:x}", symbol("__koh_abort")))
         .arg(&script)
@@ -662,8 +662,8 @@ fn sdk_jrpg_dialogue_and_battle_preserve_hero_state(#[case] configuration: &str)
     }
     actions.push_str(&format!("4100:write:{rng_static:04X}:0200\n4200:press:Left\n4202:release:Left\n4400:dump:battle\n4500:press:A\n4502:release:A\n4700:dump:enemyTurn\n4800:press:A\n4802:release:A\n5000:dump:won\n"));
     std::fs::write(&script, actions).unwrap();
-    let executed = support::dotnet()
-        .arg(&host.dll)
+    let executed = host
+        .command()
         .arg(&rom)
         .arg(format!("{:x}", symbol("__koh_abort")))
         .arg(&script)

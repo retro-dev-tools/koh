@@ -1,4 +1,4 @@
-use super::{Host, compile, dotnet, gameboy_images, host, support};
+use super::{Host, compile, gameboy_images, host, support};
 use koh_compile::{ir::Op, resolve::Resolver, sm83};
 use rstest::rstest;
 
@@ -109,8 +109,8 @@ fn vram_write_is_single_bounded_and_safe_at_each_scanline(
                 .value;
             let rom = directory.path().join(format!("{method}.gb"));
             std::fs::write(&rom, &linked.rom).unwrap();
-            let output = dotnet()
-                .arg(&phase_host.dll)
+            let output = phase_host
+                .command()
                 .arg(&rom)
                 .arg(format!("{stop:x}"))
                 .arg(format!("{site:x}"))
