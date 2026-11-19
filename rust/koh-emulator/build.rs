@@ -5,7 +5,10 @@ fn main() {
         .join("../../src/Emulator/Koh.Boot");
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     for file in fs::read_dir(&source).unwrap() {
-        println!("cargo:rerun-if-changed={}", file.unwrap().path().display());
+        let path = file.unwrap().path();
+        if path.extension().is_some_and(|ext| ext == "asm" || ext == "inc") {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
     }
     for (name, size) in [("dmg_boot", 0x100), ("cgb_boot", 0x900)] {
         let path = source.join(format!("{name}.asm"));

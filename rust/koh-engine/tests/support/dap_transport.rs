@@ -1,9 +1,6 @@
-use std::path::PathBuf;
 #[cfg(windows)]
-use std::{
-    io::{Read, Write},
-    path::Path,
-};
+use std::path::Path;
+use std::path::PathBuf;
 
 pub fn endpoint(name: &str) -> PathBuf {
     #[cfg(unix)]
@@ -78,7 +75,7 @@ impl std::io::Read for DapStream {
                 };
             }
             if available > 0 {
-                return self.file.read(buffer);
+                return std::io::Read::read(&mut self.file, buffer);
             }
             if std::time::Instant::now() >= deadline {
                 return Err(std::io::Error::new(
@@ -93,9 +90,9 @@ impl std::io::Read for DapStream {
 #[cfg(windows)]
 impl std::io::Write for DapStream {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.file.write(bytes)
+        std::io::Write::write(&mut self.file, bytes)
     }
     fn flush(&mut self) -> std::io::Result<()> {
-        self.file.flush()
+        std::io::Write::flush(&mut self.file)
     }
 }

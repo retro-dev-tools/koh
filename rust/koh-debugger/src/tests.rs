@@ -27,8 +27,7 @@ fn debugger_forwards_existing_hook_context_and_hblank_events() {
         } else {
             m.run_frame();
         }
-        let result = events.lock().unwrap().clone();
-        result
+        events.lock().unwrap().clone()
     };
     let reference = run(false);
     assert!(reference.iter().any(|event| event.0 == b'C'));

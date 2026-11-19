@@ -8,10 +8,8 @@ pub fn literal(token: &str, binary: bool) -> Option<i32> {
     {
         return u32::from_str_radix(hex.trim(), 16).ok().map(|v| v as i32);
     }
-    if binary {
-        if let Some(bits) = token.strip_prefix('%') {
-            return u32::from_str_radix(bits, 2).ok().map(|v| v as i32);
-        }
+    if binary && let Some(bits) = token.strip_prefix('%') {
+        return u32::from_str_radix(bits, 2).ok().map(|v| v as i32);
     }
     token.parse().ok()
 }

@@ -112,8 +112,11 @@ impl Client {
         Self::start_mode(binary, args, true)
     }
     fn start_mode(binary: &Path, args: &[String], headless: bool) -> Self {
+        Self::spawn(binary, args, headless, true)
+    }
+    fn spawn(binary: &Path, args: &[String], headless: bool, session: bool) -> Self {
         let mut child = Command::new(binary)
-            .arg("--session")
+            .args(if session { Some("--session") } else { None })
             .args(if headless { Some("--headless") } else { None })
             .args(args)
             .stdin(Stdio::piped())
@@ -228,14 +231,20 @@ fn paused_load_step_debug_state_rollback_and_failed_load() {
 #[test]
 fn sram_persists_on_quit_eof_and_oversized_input() {
     use serde_json::json;
-    for ending in ["quit", "eof", "oversize", "incomplete"] {
+    for (cgb, ending) in [
+        (false, "quit"),
+        (false, "eof"),
+        (false, "oversize"),
+        (false, "incomplete"),
+        (true, "quit"),
+    ] {
         let temp = Temp::new();
         let path = temp.path("battery.gb");
-        rom(&path, false, true);
+        rom(&path, cgb, true);
         let boot = temp.path("boot.bin");
-        let mut bytes = vec![0; 256];
+        let mut bytes = vec![0; if cgb { 2304 } else { 256 }];
         bytes[..3].copy_from_slice(&[0xc3, 0xfc, 0]);
-        bytes[252..].copy_from_slice(&[0x3e, 1, 0xe0, 0x50]);
+        bytes[252..256].copy_from_slice(&[0x3e, 1, 0xe0, 0x50]);
         fs::write(&boot, bytes).unwrap();
         let mut client = Client::start(binary(), &[format!("--boot-rom={}", boot.display())]);
         assert_eq!(
@@ -642,6 +651,228 @@ fn dap_real_dwarf_breakpoint_memory_and_call_stepping() {
     );
     dap.request("disconnect", json!({}));
     assert_eq!(client.finish(), 0);
+}
+
+#[test]
+fn legacy_headless_dap_parameter_matrix() {
+    use serde_json::json;
+    let temp = Temp::new();
+    let source = "SECTION \"Entry\", ROM0[$100]\n jp Main\nSECTION \"main\", ROM0[$150]\nMain::\n ld a,$42\n jr Main\n";
+    let object = koh_asm::assemble(source, "fixture.asm", false).unwrap();
+    let linked = koh_link::link(&[object], &Default::default()).unwrap();
+    let path = temp.path("matrix.gb");
+    let elf = temp.path("matrix.elf");
+    fs::write(&path, &linked.rom).unwrap();
+    fs::write(&elf, linked.dwarf().unwrap()).unwrap();
+    for (ending, headless, session) in [
+        ("disconnect", true, false),
+        ("terminate", true, false),
+        ("eof", true, false),
+        ("disconnect", false, false),
+        ("disconnect", true, true),
+        ("eof", true, true),
+    ] {
+        let name = format!(
+            "koh-dap-matrix-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let mut client = Client::spawn(
+            binary(),
+            &[path.to_string_lossy().into_owned(), format!("--dap={name}")],
+            headless,
+            session,
+        );
+        let mut dap = Dap::connect(&endpoint(&name));
+        assert_eq!(
+            dap.request("initialize", json!({"adapterID":"koh"}))["success"],
+            true
+        );
+        assert_eq!(
+            dap.request("launch", json!({"stopOnEntry":true,"debugInfo":elf}))["success"],
+            true
+        );
+        dap.request("configurationDone", json!({}));
+        assert!(
+            !dap.request("stackTrace", json!({"threadId":1}))["body"]["stackFrames"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        let bp = dap.request(
+            "setBreakpoints",
+            json!({"source":{"path":"fixture.asm"},"breakpoints":[{"line":5}]}),
+        );
+        assert_eq!(bp["body"]["breakpoints"][0]["verified"], true);
+        dap.request("continue", json!({"threadId":1}));
+        assert_eq!(dap.stopped()["body"]["reason"], "breakpoint");
+        dap.request("stepIn", json!({"threadId":1}));
+        dap.stopped();
+        assert_eq!(
+            dap.request("stackTrace", json!({"threadId":1}))["body"]["stackFrames"][0]["instructionPointerReference"],
+            "0x0152"
+        );
+        assert_eq!(
+            dap.request("readMemory", json!({"memoryReference":"0x0150","count":2}))["body"]["data"],
+            "PkI="
+        );
+        if ending != "eof" {
+            assert_eq!(dap.request(ending, json!({}))["success"], true);
+        }
+        drop(dap);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if let Some(status) = client.child.try_wait().unwrap() {
+                assert!(status.success(), "{ending}/{headless}/{session}");
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{ending}/{headless}/{session} did not exit with stdin held open"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let mut errors = String::new();
+        std::io::Read::read_to_string(client.child.stderr.as_mut().unwrap(), &mut errors).unwrap();
+        assert!(!errors.contains("graphics unavailable"));
+        if headless {
+            assert!(!errors.contains("audio unavailable"));
+        }
+    }
+}
+
+#[test]
+fn legacy_windowless_session_parameter_matrix() {
+    use base64::Engine;
+    use serde_json::json;
+    for (cgb, ending) in [(false, "eof"), (true, "quit"), (false, "oversized")] {
+        let temp = Temp::new();
+        let path = temp.path("windowless.gb");
+        let source = "SECTION \"Entry\", ROM0[$100]\n jp Main\nSECTION \"main\", ROM0[$150]\nMain::\n xor a\n ldh [$ff00],a\n ld a,$0a\n ld [$0000],a\n ld a,$42\n ld [$a000],a\nLoop:: jr Loop\n";
+        let object = koh_asm::assemble(source, "windowless.asm", false).unwrap();
+        let mut linked = koh_link::link(&[object], &Default::default()).unwrap();
+        linked.rom[0x143] = if cgb { 0x80 } else { 0 };
+        linked.rom[0x147] = 3;
+        linked.rom[0x149] = 2;
+        linked.rom[0x14d] = linked.rom[0x134..=0x14c]
+            .iter()
+            .fold(0u8, |value, byte| value.wrapping_sub(*byte).wrapping_sub(1));
+        fs::write(&path, linked.rom).unwrap();
+        let mut client = Client::start(binary(), &[]);
+        let empty = client.request(json!({"command":"snapshot"}));
+        assert_eq!(empty["ok"], true);
+        assert!(empty["snapshot"]["romPath"].is_null());
+        let loaded = client.request(json!({"command":"load","path":path,"paused":true}));
+        assert_eq!(loaded["ok"], true);
+        assert_eq!(loaded["snapshot"]["paused"], true);
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(loaded["snapshot"]["framebuffer"].as_str().unwrap())
+                .unwrap()
+                .len(),
+            160 * 144 * 4
+        );
+        assert_eq!(client.request(json!({"command":"save"}))["ok"], true);
+        let state = PathBuf::from(format!("{}.state", path.display()));
+        assert!(state.exists());
+        assert_eq!(client.request(json!({"command":"restore"}))["ok"], true);
+        assert_eq!(
+            client.request(json!({"command":"load","path":format!("{}.missing",path.display())}))["ok"],
+            false
+        );
+        assert_eq!(
+            client.request(json!({"command":"reset","debug":"invalid"}))["ok"],
+            false
+        );
+        assert_eq!(
+            client.request(json!({"command":"snapshot","address":65536}))["ok"],
+            false
+        );
+        let inspected = client.request(json!({"command":"snapshot","debug":true,"address":0xfff0}));
+        let snapshot = &inspected["snapshot"];
+        assert_eq!(snapshot["romPath"], path.to_string_lossy().as_ref());
+        assert_eq!(snapshot["frame"], 0);
+        assert_eq!(snapshot["memory"]["baseAddress"], 0xfff0);
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(snapshot["memory"]["bytes"].as_str().unwrap())
+                .unwrap()
+                .len(),
+            256
+        );
+        assert_eq!(snapshot["vram"]["height"], if cgb { 384 } else { 192 });
+        assert_eq!(
+            client.request(json!({"command":"joypad","button":"invalid","down":true}))["ok"],
+            false
+        );
+        let stepped = client.request(json!({"command":"step"}));
+        assert!(stepped["snapshot"]["cpu"]["totalTCycles"].as_u64().unwrap() > 0);
+        let bytes = fs::read(&state).unwrap();
+        fs::write(&state, &bytes[..100]).unwrap();
+        assert_eq!(client.request(json!({"command":"restore"}))["ok"], false);
+        assert_eq!(
+            client.request(json!({"command":"snapshot"}))["snapshot"]["cpu"],
+            stepped["snapshot"]["cpu"]
+        );
+        client.request(json!({"command":"fastForward","enabled":true}));
+        client.request(json!({"command":"resume"}));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let snapshot =
+                client.request(json!({"command":"snapshot","debug":true,"address":0xa000}));
+            let ram = base64::engine::general_purpose::STANDARD
+                .decode(snapshot["snapshot"]["memory"]["bytes"].as_str().unwrap())
+                .unwrap();
+            if ram[0] == 0x42 {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "ROM did not publish SRAM marker"
+            );
+        }
+        let stopped = client.request(json!({"command":"pause"}));
+        let frames = stopped["snapshot"]["frame"].as_u64().unwrap();
+        assert!(frames > 0);
+        let pressed = client.request(
+            json!({"command":"joypad","button":"A","down":true,"debug":true,"address":0xff00}),
+        );
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(pressed["snapshot"]["memory"]["bytes"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(bytes[0] & 1, 0);
+        let released =
+            client.request(json!({"command":"releaseInput","debug":true,"address":0xff00}));
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(released["snapshot"]["memory"]["bytes"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(bytes[0] & 1, 1);
+        let final_snapshot = client.request(json!({"command":"snapshot"}));
+        assert_eq!(final_snapshot["snapshot"]["frame"], frames);
+        assert_eq!(final_snapshot["snapshot"]["fastForward"], false);
+        if ending == "quit" {
+            client.request(json!({"command":"quit"}));
+        } else if ending == "oversized" {
+            client
+                .input
+                .as_mut()
+                .unwrap()
+                .write_all(&vec![b' '; 16385])
+                .unwrap();
+            client.input.as_mut().unwrap().write_all(b"\n").unwrap();
+        }
+        assert_eq!(client.finish(), if ending == "oversized" { 1 } else { 0 });
+        let mut errors = String::new();
+        std::io::Read::read_to_string(client.child.stderr.as_mut().unwrap(), &mut errors).unwrap();
+        assert!(!errors.to_lowercase().contains("graphics"), "{errors}");
+        let mut trailing = String::new();
+        std::io::Read::read_to_string(&mut client.output, &mut trailing).unwrap();
+        assert!(trailing.is_empty());
+        assert_eq!(
+            fs::read(format!("{}.sav", path.display())).unwrap()[0],
+            0x42
+        );
+    }
 }
 
 #[test]

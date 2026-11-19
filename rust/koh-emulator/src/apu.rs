@@ -506,11 +506,9 @@ impl Apu {
             self.ch3.tick_length();
             self.ch4.tick_length();
         }
-        if sweep {
-            if let Some(f) = self.ch1.tick_sweep(self.nr[0]) {
-                self.nr[3] = f as u8;
-                self.nr[4] = (self.nr[4] & !7) | ((f >> 8) as u8 & 7);
-            }
+        if sweep && let Some(f) = self.ch1.tick_sweep(self.nr[0]) {
+            self.nr[3] = f as u8;
+            self.nr[4] = (self.nr[4] & !7) | ((f >> 8) as u8 & 7);
         }
         if envelope {
             self.ch1.tick_envelope();

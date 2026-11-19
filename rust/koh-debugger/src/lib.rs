@@ -67,11 +67,13 @@ impl Default for Debugger {
     }
 }
 
+type SharedMemoryHook = Arc<Mutex<Option<Box<dyn MemoryHook>>>>;
+
 struct WatchHook {
     reads: BTreeSet<u16>,
     writes: BTreeSet<u16>,
     hit: Arc<AtomicBool>,
-    previous: Arc<Mutex<Option<Box<dyn MemoryHook>>>>,
+    previous: SharedMemoryHook,
 }
 impl MemoryHook for WatchHook {
     fn set_context(&mut self, context: koh_emulator::machine::MemoryContext) {
@@ -258,10 +260,10 @@ impl Debugger {
             }
             "launch" => {
                 self.stop_on_entry = args["stopOnEntry"] == true;
-                if let Some(path) = args["debugInfo"].as_str().filter(|p| !p.is_empty()) {
-                    if let Err(error) = self.load_debug_info(Path::new(path)) {
-                        eprintln!("[koh-dap] failed to load .elf ({path}): {error}");
-                    }
+                if let Some(path) = args["debugInfo"].as_str().filter(|p| !p.is_empty())
+                    && let Err(error) = self.load_debug_info(Path::new(path))
+                {
+                    eprintln!("[koh-dap] failed to load .elf ({path}): {error}");
                 }
                 Ok(Value::Null)
             }
@@ -528,10 +530,7 @@ impl Debugger {
             _ => Err(format!("unsupported command '{command}'")),
         }
     }
-    fn install_hook(
-        &self,
-        m: &mut Machine,
-    ) -> (Arc<AtomicBool>, Arc<Mutex<Option<Box<dyn MemoryHook>>>>) {
+    fn install_hook(&self, m: &mut Machine) -> (Arc<AtomicBool>, SharedMemoryHook) {
         let hit = Arc::new(AtomicBool::new(false));
         let previous = Arc::new(Mutex::new(m.hook.take()));
         m.hook = Some(Box::new(WatchHook {

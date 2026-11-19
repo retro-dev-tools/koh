@@ -60,7 +60,7 @@ impl CgbPalette {
         &self.data
     }
     pub fn fill_white(&mut self) {
-        for color in self.data.chunks_exact_mut(2) {
+        for color in self.data.as_chunks_mut::<2>().0 {
             color.copy_from_slice(&[255, 127]);
         }
     }
@@ -342,7 +342,7 @@ impl Ppu {
             PpuMode::OamScan => {
                 if self.dot == 0 {
                     self.sprite_count = 0;
-                    for sprite in oam.chunks_exact(4).take(40) {
+                    for sprite in oam.as_chunks::<4>().0.iter().take(40) {
                         let y = sprite[0] as i32 - 16;
                         if self.ly as i32 >= y && (self.ly as i32) < y + self.height() {
                             self.line_sprites[self.sprite_count].copy_from_slice(sprite);
@@ -896,8 +896,10 @@ mod tests {
     }
     #[test]
     fn palette_increment_wrap_white_and_raw_state() {
-        let mut p = CgbPalette::default();
-        p.index_register = 255;
+        let mut p = CgbPalette {
+            index_register: 255,
+            ..Default::default()
+        };
         p.write_data(0x12);
         assert_eq!(p.index_register, 128);
         p.write_data(0x34);

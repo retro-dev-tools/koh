@@ -1,71 +1,3 @@
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Interrupts;
-    #[test]
-    fn serial_capture_and_4096_cycle_irq() {
-        let mut s = Serial::default();
-        let mut irq = Interrupts::default();
-        s.sb = b'H';
-        s.write_sc(0x81);
-        assert_eq!(s.read_buffer_as_string(), "H");
-        for _ in 0..4095 {
-            s.tick_t(&mut irq);
-        }
-        assert!(s.is_transferring());
-        assert_eq!(irq.iflag, 0);
-        s.tick_t(&mut irq);
-        assert!(!s.is_transferring());
-        assert_eq!(s.sb, 255);
-        assert_eq!(s.read_sc() & 128, 0);
-        assert_eq!(irq.iflag, Interrupts::SERIAL);
-    }
-    #[test]
-    fn external_clock_does_not_start_and_peer_exchange_is_restorable() {
-        struct Peer;
-        impl SerialLink for Peer {
-            fn exchange_byte(&mut self, sent: u8) -> u8 {
-                assert_eq!(sent, 0x5a);
-                0xa5
-            }
-        }
-        let mut s = Serial::default();
-        let mut irq = Interrupts::default();
-        s.sb = 0x5a;
-        s.write_sc(0x80);
-        for _ in 0..4096 {
-            s.tick_t(&mut irq);
-        }
-        assert!(!s.is_transferring());
-        assert_eq!(irq.iflag, 0);
-        s.link = Some(Box::new(Peer));
-        s.write_sc(0x81);
-        for _ in 0..777 {
-            s.tick_t(&mut irq);
-        }
-        let mut w = StateWriter::default();
-        s.write_state(&mut w);
-        let mut restored = Serial::default();
-        restored
-            .read_state(&mut StateReader::new(&w.bytes))
-            .unwrap();
-        for _ in 777..4096 {
-            restored.tick_t(&mut irq);
-        }
-        assert_eq!(restored.sb, 0xa5);
-        assert_eq!(irq.iflag, Interrupts::SERIAL);
-        assert_eq!(restored.read_buffer_as_string(), "Z");
-        restored.clear_buffer();
-        assert!(restored.buffer.is_empty());
-        for n in 0..w.bytes.len() {
-            assert!(
-                Serial::default()
-                    .read_state(&mut StateReader::new(&w.bytes[..n]))
-                    .is_err()
-            );
-        }
-    }
-}
 use crate::{
     Interrupts,
     state::{StateReader, StateWriter},
@@ -174,5 +106,74 @@ impl Serial {
         }
         self.buffer = r.read_bytes(count as usize)?.to_vec();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Interrupts;
+    #[test]
+    fn serial_capture_and_4096_cycle_irq() {
+        let mut s = Serial::default();
+        let mut irq = Interrupts::default();
+        s.sb = b'H';
+        s.write_sc(0x81);
+        assert_eq!(s.read_buffer_as_string(), "H");
+        for _ in 0..4095 {
+            s.tick_t(&mut irq);
+        }
+        assert!(s.is_transferring());
+        assert_eq!(irq.iflag, 0);
+        s.tick_t(&mut irq);
+        assert!(!s.is_transferring());
+        assert_eq!(s.sb, 255);
+        assert_eq!(s.read_sc() & 128, 0);
+        assert_eq!(irq.iflag, Interrupts::SERIAL);
+    }
+    #[test]
+    fn external_clock_does_not_start_and_peer_exchange_is_restorable() {
+        struct Peer;
+        impl SerialLink for Peer {
+            fn exchange_byte(&mut self, sent: u8) -> u8 {
+                assert_eq!(sent, 0x5a);
+                0xa5
+            }
+        }
+        let mut s = Serial::default();
+        let mut irq = Interrupts::default();
+        s.sb = 0x5a;
+        s.write_sc(0x80);
+        for _ in 0..4096 {
+            s.tick_t(&mut irq);
+        }
+        assert!(!s.is_transferring());
+        assert_eq!(irq.iflag, 0);
+        s.link = Some(Box::new(Peer));
+        s.write_sc(0x81);
+        for _ in 0..777 {
+            s.tick_t(&mut irq);
+        }
+        let mut w = StateWriter::default();
+        s.write_state(&mut w);
+        let mut restored = Serial::default();
+        restored
+            .read_state(&mut StateReader::new(&w.bytes))
+            .unwrap();
+        for _ in 777..4096 {
+            restored.tick_t(&mut irq);
+        }
+        assert_eq!(restored.sb, 0xa5);
+        assert_eq!(irq.iflag, Interrupts::SERIAL);
+        assert_eq!(restored.read_buffer_as_string(), "Z");
+        restored.clear_buffer();
+        assert!(restored.buffer.is_empty());
+        for n in 0..w.bytes.len() {
+            assert!(
+                Serial::default()
+                    .read_state(&mut StateReader::new(&w.bytes[..n]))
+                    .is_err()
+            );
+        }
     }
 }

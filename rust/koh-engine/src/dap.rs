@@ -1,14 +1,11 @@
 use crate::{Message, protocol};
 use std::{
     io::{self, Write},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-        mpsc::SyncSender,
-    },
+    sync::{Arc, atomic::AtomicBool, mpsc::SyncSender},
     thread,
-    time::Duration,
 };
+#[cfg(unix)]
+use std::{sync::atomic::Ordering, time::Duration};
 
 pub struct Listener {
     path: Option<std::path::PathBuf>,
@@ -83,6 +80,7 @@ pub fn listen(
     }
     #[cfg(windows)]
     {
+        let _ = cancel;
         use std::ffi::c_void;
         use std::{
             fs::File,

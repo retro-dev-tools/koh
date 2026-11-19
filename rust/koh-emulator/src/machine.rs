@@ -486,10 +486,11 @@ mod tests {
     type HookEvent = (u16, u8, u16, u8, i32, PpuMode);
     struct Mode3Trace(std::sync::Arc<std::sync::Mutex<Vec<HookEvent>>>);
     type OracleEvents = std::sync::Arc<std::sync::Mutex<Vec<(HookEvent, MemoryContext)>>>;
+    type HblankEvents = std::sync::Arc<std::sync::Mutex<Vec<(u64, u8, i32, u8)>>>;
     struct OracleTrace {
         events: OracleEvents,
         context: MemoryContext,
-        hblanks: std::sync::Arc<std::sync::Mutex<Vec<(u64, u8, i32, u8)>>>,
+        hblanks: HblankEvents,
     }
     impl MemoryHook for OracleTrace {
         fn on_hblank(&mut self, context: MemoryContext, ly: u8, dot: i32) {

@@ -872,7 +872,7 @@ mod tests {
                                 6 => (value / 16 + value % 16 * 16, 0),
                                 _ => (value / 2, value % 2),
                             };
-                            (v, if v == 0 { 0x80 } else { 0 } | c * 16)
+                            (v, if v == 0 { 0x80 } else { 0 } | (c * 16))
                         }
                         1 => (
                             value,

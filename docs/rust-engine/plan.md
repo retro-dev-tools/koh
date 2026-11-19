@@ -1,143 +1,170 @@
 # Rust Engine Implementation Plan
 
-> **For agentic workers:** Use superpowers:executing-plans for inline integration;
-> independent CPU, PPU and APU tasks use superpowers:dispatching-parallel-agents.
+**Goal:** Replace the emulator, debugger and windowless production host with Rust.
+**Architecture:** Three native crates preserve the accepted GPUI/session boundary.
+**Spec:** [design.md](design.md).
 
-**Goal:** Replace the emulator, debugger and windowless engine host with Rust.
-**Architecture:** Three native crates preserve the current UI/session boundary.
-**Tech Stack:** Rust 2024, existing Cargo dependencies, existing OpenAL backend.
-**Spec:** `docs/rust-engine/design.md`.
+## Scope and evidence
 
-## Global constraints
+All product verification tooling is excluded: existing Koh.Verify, sample
+verifiers and rust-asm-verify remain unchanged. C# emulator/boot and their tests
+remain development dependencies for verification, superoptimizer and benchmarks.
+LSP, C# game authoring and MSBuild compiler algorithms are outside this migration.
+No managed production fallback, merge or release is authorized.
 
-Preserve the ten compatibility gates in the spec, raw session states and the
-separate STES/version-2 SaveStateFile utility format.
-Keep C# game authoring/LSP supported. No managed engine fallback at cutover.
-Serial builds per target; independent agent target directories only. No merge
-or release. Real completed logs, test dispositions and independently captured
-C# oracle results are required evidence.
-
-## Review focus
-
-- Malformed/truncated state and command input must not corrupt a loaded game.
-- Peripheral timing must occur before bus accesses, including double speed.
-- LCD-disabled/window/sprite timing must survive restore at non-frame boundaries.
-- Missing device/audio endpoint must preserve headless and DAP operation.
-- Disconnect, EOF and failed load must not lose SRAM or leave child processes.
+Checked items record specific implementation or observed local evidence, not
+blanket hardware accuracy or platform acceptance. The existing Cargo component,
+debugger and engine process suites are the migration checks; no additional
+product verification tool is planned. Reads of completed logs
+and committed artifacts below were refreshed on 2026-11-19.
 
 ## Task 1: Baseline and state foundation
 
-Files: this design/plan; `scripts/verify-rust-engine.py`;
-`rust/koh-emulator/{Cargo.toml,src/lib.rs,src/state.rs}`; root `Cargo.toml`.
+Files: `docs/rust-engine/{baseline.json,test-disposition.csv}`,
+`rust/koh-emulator/{Cargo.toml,src/lib.rs,src/state.rs}`, root Cargo workspace.
 
-- [ ] Inventory all managed source tests/cases and downstream engine consumers.
-- [ ] Capture immutable C# oracle executable/hash and generated-ROM deterministic
-  session/frame/state fixtures in private temporary output.
-- [ ] Add failing primitive-state roundtrip/truncation tests, observe RED.
-- [ ] Implement bounded LE state primitives and common mode/interrupt types.
-- [ ] Run `cargo test -p koh-emulator --lib --locked`; read the completed log.
-  Command syntax is standard Cargo; package is created by this task.
-- [ ] Commit the verified foundation and update HANDOFF.
+- [x] Inventory all 224 managed source methods and preserve inline arguments.
+- [x] Capture the immutable C# engine and record its hash and fixture provenance.
+- [x] Implement bounded LE primitives and mode/interrupt types.
+- [x] Observe primitive-state RED and GREEN; commit the foundation.
+
+Evidence: `2b9c248`, `14e0148`;
+`/tmp/koh-engine-state-{red,green}.log` (initial 0 passed/2 failed,
+then 5 passed/0 failed). The reference executable hash was re-read and matches
+`baseline.json`: `3b5069460020f225b107bec72b9da7f8cb7368c4afdc4ffc0d0d24c1c8b74e35`.
 
 ## Task 2: CPU and instruction bus
 
-Files: `rust/koh-emulator/src/cpu.rs`, component tests in that module.
-Consumes: state/mode/interrupt types. Produces `Cpu`, `Registers`, `CpuBus`
-exactly as specified in the design.
+Files: `rust/koh-emulator/src/cpu.rs` and its tests/fixtures.
 
-- [ ] Add instruction/flag/cycle/EI/HALT/STOP/wrap tests from managed cases; RED.
-- [ ] Port all implemented unprefixed and CB instructions and state order.
-- [ ] Run CPU component tests using a separate agent target; read results.
-- [ ] Differentially check generated instruction traces against C#.
-- [ ] Commit, then update dispositions/HANDOFF.
+- [x] Port instructions, flags, EI/HALT/STOP, interrupt dispatch, wrapping and state.
+- [x] Check independent C# CPU state and timed bus traces.
+- [x] Commit the implementation; preserve source-test dispositions.
+
+Evidence: `ae1b49a`; `/tmp/koh-engine-cpu-oracle.log` reports 16 passed,
+0 failed; current full core run also executes the CPU fixtures.
+Original managed core tests remain retained-dev, rather than declared obsolete.
 
 ## Task 3: Bus, cartridge and peripherals
 
 Files: `rust/koh-emulator/src/{cartridge,bus,timer,dma,serial,machine}.rs`.
-Consumes CPU bus, PPU/APU component interfaces. Produces `Machine` instruction,
-frame, memory, input, cartridge and coherent inspection operations.
 
-- [ ] Port mapper/MMU/timer/serial/DMA regressions as failing Rust cases.
-- [ ] Port exact banking, mirrors, interrupt and double-speed tick ordering.
-- [ ] Connect the components; exercise reads/writes and transfer edge cases.
-- [ ] Run core tests and C# trace comparisons; read logs.
-- [ ] Commit each independently working component, update dispositions/HANDOFF.
+- [x] Port banking, mirrors, RTC, timer reload/edge timing, serial and DMA.
+- [x] Connect instruction/frame execution and double-speed peripheral ticking.
+- [x] Check integrated core and independent machine state/bus/PCM fixtures.
+- [x] Commit the working components.
+
+Evidence: `53f965d`, `85cd0c6`, `3d4a56a`;
+`/tmp/koh-engine-core-final-current.log`: 91 passed, 0 failed, 0 ignored.
 
 ## Task 4: PPU
 
-Files: `rust/koh-emulator/src/ppu.rs` and component-owned helpers/tests.
-Consumes common state types and borrowed VRAM/OAM. Produces design's PPU API.
+Files: `rust/koh-emulator/src/ppu.rs` and its fixtures.
 
-- [ ] Port mode/fetcher/STAT/sprite/window/CGB tests; observe RED.
-- [ ] Port FIFO/pixel pipeline, palette operations and state order.
-- [ ] Verify exact frame pixels and dot/mode transitions against C# fixtures.
-- [ ] Run isolated PPU tests; read log, commit and update HANDOFF.
+- [x] Port FIFO/fetcher, STAT, sprites, window, palettes and CGB state.
+- [x] Check exact managed pixels, mode/dot timing and state continuation.
+- [x] Run isolated tests and commit the component.
+
+Evidence: `85cd0c6`; `/tmp/koh-engine-ppu-tests.log`: 13 passed, 0 failed.
+The initial `ppu-red.log` is a missing-type compile failure, not runtime parity
+evidence. Current 91-case core run includes PPU oracle tests.
 
 ## Task 5: APU
 
-Files: `rust/koh-emulator/src/apu.rs` and component-owned helpers/tests.
-Consumes common state types; produces design's APU API and bounded PCM queue.
+Files: `rust/koh-emulator/src/apu.rs` and its fixtures.
 
-- [ ] Port channel/power/length/sweep/wave/DIV timing cases; observe RED.
-- [ ] Port integer mixer/sampling and exact component state order.
-- [ ] Compare deterministic PCM/state fixtures against C#.
-- [ ] Run isolated APU tests; read log, commit and update HANDOFF.
+- [x] Port channels, power, lengths, sweep, wave restrictions and integer sampling.
+- [x] Check deterministic managed PCM/state and bounded drop-oldest sample queue.
+- [x] Run isolated tests and commit the component.
+
+Evidence: `85cd0c6`; `/tmp/koh-engine-apu-final.log`: 25 passed, 0 failed.
+The initial `apu-red.log` is a missing-type compile failure. PCM equality is
+not evidence of audible playback through speakers.
 
 ## Task 6: Full machine, boot and persistence
 
-Files: machine/state modules and tests; native boot build integration.
+Files: `rust/koh-emulator/{build.rs,src/boot.rs,src/machine.rs,src/state_file.rs}`;
+`rust/koh-engine/src/persistence.rs` and persistence/process tests.
 
-- [ ] Add bidirectional C#/Rust state and boot-family regressions; RED.
-- [ ] Assemble the existing DMG/CGB boot sources and execute them normally.
-- [ ] Preserve state header/hash/layout, SRAM and corrupt-restore rollback.
-- [ ] Run core suite plus deterministic real sample frame/PCM/state comparisons.
-- [ ] Commit and update dispositions/HANDOFF.
+- [x] Assemble existing DMG/CGB boot sources and execute their instructions.
+- [x] Preserve separate raw-session and STES/version-2 utility state formats.
+- [x] Check bidirectional foreign raw-state restore/continuation and boot identity.
+- [x] Check corrupt restore rollback and failed state/SRAM write preservation.
+- [x] Commit machine/state implementation; record local sample comparison.
+
+Evidence: `3d4a56a`; current core 91/91 and host matrix tests below.
+`/tmp/koh-engine-state-file-red.log` records 1 passed/1 failed before the fix;
+`state-file-green.log` records 91 passed/0 failed.
+`/tmp/koh-engine-realgame-480/result.json` records C# and Rust exits 0 and
+identical 480-frame RGBA hash
+`7a1a3b642496972ffbc31cca514b2739a0cc724d424ad8a318ee1c00689123b0`.
+This is a recorded build comparison, not acceptance of the latest package.
 
 ## Task 7: Windowless engine
 
-Files: `rust/koh-engine/{Cargo.toml,src/main.rs,src/session.rs,src/audio.rs}`
-and native process tests; `docs/engine-session.md`.
+Files: `rust/koh-engine/src/{main,options,protocol,snapshot,persistence,audio,headless,dap,platform}.rs`,
+`src/tests.rs`, `tests/{session,persistence}.rs` and
+`tests/support/dap_transport.rs`; `docs/engine-session.md`.
 
-- [ ] Add failing process tests for current session/headless CLI and validation.
-- [ ] Implement CLI, bounded JSON, shared boundary execution, snapshots,
-  persistence, OpenAL pacing/warmup and cooperative shutdown.
-- [ ] Verify malformed input, missing audio device, pause/reset/state/input and
-  stdin/EOF/SRAM against C# and actual Rust processes.
-- [ ] Run process tests; read completed logs, commit and update HANDOFF.
+- [x] Implement CLI/session framing, bounded JSON, snapshots and shared execution.
+- [x] Implement persistence, audio warmup/pacing and cooperative shutdown.
+- [x] Exercise process validation, no-audio fallback, state/input and SRAM endings.
+- [x] Preserve exact paused command/save/restore assertions.
+- [x] Commit the host and paused-command increments.
+- [ ] Close the remaining exact windowless source-test assertion gaps.
+
+Evidence: `7e451fb`, `a63f41e`;
+`/tmp/koh-engine-paused-acceptance.log`: 2 passed, 0 failed.
+`/tmp/koh-engine-host-matrix.log` has completed summaries of 8 binary,
+1 persistence and 16 process tests, all passed and zero ignored. This includes
+explicit C# reference/audio opt-ins, the six DAP argument combinations and
+CGB/quit SRAM. It was run on Linux; Windows/macOS execution remains unproved.
 
 ## Task 8: Debugger and DAP
 
-Files: `rust/koh-debugger/{Cargo.toml,src/lib.rs,src/dap.rs}` and tests;
-engine DAP transport/hosting.
+Files: `rust/koh-debugger/src/{lib,metadata,expression,inspect,disassemble,tests}.rs`,
+oracle fixtures; engine DAP transport/hosting.
 
-- [ ] Port every debugger case or evidence obsolete deletion; observe RED.
-- [ ] Reuse native DWARF reader, implement expressions, breakpoints/watchpoints,
-  stepping, stack recovery, memory, capabilities and DAP transport limits.
-- [ ] Verify real SDK DWARF source debugging and disconnect/EOF behavior using
-  actual GPUI + VS Code, and test invalid requests and missing audio endpoints.
-- [ ] Run debugger/process suites; read logs, commit and update HANDOFF.
+- [x] Port DWARF/source maps, expressions, breakpoints/watchpoints, memory,
+  stepping, stack recovery, capabilities and request validation.
+- [x] Reconcile 37 debugger methods to exact Rust assertions; obsolete only
+  the private arithmetic scaffold.
+- [x] Exercise generated DWARF source debugging and DAP process lifecycle.
+- [x] Commit debugger implementation and record reviewed assertion coverage.
+- [ ] Exercise actual GPUI plus the real VS Code extension against this engine.
 
-## Task 9: Integration and managed engine removal
+Evidence: `ddbd1df`; `/tmp/koh-engine-debugger-review-green.log`:
+27 passed, 0 failed; host matrix covers original six lifecycle parameter cases.
+The review RED log failed because a new assertion was initially placed in the
+wrong test; it is not a discovered production defect. See the CSV for host-owned
+mappings, including the completed original three-case windowless matrix.
+
+## Task 9: Production integration and managed host retirement
 
 Files: UI engine path, build/publish scripts, CI/install/release integration,
-solutions and dependencies; native compiler execution fixtures.
+SDK launch targets and native compiler execution hosts.
 
-- [ ] Switch production engine consumers; leave verification tooling unchanged.
-- [ ] Retain C# emulator/boot dependencies for existing development tools.
-- [ ] Remove old C# debugger/host projects and obsolete dependencies only
-  after native replacement cases and caller tests pass.
-- [ ] Close every source-test disposition; verify no production managed engine
-  invocation or stale packaged engine survives.
-- [ ] Verify source-to-ROM builds, native package and UI/DAP tests serially;
-  read logs, commit and update roadmap/HANDOFF.
+- [x] Commit native compiler execution hosts and fixture caller migration.
+- [x] Retain C# emulator/boot for excluded development tools.
+- [ ] Finish and validate production consumer/build/publish/SDK cutover.
+- [ ] Remove old C# debugger/host projects only after replacement callers pass.
+- [ ] Close every in-scope source-test disposition and inspect package contents.
+- [ ] Validate final source-to-ROM, package and UI/DAP behavior serially.
+
+Evidence: `d8b0317` supplies native fixture hosts. Production integration is
+under active validation. The full compiler regression log has not reached a
+terminal summary and is not counted as a pass. Existing managed verifier,
+superoptimizer and benchmark callers must remain unchanged.
 
 ## Task 10: Full acceptance and review
 
-- [ ] Run full Rust/remaining-managed suites, format and focused Clippy.
-- [ ] Exercise Linux/Windows/macOS packages, real game input/pixels/audio,
-  state compatibility, source debugging, EOF shutdown and notices.
-- [ ] Review implementation against every spec gate; fix important findings
-  with reproducing RED/GREEN tests and a final suite run.
-- [ ] Open/update a separate draft PR stacked on PR56 while it remains open;
-  record exact validated commits, evidence, limitations and independent review.
-- [ ] Keep draft; no merge/release. Claim completion only after all gates pass.
+- [ ] Finish full Rust/remaining-managed suites and final format/Clippy checks.
+- [ ] Exercise native packages on Linux, Windows and macOS.
+- [ ] Verify real game input/pixels/audio, source debugging and shutdown in GPUI.
+- [ ] Complete notices, package-content and all ten compatibility-gate review.
+- [ ] Update the separate draft PR with exact commits, evidence and limitations.
+- [ ] Keep draft; no merge/release; claim completion only after acceptance.
+
+Component/process Linux evidence above does not close these remaining product
+and platform gates. Earlier accepted C#-engine GPUI results are not proof for
+the new Rust engine.
