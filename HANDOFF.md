@@ -1,4 +1,28 @@
-# Current work: DWARF then GPUI
+# Current work: Rust execution engine
+
+2026-11-19 user authorized emulator -> debugger -> engine host migration after
+accepted GPUI work. Worktree /home/minorum/projekty/koh-rust-engine, branch
+feat/rust-engine, base e1336b0; PR56 remains open/draft and untouched. Design and
+plan: docs/rust-engine/{design,plan}.md. No product Rust engine code yet.
+Main checkout battle.png edit is unrelated; preserve it. No work on the LSP.
+
+Parallel ownership after foundation/review:
+- root: common state/types, bus/cartridge/peripherals, machine integration,
+  engine/debugger transport, migration/test disposition and final cutover.
+- CPU worker: rust/koh-emulator/src/cpu.rs and owned tests only.
+- PPU worker: rust/koh-emulator/src/ppu.rs and owned helper/test subdirectory.
+- APU worker: rust/koh-emulator/src/apu.rs and owned helper/test subdirectory.
+No agent edits root Cargo files/shared state/lib or another component. No shared
+build target: use /tmp/koh-engine-{cpu,ppu,apu}-target for isolated checks, or
+coordinate serial checks. No simultaneous root builds. Commit owned files only.
+
+Verification: component RED/GREEN cases, existing C# oracle, exact legacy state
+order, same-ROM DMG/CGB frames/PCM, process/session/DAP and real UI/VSCode,
+complete test disposition, native packages and platform CI. Full scope and API
+contracts in design. Build commands in plan are unverified until crates exist.
+Do not claim a component/boot-only port as the whole migration.
+
+# Previous work: DWARF then GPUI
 
 2026-11-18: fetched and fast-forwarded master to `9ebb6e5` (compiler PR55 merged).
 Active branch `feat/gpui-ui`. User requires complete KohUI removal and selected
