@@ -199,7 +199,9 @@ impl Server {
                 let mut locations = Vec::new();
                 for item in symbols::occurrences(&self.workspace, &target, include) {
                     let path = Path::new(&item.path);
-                    locations.push(json!({"uri":self.uri(path)?,"range":self.range(path,span(&item.token))?}));
+                    locations.push(
+                        json!({"uri":self.uri(path)?,"range":self.range(path,span(&item.token))?}),
+                    );
                 }
                 Ok(json!(locations))
             }
@@ -272,9 +274,10 @@ impl Server {
 
     fn resolve(&self, params: &Value, path: &Path) -> io::Result<Option<symbols::Resolved>> {
         let position = cursor(params)?;
-        Ok(self.workspace.document(path).and_then(|doc| {
-            symbols::resolve_at(&self.workspace, path, doc.lines.offset(position))
-        }))
+        Ok(self
+            .workspace
+            .document(path)
+            .and_then(|doc| symbols::resolve_at(&self.workspace, path, doc.lines.offset(position))))
     }
 
     fn hover(&mut self, params: &Value) -> io::Result<Value> {

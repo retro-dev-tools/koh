@@ -42,6 +42,10 @@ Isolation fix pushed39a4ede; run44562541767 fully passes all three platforms.
 Final artifact byte audit caught Windows CRLF conversion of the two new YAML
 notices. Added -text attributes and packaged hash gate; checkout filter test
 passes. Push notice fix and audit the resulting artifacts before closing goal.
+Remote fb4c22f advanced the same branch; preserved via merge9381bd7. Combined
+code passes native61/61, Rust1.8861/61, affected250/250 and strict Clippy.
+Inventory reconciled after unused graph API removal:198 replacements,9 obsolete.
+Retain Linux in independent gate; remote cache optimization is preserved.
 Full CI44552197980 Linux ran2463 tests:2462 passed,1 SDK graphics test timed
 out after360 seconds,5 skipped. All60 LSP cases passed. The SDK test and run
 target are unchanged by this migration; its timeout needs separate investigation.

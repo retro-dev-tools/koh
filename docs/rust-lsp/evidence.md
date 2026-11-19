@@ -308,3 +308,15 @@ use -text in .gitattributes, matching the existing exact UI notice policy.
 Git's core.autocrlf=true checkout filter now preserves both exact archive hashes
 (/tmp/koh-lsp-notice-checkout-green.log, exit0). Native LSP CI verifies the
 packaged notice hashes before editor tests. Final artifact rerun pending.
+
+While pushing that fix, the feature branch advanced to fb4c22f. Its native LSP
+cleanup is preserved through merge9381bd7: cached UTF-16 lines, shared immutable
+project analyses and indexed include-document lookup. The combined branch was
+reviewed and independently rechecked: native61/61, Rust1.8861/61, strict Clippy
+and affected nextest250/250, zero skipped, all exit0 in
+/tmp/koh-lsp-combined-{native,rust188,clippy,affected}.log.
+The cleanup removed unused private graph APIs and renamed two tests; dispositions
+now explicitly account for198 replacements and9 obsolete private API cases.
+No advertised LSP method was removed. Linux remains in the independent gate
+because full CI can stop at unrelated SDK/audio failures before package tests.
+The remote cache optimization and removal of the redundant release build remain.

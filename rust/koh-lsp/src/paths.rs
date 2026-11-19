@@ -81,7 +81,6 @@ pub(crate) fn lines(text: &str) -> Vec<(usize, usize)> {
     lines
 }
 
-/// UTF-16 line table: build once per text, then convert in O(log n).
 pub struct Lines(Vec<(usize, usize)>);
 
 impl Lines {

@@ -54,26 +54,26 @@ Pending means no native replacement has been implemented or verified.
 | Discovery/IncludeDiscoveryServiceTests.cs | IncludeKeywordInsideIdentifier_IsNotExtracted | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
 | Discovery/IncludeDiscoveryServiceTests.cs | LeadingWhitespace_IsHandled | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
 | Discovery/IncludeDiscoveryServiceTests.cs | EmptyQuotedPath_IsIgnored | tests/includes.rs::worker_include_discovery_preserves_managed_syntax_cases |
-| Discovery/WorkspaceGraphTests.cs | UpsertFile_AddsForwardEdges | tests/graph.rs::edges_replace_remove_and_track_scanned_leaves_case_insensitively |
-| Discovery/WorkspaceGraphTests.cs | UpsertFile_AddsReverseEdges | tests/graph.rs::edges_replace_remove_and_track_scanned_leaves_case_insensitively |
-| Discovery/WorkspaceGraphTests.cs | UpsertFile_ReplacesOldEdges | tests/graph.rs::edges_replace_remove_and_track_scanned_leaves_case_insensitively |
-| Discovery/WorkspaceGraphTests.cs | UpsertFile_RemovesStaleReverseEdges | tests/graph.rs::edges_replace_remove_and_track_scanned_leaves_case_insensitively |
-| Discovery/WorkspaceGraphTests.cs | RemoveFile_RemovesForwardAndReverseEdges | tests/graph.rs::edges_replace_remove_and_track_scanned_leaves_case_insensitively |
-| Discovery/WorkspaceGraphTests.cs | RemoveFile_RemovesIncomingEdgesFromOtherFiles | tests/graph.rs::edges_replace_remove_and_track_scanned_leaves_case_insensitively |
-| Discovery/WorkspaceGraphTests.cs | RemoveFile_NonExistentFile_DoesNotThrow | tests/graph.rs::edges_replace_remove_and_track_scanned_leaves_case_insensitively |
-| Discovery/WorkspaceGraphTests.cs | GetIncludes_UnknownFile_ReturnsEmpty | tests/graph.rs::edges_replace_remove_and_track_scanned_leaves_case_insensitively |
-| Discovery/WorkspaceGraphTests.cs | GetIncluders_UnknownFile_ReturnsEmpty | tests/graph.rs::edges_replace_remove_and_track_scanned_leaves_case_insensitively |
-| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_SingleFile_ReturnsSelf | tests/graph.rs::reachable_files_and_entrypoints_handle_chains_diamonds_and_cycles |
-| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_Chain_ReturnsAll | tests/graph.rs::reachable_files_and_entrypoints_handle_chains_diamonds_and_cycles |
-| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_Cycle_DoesNotInfiniteLoop | tests/graph.rs::reachable_files_and_entrypoints_handle_chains_diamonds_and_cycles |
-| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_Diamond_ReturnsAllOnce | tests/graph.rs::reachable_files_and_entrypoints_handle_chains_diamonds_and_cycles |
-| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_FindsCorrectEntrypoint | tests/graph.rs::reachable_files_and_entrypoints_handle_chains_diamonds_and_cycles |
-| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_FileIsItsOwnEntrypoint | tests/graph.rs::reachable_files_and_entrypoints_handle_chains_diamonds_and_cycles |
-| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_NoMatchingEntrypoint_ReturnsEmpty | tests/graph.rs::reachable_files_and_entrypoints_handle_chains_diamonds_and_cycles |
-| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_Cycle_DoesNotInfiniteLoop | tests/graph.rs::reachable_files_and_entrypoints_handle_chains_diamonds_and_cycles |
-| Discovery/WorkspaceGraphTests.cs | CaseInsensitivePaths | tests/graph.rs::edges_replace_remove_and_track_scanned_leaves_case_insensitively |
-| Discovery/WorkspaceGraphTests.cs | MultipleIncluders_AllTracked | tests/graph.rs::edges_replace_remove_and_track_scanned_leaves_case_insensitively |
-| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_MultipleEntrypointsReachFile | tests/graph.rs::reachable_files_and_entrypoints_handle_chains_diamonds_and_cycles |
+| Discovery/WorkspaceGraphTests.cs | UpsertFile_AddsForwardEdges | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | UpsertFile_AddsReverseEdges | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | UpsertFile_ReplacesOldEdges | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | UpsertFile_RemovesStaleReverseEdges | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | RemoveFile_RemovesForwardAndReverseEdges | Obsolete private Graph.RemoveFile API; graph rebuilds and close behavior covered by tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| Discovery/WorkspaceGraphTests.cs | RemoveFile_RemovesIncomingEdgesFromOtherFiles | Obsolete private Graph.RemoveFile API; graph rebuilds and close behavior covered by tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| Discovery/WorkspaceGraphTests.cs | RemoveFile_NonExistentFile_DoesNotThrow | Obsolete private Graph.RemoveFile API; graph rebuilds and close behavior covered by tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+| Discovery/WorkspaceGraphTests.cs | GetIncludes_UnknownFile_ReturnsEmpty | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | GetIncluders_UnknownFile_ReturnsEmpty | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_SingleFile_ReturnsSelf | tests/graph.rs::reachable_files_handle_chains_diamonds_and_cycles |
+| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_Chain_ReturnsAll | tests/graph.rs::reachable_files_handle_chains_diamonds_and_cycles |
+| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_Cycle_DoesNotInfiniteLoop | tests/graph.rs::reachable_files_handle_chains_diamonds_and_cycles |
+| Discovery/WorkspaceGraphTests.cs | GetReachableFiles_Diamond_ReturnsAllOnce | tests/graph.rs::reachable_files_handle_chains_diamonds_and_cycles |
+| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_FindsCorrectEntrypoint | Obsolete private endpoint-query API; ownership covered by tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_FileIsItsOwnEntrypoint | Obsolete private endpoint-query API; ownership covered by tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_NoMatchingEntrypoint_ReturnsEmpty | Obsolete private endpoint-query API; ownership covered by tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_Cycle_DoesNotInfiniteLoop | Obsolete private endpoint-query API; ownership covered by tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
+| Discovery/WorkspaceGraphTests.cs | CaseInsensitivePaths | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | MultipleIncluders_AllTracked | tests/graph.rs::edges_replace_case_insensitively |
+| Discovery/WorkspaceGraphTests.cs | GetReachableEntrypoints_MultipleEntrypointsReachFile | Obsolete private endpoint-query API; ownership covered by tests/graph.rs::discovery_scores_candidates_and_uses_distance_then_alphabetical_ownership |
 | InlayHintTests.cs | ConstantReference_GetsHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
 | InlayHintTests.cs | ConstantDeclaration_GetsNoHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
 | InlayHintTests.cs | LabelDeclaration_GetsNoHint | tests/server.rs::inlay_hints_preserve_values_ranges_and_declaration_exclusions |
@@ -214,3 +214,8 @@ Pending means no native replacement has been implemented or verified.
 | WorkspaceTests.cs | CaseInsensitiveUri | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
 | WorkspaceTests.cs | GetModel_ReturnsEmitModel | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
 | WorkspaceTests.cs | Diagnostics_ParseErrors_Reported | tests/workspace.rs::standalone_open_change_close_and_case_insensitive_lookup |
+
+After fb4c22f, the unused graph removal and endpoint-query APIs are absent.
+Their eight private API cases are obsolete; ownership, include changes and
+close behavior remain covered through workspace and discovery tests.
+Final inventory:198 native replacements,9 justified obsolete, zero pending.

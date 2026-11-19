@@ -50,7 +50,7 @@ impl Worker {
                             "assembler closed its response stream",
                         ));
                     }
-                    if size as u64 > MAX_MESSAGE ||line.last() != Some(&b'\n') {
+                    if size as u64 > MAX_MESSAGE || line.last() != Some(&b'\n') {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             "invalid assembler response framing",
