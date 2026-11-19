@@ -34,7 +34,7 @@ assert target in manifest["targets"], "notice catalog does not cover target: " +
 metadata = json.loads(subprocess.check_output([
     "cargo", "metadata", "--manifest-path", str(root / "rust/koh-ui/Cargo.toml"),
     "--locked", "--format-version", "1", "--filter-platform", target,
-], cwd=root, text=True))
+], cwd=root, text=True, encoding="utf-8"))
 definitions = {p["id"]: p for p in metadata["packages"]}
 nodes = {n["id"]: n for n in metadata["resolve"]["nodes"]}
 pending = [p["id"] for p in definitions.values() if p["name"] == "koh-ui"]

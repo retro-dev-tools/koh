@@ -9,7 +9,14 @@ progress, preview commands and full parity/removal acceptance are in
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
 Current progress9/10: KohUI removal and desktop package integration verified.
-Next unit: execute/review new native Windows/macOS checks; physical audio/DPI
+Next unit: review Linux/macOS native-window jobs on full44439169260 c9f6817,
+then revalidate Windows after the notice-checker UTF-8 metadata correction.
+Windows publish job135277144282 failed with Python cp1252 UnicodeDecodeError
+on cargo metadata (before UI compilation). Explicit UTF-8 decoding fixes it;
+forced ASCII locale red/green logs /tmp/koh-ui-notice-locale-{red,green}.log.
+No package metadata or production binary changes. Keep current Linux/macOS
+publish jobs alive for evidence; don't cancel on observation timeout.
+Physical audio/DPI
 question is pending through request_user_input_async (no reply yet).
 New PR check c245557 failed loading OpenAL before audio regression on Ubuntu.
 Reproduced in owned existing container with copied .NET runtime/test assembly.

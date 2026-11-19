@@ -463,3 +463,13 @@ After the test-host loader correction, the managed fast suite passed again:
 554/554, zero skipped, exit 0, 59.580 seconds;
 `/tmp/koh-ui-audio-loader-fast-tests.log`. The production audio fix and its
 NativeAOT/PCM evidence are unchanged.
+
+Windows publishing then exposed a separate encoding boundary in the notice
+checker: Cargo emits UTF-8 metadata, while Python 3.12 on the runner decoded
+subprocess text with its Windows code page. The checker now explicitly decodes
+Cargo metadata as UTF-8. A forced ASCII-locale run reproduced the decoding
+failure and passed after the correction: 458 Windows-active packages, all 660
+catalog entries and 383 exact notice texts verified, exit 0. Logs:
+`/tmp/koh-ui-notice-locale-red.log`, `/tmp/koh-ui-notice-locale-green.log`.
+No catalog content, dependency, or production binary changed. Linux/macOS
+publish jobs on c9f6817 were left running for their native-window evidence.
