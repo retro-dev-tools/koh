@@ -203,6 +203,7 @@ public sealed unsafe class AudioSink : IDisposable
                 if (buf != 0)
                     _freeBuffers.Enqueue(buf);
             }
+            _al.SourceRewind(_source);
             _stagingFill = 0;
             _warmedUp = false;
         }

@@ -396,3 +396,38 @@ locator also recognizes the exact prior hosted Linux artifact. Windows/macOS
 API execution remains pending on hosted runners; adding the harness is not
 a claim that either platform has passed native-window acceptance. The same
 protected publish jobs run it and retain screenshots/logs by RID.
+
+### Recorded audio and Reset correction
+
+Actual OpenAL Soft wave output through the packaged GPUI desktop passed:
+9.92 seconds of 44.1 kHz mono 16-bit PCM, peak 12001, paused-tail RMS 0.5007.
+The native X11 run exercised Start, P, F5, resume and keyboard R, checked audio
+after Reset, then paused and closed cleanly. Log:
+`/tmp/koh-gpui-reset-gui-audio-native.log`; owned recording pointer:
+`/tmp/koh-gpui-reset-gui-audio-root.txt`. No host audio settings were changed.
+This verifies generated/mixed PCM, not physical speakers or headphones.
+
+Qualification exposed an existing Reset bug: a stopped OpenAL source discarded
+new frame-sized buffers before the warmup threshold, causing silence and fast
+emulation. Rewinding the cleared source restores its initial state. The focused
+regression failed with zero buffered samples before the correction and passed
+afterward across three playback sessions. Its child process selects the null
+driver before native-library initialization, isolating test configuration.
+Logs: `/tmp/koh-ui-audio-reset-isolated-red.log`,
+`/tmp/koh-ui-audio-reset-green.log`.
+
+A fresh NativeAOT real assembly-2048 run then recorded input sound, pause silence,
+resumed sound and sound after Reset. Reset pacing returned to 190 frames in
+about three seconds; reset PCM peak 12001, paused RMS 0.5008. Held fast-forward
+advanced 50 frames in 0.25 seconds; exit 0. Log:
+`/tmp/koh-gpui-audio-reset-wave-green.log`; recording/evidence directory:
+`/tmp/koh-gpui-audio-jxo_ll7u`.
+
+Post-correction Release solution build: zero warnings/errors, exit 0; managed
+fast suite **554/554**, zero skipped, exit 0; debugger suite against the fresh
+NativeAOT engine **50/50**, zero skipped, exit 0. Logs:
+`/tmp/koh-ui-audio-reset-build.log`, `/tmp/koh-ui-audio-reset-fast-tests.log`,
+`/tmp/koh-ui-audio-reset-native-debugger.log`. Root composite publish passed:
+`/tmp/koh-ui-audio-reset-publish.log`. These are local Linux results; hosted
+Windows/macOS window checks remain pending. Physical listening and monitor
+scale-transition evidence have been requested from the user.

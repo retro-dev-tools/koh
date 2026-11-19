@@ -9,7 +9,18 @@ progress, preview commands and full parity/removal acceptance are in
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
 Current progress9/10: KohUI removal and desktop package integration verified.
-Next unit: execute/review new native Windows/macOS checks plus audible output.
+Next unit: execute/review new native Windows/macOS checks; physical audio/DPI
+question is pending through request_user_input_async (no reply yet).
+Audio Reset issue discovered and fixed: add SourceRewind after clearing stopped
+source, so frame-sized buffers accumulate for warmup again. Isolated real
+OpenAL null-driver regression fails before, passes after (3 playback sessions).
+Managed fast554/554 and fresh-engine debugger50/50 pass, zero skips. Release
+CI build zero warnings/errors; new root publish exit0. Logs /tmp/koh-ui-audio-reset-*.
+Actual GUI wave capture after keyboard R passes (9.92sec, peak12001, pausedRMS0.5007):
+/tmp/koh-gpui-reset-gui-audio-native.log; pointer /tmp/koh-gpui-reset-gui-audio-root.txt.
+Real assembly2048 NativeAOT PCM: input/resume/reset audible-signal, normal reset
+pacing190frames/3sec, fast-forward50frames/.25sec; /tmp/koh-gpui-audio-reset-wave-green.log.
+This proves PCM, not actual speakers/headphones. No host audio settings changed.
 Added scripts/verify-gpui-platform.py and locator tests; CI publish jobs now
 run actual screen oracle/input/save/close on Windows/macOS. Pillow13.0.0 is
 CI-only. Three local locator tests pass, actual APIs not yet executed on those
