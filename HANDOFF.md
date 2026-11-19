@@ -9,7 +9,13 @@ progress, preview commands and full parity/removal acceptance are in
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
 Current progress9/10: KohUI removal and desktop package integration verified.
-Next unit: finish full44447145986 at implementation58f3746. Mac publish job
+Next unit: obtain physical listening + physical monitor-transition results;
+existing async user question remains pending. Full44447145986 at implementation
+58f3746 COMPLETED SUCCESS, all13jobs. Linux2259/2259 in1772.477s,
+mac2259/2259 in1872.522s, Win2257/2257 in2093.503s. Each1opt-in UI engine test
+skip, separately passed locally; docs + selectedSDK artifact smoke pass.
+Logs /tmp/koh-ui-startup-{linux,macos,windows}-full-ci.log. No CI jobs live.
+Mac publish job
 135303782548 PASSES AXFrontmost/global HID/exact2xLCD/paused-state/save/close;
 title+paused captures reviewed, whole native frame visible. Log
 /tmp/koh-ui-startup-macos-native-ci.log; captures
@@ -19,7 +25,7 @@ workarea/input/paused saves/native close PASS; title capture reviewed, frame
 fully visible at1024x768. Linux capture reviewed too, exactLCD/input/state/empty
 shortcuts/child close PASS. Logs /tmp/koh-ui-startup-{windows,linux}-native-ci.log;
 captures /tmp/koh-gpui-startup-{windows,linux}-native-window/.
-Three broader native suites remain live; do not restart on observation timeout.
+All three broader native suites passed. No runtime changes after58f3746.
 Managed554/554 both platforms, zero warnings/errors. QuickPR green.
 Keep goal9/10 until remaining gates are proven. Physical question pending.
 New release Wayland roundtrip PASS, exit0: two owned Weston outputs scale1/2;

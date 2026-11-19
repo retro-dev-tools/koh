@@ -24,7 +24,7 @@ The bar counts completed checkpoints, not estimated effort.
 | 7 | Windowless engine session | Done: copied coherent snapshots, frame-boundary commands while paused, persistence, DAP coordination; nine NativeAOT process tests and real SDK 2048 run |
 | 8 | Complete GPUI Kit interface | Done: four inspectors, native picker, all joypad keys, focus/toolbar behavior, slate light/dark styling and accessible content; Linux native evidence below |
 | 9 | Complete KohUI removal and integration | Done: framework/backends/demo/tests removed; windowless engine, launch/editor/install/package/CI paths switched; checked dependency catalog |
-| 10 | Final native acceptance | Pending: real-game visual/input/audio, headless regressions and platform validation |
+| 10 | Final native acceptance | Automated checks pass; physical listening and monitor transitions pending |
 
 Keep progress reports and this ledger aligned with completed evidence.
 
@@ -575,3 +575,32 @@ and display processes exited normally. Host display settings were untouched.
 Earlier harness attempts left the window straddling outputs or the compositor
 cursor over the LCD; these were corrected before the passing full-image check.
 This proves the nested compositor transition, not physical monitor behavior.
+
+### Full implementation validation
+
+Full run [44447145986](https://github.com/retro-dev-tools/koh/actions/runs/44447145986)
+finished successfully on implementation `58f3746`: all 13 jobs passed.
+Subsequent commits change evidence documentation only.
+
+| Native suite | Passed | Duration | Completed primary log |
+| --- | --- | --- | --- |
+| Linux | 2259/2259 | 1772.477s | `/tmp/koh-ui-startup-linux-full-ci.log` |
+| macOS | 2259/2259 | 1872.522s | `/tmp/koh-ui-startup-macos-full-ci.log` |
+| Windows | 2257/2257 | 2093.503s | `/tmp/koh-ui-startup-windows-full-ci.log` |
+
+Each suite skips the opt-in published-engine Rust client test, which passed
+separately locally. Windows excludes two Unix assembler filesystem cases.
+Documentation tests and each selected SDK artifact smoke passed separately;
+the smoke selection runs one test and excludes 39 unrelated tests. Managed
+jobs passed 554/554 on both Linux and Windows, zero build warnings/errors.
+Both extension jobs, reference checks, sample build, benchmark and all three
+desktop publish/headless/native-window jobs passed. Quick checks are green
+on the later documentation head as well.
+
+Checkpoint 10 still requires a physical result. With a ROM known to produce
+sound, check audible playback through pause/resume, reset, state save/load and
+held Tab/release. Move the window between physical monitors with different
+scaling and back; check readable controls, crisp integer LCD pixels and correct
+pointer targets. Recorded PCM and nested compositor evidence do not establish
+those physical results. The existing user question remains unanswered; no
+host audio service or display setting was changed to force acceptance.
