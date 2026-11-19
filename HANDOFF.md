@@ -1,22 +1,21 @@
 # CI/CD maintenance handoff
 
-Current work: `ci/maintainable-automation`, based on master `0814e2f`.
-Implementation and validation: docs/superpowers/plans/2026-11-19-ci-maintenance.md.
-Contributor/setup/release instructions: docs/ci-validation.md.
-Push, full hosted/package-only validation and a draft PR are authorized.
-No merge, branch-protection mutation, release tag or publication is authorized.
-The protection payload adds `msrv` alongside `check (ubuntu-latest)`; an admin
-must coordinate replacing seven obsolete contexts with integration.
-Licensing and development-only npm advisories remain release follow-ups.
-Baseline run44567744164 failed the cold SDK launch test on all three platforms;
-macOS also loaded system OpenAL for an OpenAL Soft-specific check. Existing
-desktop publication now precedes tests and the packaged audio search path is
-configured. Local SDK retest passes23.16s after desktop publication; full local
-editor tests48/48 and an extracted Linux archive source-to-ROM smoke pass.
-Local NuGet scratch locks stalled tools/builds; a fresh NUGET_SCRATCH directory
-allowed tool restore and audited build to finish. Do not disable auditing.
-Earlier migration handoffs below are historical; their hosted runs and dirty
-state must be checked live before reuse.
+Current work: simplify PR #60 on `ci/maintainable-automation`, master `0814e2f`.
+Pushed increment: `d0c0d69`; one justfile, three workflows, four scripts removed.
+Plan/evidence: docs/superpowers/plans/2026-11-19-ci-maintenance.md.
+Developer interface: docs/ci-validation.md. Full acceptance is still running.
+Root agent owns implementation, local tests, hosted runs and PR updates.
+Reviewer owns read-only automation review; no edits or builds in this checkout.
+Verify using `just ci`, `just msrv`, `just package tools-v0.1.6-rc.1`,
+`just extension ext-v0.1.5`; inspect actual completed logs and archive contents.
+Local logs: /tmp/koh-simplify-{lint,test,actionlint}.log. Local SDK/tools under
+/tmp/koh-simplify-{dotnet,tools}; set DOTNET_ROOT and a fresh NUGET_SCRATCH.
+Never run concurrent builds in this checkout. Local `just test` is active.
+Hosted CI44581089500, packages44581079348, extension44581083691 (passed;
+downloaded VSIX checksum verified). Final-head validation is still required.
+Push and workflow execution are authorized. No merge, protection changes,
+release tags or public publication. Licensing remains a release blocker.
+Earlier handoffs below are historical and require fresh verification.
 
 # Rust LSP review handoff
 

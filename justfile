@@ -1,5 +1,4 @@
 set windows-shell := ["cmd.exe", "/C"]
-set positional-arguments
 export RUSTUP_TOOLCHAIN := "stable"
 
 default:
@@ -50,6 +49,7 @@ test: build
     for package in json.loads((notices / "manifest.json").read_text())["packages"]:
         assert hashlib.sha256((notices / package["notice_file"]).read_bytes()).hexdigest() == package["notice_sha256"], package["name"]
     out = root / "artifacts/validation"
+    shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True, exist_ok=True)
     suffix = ".exe" if os.name == "nt" else ""
     os.environ["PATH"] = str(bin) + os.pathsep + os.environ["PATH"]
@@ -101,13 +101,15 @@ ci: lint test
 
 # Host toolchain archive and installer; no publication.
 [script("python")]
+[positional-arguments]
 package tag:
     import hashlib, os, pathlib, re, shutil, subprocess, sys
     def run(*args): subprocess.run([str(a) for a in args], check=True)
     tag = sys.argv[1]
     number = r"(?:0|[1-9][0-9]*)"
     identifier = rf"(?:{number}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
-    assert re.fullmatch(rf"tools-v{number}\.{number}\.{number}(?:-{identifier}(?:\.{identifier})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", tag), "expected tools-v<semver>"
+    if not re.fullmatch(rf"tools-v{number}\.{number}\.{number}(?:-{identifier}(?:\.{identifier})*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", tag):
+        sys.exit("expected tools-v<semver>")
     run("just", "build")
     version = tag.removeprefix("tools-v")
     root = pathlib.Path.cwd()
@@ -148,13 +150,14 @@ package tag:
 
 # Platform-neutral VSIX; no publication.
 [script("python")]
+[positional-arguments]
 extension tag:
     import hashlib, json, pathlib, shutil, subprocess, sys
     extension = pathlib.Path("editors/vscode")
     version = json.loads((extension / "package.json").read_text())["version"]
-    assert sys.argv[1] == f"ext-v{version}", "tag must match package.json"
     lock = json.loads((extension / "package-lock.json").read_text())
-    assert lock["version"] == lock["packages"][""]["version"] == version
+    if sys.argv[1] != f"ext-v{version}" or lock["version"] != lock["packages"][""]["version"] or lock["version"] != version:
+        sys.exit("tag must match package.json and package-lock.json")
     out = pathlib.Path("artifacts/extension")
     out.mkdir(parents=True, exist_ok=True)
     for args in (("ci",), ("audit", "--omit=dev", "--audit-level=high"), ("run", "compile"), ("run", "package", "--", "--out", str((out / f"koh-asm-{version}.vsix").resolve()))):
