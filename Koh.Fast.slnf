@@ -10,7 +10,6 @@
       "src\\Common\\Koh.Opcodes\\Koh.Opcodes.csproj",
       "src\\Emulator\\Koh.Boot\\Koh.Boot.csproj",
       "src\\Emulator\\Koh.Emulator\\Koh.Emulator.csproj",
-      "src\\Emulator\\Koh.Verify\\Koh.Verify.csproj",
       "tools\\Koh.Superopt\\Koh.Superopt.csproj",
       "tests\\Tools\\Koh.Superopt.Tests\\Koh.Superopt.Tests.csproj",
       "tests\\Common\\Koh.Objects.Tests\\Koh.Objects.Tests.csproj",

@@ -56,7 +56,8 @@ real boot, memory/framebuffer behavior and compiler-origin source debugging.
 
 ## Other boundaries and gotchas
 
-- Keep the C# emulator, Koh.Verify, debugger/DAP, LSP and UI implementations.
+- PR62 retires nonessential C#; keep only .NET game APIs, SDK integration and
+  required compiler inputs/oracles. See docs/rust-migration-cleanup.md.
 - Sample builds use `dotnet build samples/csharp/gb-2048-cs`; `dotnet run --project`
   launches the ROM through the SDK. Source is compiled once by Roslyn.
 - Real boot needs valid linker-finalized cartridge headers. Skipping boot and

@@ -26,7 +26,7 @@ for managed integration tests and benchmarks.
 | Managed bridge/emulator benchmarks and `Koh.Superopt` | Decommission; retain native compiler measurement workloads |
 | `Koh.Opcodes` | Retire with managed superoptimizer and duplicate disassembler tests |
 | `Koh.Emulator`, `Koh.Boot` | Retire managed libraries after verification callers move; keep boot assembly |
-| `Koh.Verify`, 2048 verifier | Replace the live workflow with the native emulator |
+| `Koh.Verify`, 2048 verifier | Replaced by `koh-test-host Verify2048` and the Pillow presentation driver |
 | `tools/rust-asm-verify` execution helper | Replaced by `koh-test-host AssemblerVerify execute <rom>` |
 | C# oracle capture sources | Retire managed-emulator capture programs; retain independent .NET semantic oracles |
 
@@ -48,3 +48,9 @@ The native assembler verifier passes four focused tests, including bounded
 execution failure and malformed input. Independent RGBDS 1.0.1 verification
 passes seven complete-ROM comparisons and 18 invalid-input pipelines through
 the native helper, with no .NET executable on PATH.
+
+The native 2048 verifier passes the same 11 game-state checks as the managed
+reference. All 63 captured state/animation images match the managed framebuffer
+pixels exactly, including each frame of all four slides. The presentation driver
+has tests for pixel positions, PNG dimensions, GIF timing and malformed images.
+Contact-sheet labels use Pillow's font; framebuffer regions retain exact pixels.

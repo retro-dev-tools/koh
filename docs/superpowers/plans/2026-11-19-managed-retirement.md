@@ -8,7 +8,7 @@ and native workflow gates. Execute inline; no merge or release.
 
 - [x] Replace the assembler execution verifier with the native test host;
   exercise valid ROMs, missing signatures and malformed input through tests and RGBDS.
-- [ ] Port the 2048 verification workflow to the native emulator; preserve state
+- [x] Port the 2048 verification workflow to the native emulator; preserve state
   assertions, screenshots and animation/contact-sheet artifacts.
 - [ ] Decommission managed bridge/emulator benchmarks and the experimental
   superoptimizer, recording their disposition and removing their build/CI entry points.

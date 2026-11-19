@@ -212,7 +212,7 @@ src/
               Koh.Objects (compiler output concepts and debug records)
   Asm/        Koh.Native (native bridge and publish integration)
   Compiler/   Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
-  Emulator/   Koh.Emulator, Koh.Boot, Koh.Verify (retained development tools)
+  Emulator/   Koh.Emulator, Koh.Boot (pending retirement); boot assembly
 tests/        mirrors src/ by area; tests/fixtures holds external test ROMs
 tools/        Koh.Superopt, benchmarks/
 samples/      asm/, csharp/, ui/

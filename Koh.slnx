@@ -19,7 +19,6 @@
   <Folder Name="/Emulator/">
     <Project Path="src/Emulator/Koh.Boot/Koh.Boot.csproj" />
     <Project Path="src/Emulator/Koh.Emulator/Koh.Emulator.csproj" />
-    <Project Path="src/Emulator/Koh.Verify/Koh.Verify.csproj" />
     <Project Path="tests/Emulator/Koh.Boot.Tests/Koh.Boot.Tests.csproj" />
     <Project Path="tests/Emulator/Koh.Emulator.Tests/Koh.Emulator.Tests.csproj" />
   </Folder>
@@ -31,7 +30,6 @@
   <Folder Name="/Samples/">
     <Project Path="samples/csharp/gb-2048-cs/Gb2048CSharp.csproj" />
     <Project Path="samples/csharp/gb-2048-v2/Gb2048V2.csproj" />
-    <Project Path="samples/asm/gb-2048/verify/Gb2048Verify.csproj" />
     <Project Path="samples/csharp/gb-3d/double-buffered/CubeDoubleBuffered.csproj" />
     <Project Path="samples/csharp/gb-3d/full-frame/CubeFullFrame.csproj" />
     <Project Path="samples/csharp/gb-3d/racing-beam/CubeRacingBeam.csproj" />
