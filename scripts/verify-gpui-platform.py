@@ -37,14 +37,15 @@ def windows_controls(pid):
     user.FindWindowW.argtypes = [c.c_wchar_p, c.c_wchar_p]
     user.FindWindowW.restype = c.c_void_p
     user.GetWindowThreadProcessId.argtypes = [c.c_void_p, c.POINTER(c.c_ulong)]
-    user.SetForegroundWindow.argtypes = [c.c_void_p]
+    user.GetForegroundWindow.argtypes = []
+    user.GetForegroundWindow.restype = c.c_void_p
     user.PostMessageW.argtypes = [c.c_void_p, c.c_uint, c.c_size_t, c.c_ssize_t]
     user.MapVirtualKeyW.argtypes = [c.c_uint, c.c_uint]
     window = user.FindWindowW(None, "Koh Emulator")
     owner = c.c_ulong()
     user.GetWindowThreadProcessId(window, c.byref(owner))
     assert window and owner.value == pid, "owned native window not found"
-    assert user.SetForegroundWindow(window), "could not focus native window"
+    assert user.GetForegroundWindow() == window, "new desktop is not the foreground window"
 
     def key(code, hold=.15):
         scan = user.MapVirtualKeyW(code, 0)
@@ -65,7 +66,7 @@ def macos_controls(pid):
     assert app.CGPreflightPostEventAccess(), "runner lacks native event permission"
     app.CGEventCreateKeyboardEvent.argtypes = [c.c_void_p, c.c_ushort, c.c_bool]
     app.CGEventCreateKeyboardEvent.restype = c.c_void_p
-    app.CGEventPostToPid.argtypes = [c.c_int, c.c_void_p]
+    app.CGEventPost.argtypes = [c.c_uint, c.c_void_p]
     core.CFRelease.argtypes = [c.c_void_p]
     core.CFStringCreateWithCString.argtypes = [c.c_void_p, c.c_char_p, c.c_uint]
     core.CFStringCreateWithCString.restype = c.c_void_p
@@ -73,16 +74,32 @@ def macos_controls(pid):
     core.CFArrayGetCount.restype = c.c_long
     core.CFArrayGetValueAtIndex.argtypes = [c.c_void_p, c.c_long]
     core.CFArrayGetValueAtIndex.restype = c.c_void_p
+    core.CFBooleanGetValue.argtypes = [c.c_void_p]
+    core.CFBooleanGetValue.restype = c.c_bool
     app.AXUIElementCreateApplication.argtypes = [c.c_int]
     app.AXUIElementCreateApplication.restype = c.c_void_p
     app.AXUIElementCopyAttributeValue.argtypes = [c.c_void_p, c.c_void_p, c.POINTER(c.c_void_p)]
     app.AXUIElementPerformAction.argtypes = [c.c_void_p, c.c_void_p]
+    application = app.AXUIElementCreateApplication(pid)
+    attribute = core.CFStringCreateWithCString(None, b"AXFrontmost", 0x08000100)
+    frontmost = c.c_void_p()
+    try:
+        assert application and attribute
+        assert app.AXUIElementCopyAttributeValue(application, attribute, c.byref(frontmost)) == 0
+        assert core.CFBooleanGetValue(frontmost), "new desktop is not the foreground application"
+    finally:
+        if frontmost.value:
+            core.CFRelease(frontmost)
+        if attribute:
+            core.CFRelease(attribute)
+        if application:
+            core.CFRelease(application)
 
     def key(code, hold=.15):
         for down in [True, False]:
             event = app.CGEventCreateKeyboardEvent(None, code, down)
             assert event
-            app.CGEventPostToPid(pid, event)
+            app.CGEventPost(0, event)
             core.CFRelease(event)
             if down:
                 time.sleep(hold)

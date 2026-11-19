@@ -473,3 +473,20 @@ catalog entries and 383 exact notice texts verified, exit 0. Logs:
 `/tmp/koh-ui-notice-locale-red.log`, `/tmp/koh-ui-notice-locale-green.log`.
 No catalog content, dependency, or production binary changed. Linux/macOS
 publish jobs on c9f6817 were left running for their native-window evidence.
+
+### Hosted native-window results and focus audit
+
+At c9f6817, hosted Linux window acceptance passed, including the expanded empty
+shortcut regression. Native macOS publishing, headless capture and the first
+window probe also passed: exact 2x LCD pixels, Start, pause, two identical state
+saves and native close. Primary log:
+`/tmp/koh-ui-macos-native-success.log`; captured files:
+`/tmp/koh-gpui-macos-native-window/` (run 44439169260, job 135277144131).
+
+Review of the actual macOS capture showed Finder still active and Koh's titlebar
+inactive. That probe posted keyboard events directly to the process, so it did
+not establish ordinary foreground keyboard behavior. The strengthened probe
+now checks foreground ownership on both Windows and macOS, and posts macOS
+keys through the HID event route. The three local locator tests still pass;
+this new focus regression has not yet run remotely. Runtime startup activation
+is deliberately unchanged until the foreground check is observed.

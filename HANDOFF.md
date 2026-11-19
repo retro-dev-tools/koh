@@ -9,13 +9,19 @@ progress, preview commands and full parity/removal acceptance are in
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
 Current progress9/10: KohUI removal and desktop package integration verified.
-Next unit: review Linux/macOS native-window jobs on full44439169260 c9f6817,
-then revalidate Windows after the notice-checker UTF-8 metadata correction.
-Windows publish job135277144282 failed with Python cp1252 UnicodeDecodeError
-on cargo metadata (before UI compilation). Explicit UTF-8 decoding fixes it;
-forced ASCII locale red/green logs /tmp/koh-ui-notice-locale-{red,green}.log.
-No package metadata or production binary changes. Keep current Linux/macOS
-publish jobs alive for evidence; don't cancel on observation timeout.
+Next unit: run strengthened startup-foreground regression on Windows/macOS,
+then make minimal activation correction after the actual failing check.
+Production Rust remains unchanged; do not claim foreground input passes yet.
+At c9f6817 full44439169260: Linux native-window passed; macOS publish/headless/
+first targeted-input window probe passed (2x exact LCD, Start/pause/save/close).
+Mac capture /tmp/koh-gpui-macos-native-window/title.png visibly leaves Finder
+active. Updated verifier asserts OS foreground ownership on Win/Mac and uses
+macOS HID-route key events (rather than posting directly to inactive process).
+Local3locator tests pass; OS foreground checks await remote execution.
+Windows publish failed Python cp1252 Cargo metadata decoding; pushed64a11a2
+explicit UTF8 fix passes forcedASCII locale; no package/runtime changes.
+Current Linux/macOS publish jobs are terminal, so obsolete c9 full run may be
+cancelled after this test update is pushed, based on verified failure/new code.
 Physical audio/DPI
 question is pending through request_user_input_async (no reply yet).
 New PR check c245557 failed loading OpenAL before audio regression on Ubuntu.
