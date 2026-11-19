@@ -20,6 +20,7 @@ gpui_kit::actions!(koh, [FastForward]);
 
 struct Desktop {
     engine: Option<Engine>,
+    close_on_engine_exit: bool,
     snapshot: Option<Snapshot>,
     status: String,
     error: bool,
@@ -91,6 +92,10 @@ impl Desktop {
                             return;
                         };
                         let update = engine.take_update();
+                        if this.close_on_engine_exit && !engine.is_alive() {
+                            cx.quit();
+                            return;
+                        }
                         let mut changed = false;
                         if let Some(snapshot) = update.snapshot {
                             let old = this.snapshot.as_ref();
@@ -152,6 +157,9 @@ impl Desktop {
         .detach();
         Self {
             engine,
+            close_on_engine_exit: arguments
+                .iter()
+                .any(|argument| argument.to_string_lossy().starts_with("--dap=")),
             snapshot: None,
             status,
             error,

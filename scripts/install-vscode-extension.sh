@@ -71,7 +71,7 @@ cd "$repo_root"
 
 echo "── Publishing toolchain into $dev_bin ($rid) ──"
 dotnet publish src/Asm/Koh.Lsp          -c Release -r "$rid" --self-contained -o "$dev_bin"
-dotnet publish src/Emulator/Koh.Emulator.App -c Release -r "$rid" -o "$dev_bin"
+dotnet msbuild build.proj -t:PublishEmulatorApp -p:EmulatorRuntimeIdentifier="$rid" -p:EmulatorPublishDir="$dev_bin"
 
 cat > "$toolchain_root/$dev_version/version.json" <<EOF
 {"version":"$dev_version","rid":"$rid","installedAt":""}

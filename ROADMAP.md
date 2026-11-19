@@ -8,13 +8,13 @@ Active user-requested migration (2026-11-18): replace the entire desktop UI
 with Rust + GPUI Kit and remove KohUI completely, including its backends,
 demo and build references. Preserve emulator/debugger behavior. The current
 inventory and acceptance gates are in [GPUI migration](docs/gpui-migration.md);
-implementation and native acceptance are still pending.
+implementation and integration are complete; final native acceptance is pending.
 The user selected KDBG-to-DWARF migration first, then UI implementation.
 The initial DWARF writer and bounded native reader/CLI are implemented and
 preserve assembly expansion ancestry and pass 35 focused linker tests.
 The managed debugger, SDK, CLI, editor and fixtures now use DWARF `.elf`
 sidecars; production KDBG code is removed. The whole-goal checkpoint ledger
-is in the GPUI migration document (8/10). Local validation: zero-warning/error
+is in the GPUI migration document (9/10). Local validation: zero-warning/error
 solution build, all seven C# ROMs/debug sidecars, 579 fast tests passed with two
 existing graphics opt-ins skipped, and 44 extension tests passed under Xvfb.
 All 37 selected real compiler/debugger integration cases pass, including both
@@ -28,8 +28,8 @@ published-engine UI test separately executed. All four inspectors now render
 real snapshots; memory navigation/address validation and exact DMG palette/tile
 pixels have focused/native evidence. The native GTK picker, all joypad keys,
 focus/toolbar behavior, slate light/dark styling and accessible inspector content
-pass Linux functional checks. KohUI removal, packaging and final audio/platform
-acceptance remain open; core framebuffer-state and upstream AT-SPI state-flag
+pass Linux functional checks. KohUI removal and package integration are complete;
+final audio/platform acceptance remains open; core framebuffer-state and upstream AT-SPI state-flag
 limitations are tracked separately in the migration document.
 
 Serve Game Boy hobbyists who want to write assembly or constrained C#, build a ROM, and diagnose problems without stitching together unrelated editor and debugger integrations. The differentiator is the connected development workflow: semantic assembly tooling plus C# compilation, sample games, and an emulator/debugger in one repository.
@@ -242,7 +242,7 @@ Dependency repair: SDK 10.0.115 and StreamJsonRpc 2.26.150 resolve to ILCompiler
 
 ## Completed milestones
 
-- SDL3 native GUI migration (2026-11-14): native windows, input, texture copies, fonts and clipping now use SDL3 Renderer; OpenGL/GLFW code and dependencies are removed. Images retain their integer scale inside stretched layouts. Headless DAP requires neither graphics nor audio, and closes cooperatively. Release solution and Linux x64 NativeAOT builds pass without added warning suppression. Software/native renderer and input regressions pass on dummy video, X11 and Wayland, including a 2x compositor scale. NativeAOT ROM execution, debugger panels and transport were exercised together. Detailed evidence and platform limits are in [SDL3 rendering](docs/sdl3.md).
+- Earlier SDL3 desktop migration (2026-11-14), superseded by the [Rust + GPUI Kit desktop](docs/gpui-migration.md).
 - [PR #51](https://github.com/retro-dev-tools/koh/pull/51) review follow-up: use `/tmp` for Unix DAP sockets so long or multibyte `TMPDIR` values cannot exceed the macOS socket path limit. The regression supplies a temporary-directory path longer than 103 UTF-8 bytes and checks the generated endpoint's byte length plus a real socket connection. It fails before the repair (43 passed, 1 failed) and passes afterwards (44/44 extension tests, exit 0). Native macOS execution remains unverified locally.
 - Unix DAP transport repair (2026-11-14): the extension passes an explicit absolute socket path in the system temporary directory to both the .NET host and VS Code. Windows retains its logical pipe name and full client path. A real socket connection regression fails on the previous implementation (42 passed, 1 failed) and passes with the fix (43/43 extension tests). The Release CI build passes with zero warnings/errors, the assembly sample rebuilds with its source map, and the serialized fast suite passes 1,673/1,673; all exit 0. A Linux VS Code 1.146.0 smoke test reaches the real emulator's `client connected` log, then fails because the Xvfb environment cannot create the OpenGL window (`glfwCreateWindow failed`). This establishes editor-to-host transport, not a completed editor breakpoint session. Windows/macOS execution remains unverified.
 - Newcomer build/debug increment (2026-11-14): all three assembly sample build entry points now emit `2048.kdbg`. A fresh source copy with Git initialized builds both documented games using SDK 10.0.115; the C# build reports zero warnings/errors. Both ROMs produce valid 160x144 PNG captures after 300 frames, visually showing their title screens. A DAP-core probe loads the fresh assembly ROM and source map, verifies the breakpoint at `main.asm:78`, executes to it at `$0154`, and reads `SP=$E000`. The debugger regression now executes to its breakpoint and checks `A=$42`, rather than only checking registration. Focused debugger tests pass 32/32 and the default fast suite passes 1,673/1,673 (exit 0). The shell sample build also passes; PowerShell execution remains unverified. The [walkthrough](docs/build-and-debug.md) records commands, prerequisites, and proof limits. Editor/GUI acceptance remains open: a live Linux pipe probe confirms .NET creates `/tmp/CoreFxPipe_<name>`, but the extension attempts `/tmp/<name>.sock`.
@@ -263,7 +263,7 @@ Dependency repair: SDK 10.0.115 and StreamJsonRpc 2.26.150 resolve to ILCompiler
 | 3 | Specify the supported surface | Medium / medium | Publish tested C# subset and RGBDS compatibility limits, backed by fixtures; document whether Koh.Sdk is checkout-only or independently consumable. |
 | 4 | Bound compiler-test memory | Medium / medium | Measure retained fixture/compiler state and establish a bounded-memory full-suite invocation before changing parallelism defaults. |
 
-Next autonomous increment: qualify Windows/macOS desktop rendering and physical monitor DPI transitions. The SDL3 migration demonstrates native Linux rendering, input and ROM/DAP execution; it does not establish physical GPU or editor acceptance on every target platform. Release ownership and attribution questions still await the rights holder. The extension's earlier `npm ci` reported 22 audit vulnerabilities (1 low, 9 moderate, 11 high, 1 critical); dependency triage remains a separate release-readiness increment. Treat the RGBDS fixture's BANK(symbol) coverage as bounded evidence, not full RGBDS compatibility.
+Next autonomous increment: finish GPUI integration and qualify desktop/platform behavior, including physical monitor DPI transitions. Native Linux checks do not establish physical GPU or editor acceptance on every platform. Release ownership and attribution questions still await the rights holder. The extension's earlier `npm ci` reported 22 audit vulnerabilities (1 low, 9 moderate, 11 high, 1 critical); dependency triage remains a separate release-readiness increment. Treat the RGBDS fixture's BANK(symbol) coverage as bounded evidence, not full RGBDS compatibility.
 
 ## Boundaries
 

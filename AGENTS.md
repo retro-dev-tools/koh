@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Koh is a Rust and .NET 10 Game Boy development toolchain. The Cargo workspace contains `rust/koh-asm`, `rust/koh-link`, `rust/koh-compile` and the canonical ELF32/SM83 model in `rust/koh-objects`. C# projects under `src/` provide common diagnostics/opcodes/debug readers, the native-service bridge and LSP, Koh.GameBoy, minimal SDK/build tasks, the emulator/debugger/boot/verification tools and KohUI. Native compiler tests live in `rust/koh-compile/tests`; remaining .NET tests mirror their live component areas. VS Code sources are under `editors/vscode`, tools under `tools/`, and samples under `samples/{asm,csharp,ui}`.
+Koh is a Rust and .NET 10 Game Boy development toolchain. The Cargo workspace contains `rust/koh-asm`, `rust/koh-link`, `rust/koh-compile`, the canonical ELF32/SM83 model in `rust/koh-objects`, and the GPUI Kit desktop in `rust/koh-ui`. C# projects under `src/` provide common diagnostics/opcodes/debug readers, the native-service bridge and LSP, Koh.GameBoy, minimal SDK/build tasks, and the windowless emulator/debugger/boot/verification tools. Native compiler tests live in `rust/koh-compile/tests`; remaining .NET tests mirror their live component areas. VS Code sources are under `editors/vscode`, tools under `tools/`, and samples under `samples/{asm,csharp}`.
 
 ## Build, Test, and Development Commands
 

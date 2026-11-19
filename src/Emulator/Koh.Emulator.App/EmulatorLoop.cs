@@ -61,44 +61,6 @@ public sealed class EmulatorLoop : IDisposable
     /// </summary>
     public GameBoySystem? CurrentSystem => _system;
 
-    // Per-frame CPU snapshot for the debug UI. Published after every
-    // RunFrame on the loop thread; readers get a consistent snapshot
-    // with a single volatile reference read. `null` until the first
-    // ROM has booted.
-    private CpuSnapshot? _cpuSnapshot;
-    public CpuSnapshot? CurrentCpu => Volatile.Read(ref _cpuSnapshot);
-
-    private PaletteSnapshot? _paletteSnapshot;
-    public PaletteSnapshot? CurrentPalettes => Volatile.Read(ref _paletteSnapshot);
-
-    private VramSnapshot? _vramSnapshot;
-    public VramSnapshot? CurrentVram => Volatile.Read(ref _vramSnapshot);
-
-    private MemorySnapshot? _memorySnapshot;
-    public MemorySnapshot? CurrentMemory => Volatile.Read(ref _memorySnapshot);
-
-    // Sliding-window base address for the memory view. Written by
-    // the runner thread (ScrollMemory handler); read by the loop
-    // thread every frame at snapshot time.
-    private int _memoryViewAddress;
-    public ushort MemoryViewAddress
-    {
-        get => (ushort)Volatile.Read(ref _memoryViewAddress);
-        set => Volatile.Write(ref _memoryViewAddress, value);
-    }
-
-    // Gate the expensive debug publishers (palette, VRAM) on whether
-    // the UI is actually showing them. CPU snapshot is tiny so we
-    // always publish it — covers the "Frame N" counter even when the
-    // debug panel is hidden. Writing during frame N is fine; worst case
-    // one frame of stale data.
-    private volatile bool _publishDebugSnapshots;
-    public bool PublishDebugSnapshots
-    {
-        get => _publishDebugSnapshots;
-        set => _publishDebugSnapshots = value;
-    }
-
     // Hold-to-run-uncapped fast-forward. Set from the UI thread while
     // the user holds the fast-forward key; cleared on release. While
     // true the pacer skips its HighWater sleep — the emulator runs as
@@ -539,19 +501,8 @@ public sealed class EmulatorLoop : IDisposable
         return remaining < 0 ? 0 : remaining;
     }
 
-    private void PublishSnapshots(GameBoySystem system)
-    {
+    private void PublishSnapshots(GameBoySystem system) =>
         Volatile.Write(ref _publishedFrame, system.Ppu.Framebuffer.FrontArray);
-        Volatile.Write(ref _cpuSnapshot, CpuSnapshot.From(system));
-        if (!_publishDebugSnapshots)
-            return;
-        Volatile.Write(ref _paletteSnapshot, PaletteSnapshot.From(system, _paletteSnapshot));
-        Volatile.Write(ref _vramSnapshot, VramSnapshot.From(system, _vramSnapshot));
-        Volatile.Write(
-            ref _memorySnapshot,
-            MemorySnapshot.From(system, MemoryViewAddress, _memorySnapshot)
-        );
-    }
 
     private static readonly byte[] s_emptyFrame = BuildGreyFrame();
 

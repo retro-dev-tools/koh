@@ -8,9 +8,13 @@ progress, preview commands and full parity/removal acceptance are in
 `docs/gpui-migration.md`; the wire contract is in `docs/engine-session.md`.
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
-Current progress8/10: GPUI implementation and Linux functional checks complete.
-Next unit: physically remove KohUI/backends/demo/tests, decouple the engine,
-switch launch/editor/package paths and stage the new dependency notices.
+Current progress9/10: KohUI removal and desktop package integration verified.
+Next unit: final native acceptance (Wayland/HiDPI, audible audio, watched editor
+debugging and Windows/macOS GUI behavior). Current evidence and licensing
+release gates are in docs/gpui-migration.md, Removal and integration checkpoint.
+Managed fast553/553, NativeAOT debugger49/49, extension44/44; composite publish
+and PublishDev exit0. Native mapped DAP disconnect/EOF closes both processes.
+Fresh package /tmp/koh-gpui-package; older /tmp/koh-gpui-engine-native is stale.
 Empty startup/picker: /tmp/koh-gpui-empty-picker-native.log exit0 (no default ROM,
 inactive transport, no disabled click actions, valid/spaced/invalid selection).
 Real SDK2048 transport: /tmp/koh-gpui-transport-native-final.log exit0 (exact LCD,

@@ -24,7 +24,7 @@ export type Spawner = (
  * produce a DebugAdapterDescriptor. We:
  *
  *   1. Pick a unique named-pipe name for this session.
- *   2. Spawn Koh.Emulator.App with `--dap=<pipe>` plus the ROM path
+ *   2. Spawn koh-emulator with `--dap=<pipe>` plus the ROM path
  *      from launch.json.
  *   3. Hand VS Code a DebugAdapterNamedPipeServer descriptor pointing
  *      at the same pipe. VS Code connects once the server is up and
@@ -145,7 +145,7 @@ export class KohDapAdapterFactory implements vscode.DebugAdapterDescriptorFactor
 
         const loc = this.toolchain.resolve();
         if (loc) {
-            return path.join(loc.binDir, executableName('Koh.Emulator.App'));
+            return path.join(loc.binDir, executableName('koh-emulator'));
         }
         return null;
     }

@@ -1,6 +1,6 @@
 <!--
   Repo-level build targets. Invoke with `dotnet msbuild build.proj -t:<Target>`.
-  Requirements: .NET 10 SDK, Rust/Cargo
+  Requirements: .NET 10 SDK, Rust/Cargo, Python 3.11+
 
   Quick reference:
     dotnet msbuild build.proj -t:Test      (.NET component tests)
@@ -8,15 +8,15 @@
     dotnet msbuild build.proj -t:Benchmark
     dotnet msbuild build.proj -t:PublishDev
     dotnet msbuild build.proj -t:PublishEmulatorApp
-    dotnet msbuild build.proj -t:RunEmulator   (publish + launch Koh.Emulator.App)
+    dotnet msbuild build.proj -t:RunEmulator   (publish + launch koh-emulator)
 -->
 <Project DefaultTargets="Test">
 
   <PropertyGroup>
     <EmulatorRuntimeIdentifier Condition="'$(EmulatorRuntimeIdentifier)' == ''">$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</EmulatorRuntimeIdentifier>
-    <EmulatorPublishDir>$(MSBuildThisFileDirectory)src/Emulator/Koh.Emulator.App/bin/Release/net10.0/$(EmulatorRuntimeIdentifier)/publish</EmulatorPublishDir>
-    <EmulatorExecutableName>Koh.Emulator.App</EmulatorExecutableName>
-    <EmulatorExecutableName Condition="$(EmulatorRuntimeIdentifier.StartsWith('win-'))">Koh.Emulator.App.exe</EmulatorExecutableName>
+    <EmulatorPublishDir Condition="'$(EmulatorPublishDir)' == ''">$(MSBuildThisFileDirectory)src/Emulator/Koh.Emulator.App/bin/Release/net10.0/$(EmulatorRuntimeIdentifier)/publish</EmulatorPublishDir>
+    <EmulatorExecutableName>koh-emulator</EmulatorExecutableName>
+    <EmulatorExecutableName Condition="$(EmulatorRuntimeIdentifier.StartsWith('win-'))">koh-emulator.exe</EmulatorExecutableName>
   </PropertyGroup>
 
   <Target Name="Test">
@@ -35,14 +35,32 @@
     <Exec Command="dotnet run --project tools/benchmarks/Koh.Benchmarks/ --configuration Release" />
   </Target>
 
-  <Target Name="PublishDev">
-    <!-- LSP server for F5 debugging of the VS Code extension. -->
+  <Target Name="PublishDev" DependsOnTargets="PublishEmulatorApp">
     <Exec Command="dotnet publish src/Asm/Koh.Lsp -c Debug -o editors/vscode/server" />
+    <ItemGroup>
+      <DesktopPublishFiles Include="$(EmulatorPublishDir)/**/*" Exclude="$(EmulatorPublishDir)/**/*.pdb" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DesktopPublishFiles)" DestinationFiles="@(DesktopPublishFiles->'$(MSBuildThisFileDirectory)editors/vscode/server/%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
 
-  <Target Name="PublishEmulatorApp">
-    <!-- NativeAOT publish of the KohUI-based emulator. -->
-    <Exec Command="dotnet publish src/Emulator/Koh.Emulator.App -c Release -r $(EmulatorRuntimeIdentifier)" />
+  <Target Name="BuildRustDesktop">
+    <MSBuild Projects="src/Asm/Koh.Native/Koh.Native.csproj" Targets="GetNativeUiPath" Properties="Configuration=Release;RuntimeIdentifier=$(EmulatorRuntimeIdentifier)">
+      <Output TaskParameter="TargetOutputs" PropertyName="RustDesktop" />
+    </MSBuild>
+  </Target>
+
+  <Target Name="PublishEmulatorApp" DependsOnTargets="BuildRustDesktop">
+    <Exec Command="dotnet publish src/Emulator/Koh.Emulator.App -c Release -r $(EmulatorRuntimeIdentifier) -o &quot;$(EmulatorPublishDir)&quot;" />
+    <ItemGroup>
+      <RetiredDesktopOutputs Include="$(EmulatorPublishDir)/KohUI*.dll;$(EmulatorPublishDir)/KohUI*.pdb;$(EmulatorPublishDir)/SDL3-CS.dll;$(EmulatorPublishDir)/SDL3.dll;$(EmulatorPublishDir)/libSDL3*.so*;$(EmulatorPublishDir)/libSDL3*.dylib;$(EmulatorPublishDir)/licenses/SDL3*.txt" />
+    </ItemGroup>
+    <Delete Files="@(RetiredDesktopOutputs)" />
+    <Copy SourceFiles="$(RustDesktop)" DestinationFolder="$(EmulatorPublishDir)" />
+    <ItemGroup>
+      <RustUiNotices Include="$(MSBuildThisFileDirectory)licenses/rust-ui/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(RustUiNotices)" DestinationFiles="@(RustUiNotices->'$(EmulatorPublishDir)/licenses/rust-ui/%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Exec Command="python &quot;$(MSBuildThisFileDirectory)scripts/stage-rust-notices.py&quot; &quot;$(EmulatorPublishDir)/licenses/rust-runtime&quot;" />
   </Target>
 
   <Target Name="RunEmulator" DependsOnTargets="PublishEmulatorApp">

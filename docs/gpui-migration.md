@@ -1,7 +1,7 @@
 # GPUI desktop migration
 
-Status: GPUI implementation and Linux functional checks complete; legacy removal
-and package integration in progress.
+Status: GPUI implementation, KohUI removal and package integration complete;
+final native platform acceptance in progress.
 Baseline: `9ebb6e5`.
 
 ## Whole-goal checkpoints
@@ -10,7 +10,7 @@ Draft [PR #56](https://github.com/retro-dev-tools/koh/pull/56) tracks this work.
 The bar counts completed checkpoints, not estimated effort.
 
 ```text
-[########>-] 8/10 complete; current: KohUI removal and integration
+[#########>] 9/10 complete; current: final native acceptance
 ```
 
 | # | Checkpoint | State / evidence |
@@ -23,7 +23,7 @@ The bar counts completed checkpoints, not estimated effort.
 | 6 | Real DWARF debugging acceptance | Done: 37 compiler/debugger integration cases; Debug/Release SDK 2048, source breakpoints, framework stack recovery and machine state |
 | 7 | Windowless engine session | Done: copied coherent snapshots, frame-boundary commands while paused, persistence, DAP coordination; nine NativeAOT process tests and real SDK 2048 run |
 | 8 | Complete GPUI Kit interface | Done: four inspectors, native picker, all joypad keys, focus/toolbar behavior, slate light/dark styling and accessible content; Linux native evidence below |
-| 9 | Complete KohUI removal and integration | Pending: both backends/demo/tests/dependencies/references; launch/package/CI |
+| 9 | Complete KohUI removal and integration | Done: framework/backends/demo/tests removed; windowless engine, launch/editor/install/package/CI paths switched; checked dependency catalog |
 | 10 | Final native acceptance | Pending: real-game visual/input/audio, headless regressions and platform validation |
 
 Keep progress reports and this ledger aligned with completed evidence.
@@ -283,3 +283,45 @@ inspection before continuing the UI. See [DWARF migration](dwarf-migration.md).
 - Upstream [getting started](https://gpui-kit.com/docs/getting-started/) and
   [installation](https://gpui-kit.com/docs/installation/) describe startup,
   single-dependency configuration and platform prerequisites.
+
+## Removal and integration checkpoint
+
+KohUI, both backends, the demo and framework tests are deleted. Managed snapshots
+use a neutral RGB record. The engine retains headless capture, private sessions
+and DAP; ordinary interactive startup goes through `koh-emulator`. Root publish,
+development publish, launch scripts, extension resolution, development installers
+and release staging now ship the Rust desktop beside the NativeAOT engine.
+Scoped cleanup removes obsolete UI files from reused publish directories.
+
+Completed local evidence (2026-11-19):
+
+- Release managed build: zero warnings/errors; fast suite **553/553**, no skips,
+  exit 0. Logs `/tmp/koh-ui-removal-solution-build-final.log` and
+  `/tmp/koh-ui-removal-fast-tests-final.log`. Removed framework tests account
+  for the smaller suite; retained process assertions require no graphics fallback.
+- Fresh NativeAOT debugger suite: **49/49**, no skips, exit 0;
+  `/tmp/koh-ui-removal-native-debugger-tests.log`.
+- Composite publish and development publish: exit 0;
+  `/tmp/koh-ui-removal-publish-final.log`, `/tmp/koh-ui-publish-dev.log`.
+  Seeded obsolete UI outputs were removed; unrelated publish content survived.
+- VS Code extension: **44 passing**, exit 0, under owned Xvfb;
+  `/tmp/koh-ui-extension-tests.log`.
+- `scripts/verify-gpui.py` against the composite package: exit 0;
+  `/tmp/koh-ui-package-window.log`. Exact LCD oracle, integer replication,
+  Start, pause, save and native close with child exit passed.
+- Mapped packaged desktop with DAP: initialize, launch, configurationDone and
+  stackTrace succeeded; disconnect and EOF each closed desktop and engine with
+  exit 0; `/tmp/koh-ui-dap-desktop.log`. This is a direct DAP client check,
+  not watched VS Code source-debugging acceptance.
+- Focused Rust Clippy and formatting passed. Dependency catalog verification
+  passed for all six mapped triples, including deliberate-corruption rejection.
+
+The package includes 660 registry dependency records and 383 deduplicated notice
+texts plus actual Rust sysroot notices. Four upstream packages supply declaration
+only; see `licenses/rust-ui/README.md`. Catalog integrity and target metadata
+coverage do not establish legal clearance or cross-platform build success.
+First-party licensing and unresolved upstream notice questions still block release.
+
+Remaining checkpoint 10 gates: Wayland/HiDPI, audible output, watched editor
+coexistence/source debugging and Windows/macOS native-window behavior. Hosted
+checks on the next pushed head remain to be read before claiming CI success.

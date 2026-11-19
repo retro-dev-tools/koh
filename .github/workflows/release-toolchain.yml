@@ -25,6 +25,12 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Install desktop build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config clang libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan-dev
+
       - name: Parse version from tag
         id: ver
         shell: bash
@@ -43,7 +49,7 @@ jobs:
           # YamlDotNet use runtime reflection); ship self-contained so
           # users don't need .NET 10 on PATH.
           dotnet publish src/Asm/Koh.Lsp          -c Release -r ${{ matrix.rid }} --self-contained -o "$bin"
-          dotnet publish src/Emulator/Koh.Emulator.App -c Release -r ${{ matrix.rid }} -o "$bin"
+          dotnet msbuild build.proj -t:PublishEmulatorApp -p:EmulatorRuntimeIdentifier=${{ matrix.rid }} "-p:EmulatorPublishDir=$PWD/$bin"
 
           case "${{ matrix.rid }}" in
             linux-x64) compiler_target=x86_64-unknown-linux-gnu; compiler_suffix= ;;
@@ -54,7 +60,6 @@ jobs:
           rustup target add "$compiler_target"
           cargo build --release --package koh-compile --locked --target "$compiler_target"
           cp "target/$compiler_target/release/koh-compile$compiler_suffix" "$bin/"
-          python scripts/stage-rust-notices.py "$bin/licenses/rust-runtime"
 
       - name: Smoke-test packaged C# tools
         shell: bash
@@ -88,6 +93,10 @@ jobs:
           test -f staging/bin/licenses/rust-assembler-dependencies.md
           test -d staging/bin/licenses/rust-assembler
           test -f staging/bin/licenses/rust-runtime/COPYRIGHT-library.html
+          test -f staging/bin/licenses/rust-ui/manifest.json
+          desktop=staging/bin/koh-emulator
+          if [[ '${{ matrix.rid }}' == win-* ]]; then desktop="$desktop.exe"; fi
+          test -f "$desktop"
           ver="${{ steps.ver.outputs.version }}"
           case "${{ matrix.archive }}" in
             zip)

@@ -48,7 +48,7 @@ public sealed class DebugSession
     /// wire the session's watchpoints + breakpoint checker onto it.
     /// Use this instead of <see cref="Launch"/> when the emulator
     /// host owns the system lifecycle and the debugger is attaching
-    /// to an existing instance (the typical KohUI-emulator + DAP
+    /// to an existing instance (the typical desktop + DAP
     /// adapter flow) rather than booting the ROM itself.
     /// </summary>
     public void AdoptSystem(GameBoySystem system)

@@ -37,8 +37,6 @@ internal static class EmulatorProcess
         start.Environment.Remove("DISPLAY");
         start.Environment.Remove("WAYLAND_DISPLAY");
         start.Environment["ALSOFT_DRIVERS"] = "unavailable";
-        start.Environment["SDL_VIDEODRIVER"] = "unavailable";
-        start.Environment["SDL_RENDER_DRIVER"] = "unavailable";
         return start;
     }
 }

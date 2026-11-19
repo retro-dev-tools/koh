@@ -19,8 +19,6 @@
     <ProjectReference Include="..\Koh.Boot\Koh.Boot.csproj" />
     <ProjectReference Include="..\Koh.Emulator\Koh.Emulator.csproj" />
     <ProjectReference Include="..\Koh.Debugger\Koh.Debugger.csproj" />
-    <ProjectReference Include="..\..\UI\KohUI\KohUI.csproj" />
-    <ProjectReference Include="..\..\UI\KohUI.Backends.Sdl3\KohUI.Backends.Sdl3.csproj" />
   </ItemGroup>
 
   <ItemGroup>

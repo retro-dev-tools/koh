@@ -152,19 +152,15 @@ public class HeadlessDapProcessTests
             await stdout;
             if (process.ExitCode != 0)
                 throw new InvalidOperationException($"Emulator exit {process.ExitCode}: {errors}");
+            await Assert
+                .That(errors.Contains("graphics unavailable", StringComparison.Ordinal))
+                .IsFalse();
             if (headless)
             {
-                await Assert
-                    .That(errors.Contains("graphics unavailable", StringComparison.Ordinal))
-                    .IsFalse();
                 await Assert
                     .That(errors.Contains("audio unavailable", StringComparison.Ordinal))
                     .IsFalse();
             }
-            else
-                await Assert
-                    .That(errors.Contains("graphics unavailable", StringComparison.Ordinal))
-                    .IsTrue();
         }
         catch (Exception ex) when (process.HasExited)
         {

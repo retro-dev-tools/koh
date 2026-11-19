@@ -255,6 +255,6 @@ Fresh Linux NativeAOT engine verification now also passes: all nine process
 cases, including DWARF source breakpoint resolution and stepping. See
 [engine session](engine-session.md) for the executable hash and completed logs.
 
-Next: implement the windowless engine session; validate NativeAOT packaging
-and hosted platforms before final acceptance.
-The new GPUI application and KohUI removal remain unfinished.
+The windowless engine and GPUI interface are implemented. Physical KohUI removal,
+desktop packaging and final platform acceptance are tracked in
+[GPUI migration](gpui-migration.md).

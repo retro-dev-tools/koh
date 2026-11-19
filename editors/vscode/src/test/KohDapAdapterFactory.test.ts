@@ -111,7 +111,7 @@ suite('KohDapAdapterFactory', () => {
         // Descriptor can't resolve until the emulator prints the banner.
         assert.strictEqual(calls.length, 1, 'spawn should fire synchronously in createDebugAdapterDescriptor');
         const call = calls[0];
-        assert.ok(call.command.includes('Koh.Emulator.App'), `unexpected command: ${call.command}`);
+        assert.ok(call.command.includes('koh-emulator'), `unexpected command: ${call.command}`);
         assert.strictEqual(call.args.length, 2);
         assert.ok(call.args[0].startsWith('--dap='), `unexpected first arg: ${call.args[0]}`);
         assert.ok(path.basename(call.args[0].slice(6)).startsWith('koh-dap-'));
