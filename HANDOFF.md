@@ -1,5 +1,11 @@
 # Current work: Rust execution engine
 
+Latest user steering: ALL verification tooling is out of scope pending deeper
+thinking. Existing Koh.Verify, sample verifier and rust-asm-verify stay unchanged.
+Retain C# emulator/boot for existing development tools; no production fallback.
+Set aside untracked koh-verify and koh-superopt ports outside the worktree.
+DraftenginePR57 https://github.com/retro-dev-tools/koh/pull/57 stackedonUI56.
+
 2026-11-19 user authorized emulator -> debugger -> engine host migration after
 accepted GPUI work. Worktree /home/minorum/projekty/koh-rust-engine, branch
 feat/rust-engine, base e1336b0; PR56 remains open/draft and untouched. Design and
@@ -15,6 +21,18 @@ Parallel ownership after foundation/review:
 No agent edits root Cargo files/shared state/lib or another component. No shared
 build target: use /tmp/koh-engine-{cpu,ppu,apu}-target for isolated checks, or
 coordinate serial checks. No simultaneous root builds. Commit owned files only.
+PPU worker completed machine integration88tests; next owns rust/koh-test-host/**
+and rust/koh-compile/tests/** fixture-host migration only (no compiler behavior/
+test assertions weakened). Root owns root Cargo and production integration.
+Shared boot assembly will move to existing core boot module at build time so
+native test hosts can execute realboot without calling C#.
+Debugger worker completed22actualcoretests +512decode/28response C#oracle; next
+has stopped verifier work per user scope. Root preserves deferred tool ports
+outside this worktree and owns production build/CI/packaging integration.
+Enginehost already13nativeprocesschecks+audio/sourceDAP work inprogress. Real
+SDK2048 480frame framebuffer C#vsRust exact, /tmp/koh-engine-realgame-480/result.json.
+Commonboot assembly nowcorebuild.rs, boot::{DMG_BOOT,CGB_BOOT}; engineowner
+removes duplicatebuildscript andusescoreconstants. Workspaceincludesnativehelpers.
 
 Foundation state primitives and timer now implemented, red/green logs
 /tmp/koh-engine-{state,timer}-*.log;12/12 core tests pass. Managed baseline

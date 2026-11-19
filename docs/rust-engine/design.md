@@ -2,11 +2,17 @@
 
 ## Outcome
 
-Replace `Koh.Emulator`, `Koh.Debugger` and `Koh.Emulator.App` with Rust while
+Replace the production emulator, debugger and engine host with Rust while
 preserving the accepted GPUI desktop, ROM behavior, source debugging, headless
 commands, persistence and shutdown. The user authorized this next migration on
 2026-11-19. The LSP, C# game-authoring library and MSBuild integration remain
 separate. Do not merge or release either migration branch.
+
+User clarification: all verification tooling is out of scope pending deeper
+design. Leave `Koh.Verify`, the 2048 verifier and `tools/rust-asm-verify`
+unchanged. Retain the C# emulator and boot libraries for existing development
+tools, including superoptimizer and benchmarks. Deferred Rust tool ports stay
+outside this worktree. Native compiler execution fixtures remain in scope.
 
 Baseline: `e1336b0`, accepted UI PR56 atop master `9ebb6e5`. Worktree:
 `/home/minorum/projekty/koh-rust-engine`, branch `feat/rust-engine`.
@@ -106,10 +112,9 @@ workspace membership; each owning worker supplies its crate manifest.
 
 Maintain a source-test disposition list: each managed test/case maps to a Rust
 replacement or an evidenced obsolete deletion. Do not retain a managed fallback
-or describe a boot-only port as complete. Preserve downstream verification,
-superoptimizer and benchmarks by porting their required emulator API/callers;
-their unrelated features are not a redesign target. Remove the old engine
-projects only after replacements and their consumers work.
+or describe a boot-only port as complete. Existing verification, superoptimizer
+and benchmark consumers retain their C# dependencies. Remove old production
+debugger/host projects only after replacements and their consumers work.
 
 ## Verification and isolation
 

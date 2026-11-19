@@ -120,10 +120,11 @@ engine DAP transport/hosting.
 ## Task 9: Integration and managed engine removal
 
 Files: UI engine path, build/publish scripts, CI/install/release integration,
-solutions and dependencies; downstream emulator verification/tools/tests.
+solutions and dependencies; native compiler execution fixtures.
 
-- [ ] Switch all engine consumers and port their required verification APIs.
-- [ ] Remove old C# engine/debugger/host projects and obsolete dependencies only
+- [ ] Switch production engine consumers; leave verification tooling unchanged.
+- [ ] Retain C# emulator/boot dependencies for existing development tools.
+- [ ] Remove old C# debugger/host projects and obsolete dependencies only
   after native replacement cases and caller tests pass.
 - [ ] Close every source-test disposition; verify no production managed engine
   invocation or stale packaged engine survives.
