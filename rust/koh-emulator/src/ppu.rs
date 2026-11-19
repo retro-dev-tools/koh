@@ -720,7 +720,9 @@ impl Ppu {
             || (self.fetcher.map != 0 && self.fetcher.map != 0x9800 && self.fetcher.map != 0x9c00)
             || (self.mode == PpuMode::Drawing
                 && (self.fetcher.map == 0 || self.lcd_x == 160 || self.ly >= 144))
-            || (self.sprite_fetch >= 0 && self.sprite_fetch as usize >= self.sprite_count)
+            || (self.mode == PpuMode::Drawing
+                && self.sprite_fetch >= 0
+                && self.sprite_fetch as usize >= self.sprite_count)
             || self
                 .fifo
                 .bg
@@ -1066,6 +1068,54 @@ mod tests {
         let mut bad = w.bytes;
         bad[12..16].copy_from_slice(&99i32.to_le_bytes());
         assert!(restored.read_state(&mut StateReader::new(&bad)).is_err());
+    }
+    #[test]
+    fn state_restores_after_lcd_restart_with_fewer_sprites() {
+        for hw in [HardwareMode::Dmg, HardwareMode::Cgb] {
+            let mut p = Ppu::new(hw);
+            p.lcdc |= 2;
+            let v = [0; 0x4000];
+            let mut o = [0; 0xa0];
+            o[..4].copy_from_slice(&[16, 8, 1, 0]);
+            tick(&mut p, &v, &o, 81);
+            assert_eq!(
+                (p.mode, p.sprite_fetch, p.sprite_count),
+                (PpuMode::Drawing, 0, 1)
+            );
+            p.lcdc &= !128;
+            tick(&mut p, &v, &o, 1);
+            o.fill(0);
+            p.lcdc |= 128;
+            tick(&mut p, &v, &o, 1);
+            assert_eq!(
+                (p.mode, p.sprite_fetch, p.sprite_count),
+                (PpuMode::OamScan, 0, 0)
+            );
+            let mut w = StateWriter::default();
+            p.write_state(&mut w);
+            let mut restored = Ppu::new(hw);
+            restored
+                .read_state(&mut StateReader::new(&w.bytes))
+                .unwrap();
+            let mut invalid = p.clone();
+            invalid.mode = PpuMode::Drawing;
+            let mut bad = StateWriter::default();
+            invalid.write_state(&mut bad);
+            assert!(
+                Ppu::new(hw)
+                    .read_state(&mut StateReader::new(&bad.bytes))
+                    .is_err()
+            );
+            for _ in 0..456 {
+                assert_eq!(tick(&mut p, &v, &o, 1), tick(&mut restored, &v, &o, 1));
+            }
+            let mut expected = StateWriter::default();
+            let mut actual = StateWriter::default();
+            p.write_state(&mut expected);
+            restored.write_state(&mut actual);
+            assert_eq!(actual.bytes, expected.bytes);
+            assert_eq!(restored.back, p.back);
+        }
     }
     #[test]
     fn state_rejects_unsafe_pipeline_indices() {
