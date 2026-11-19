@@ -3,6 +3,7 @@ name: Native LSP
 on:
   pull_request:
     paths:
+      - '.gitattributes'
       - '.github/workflows/lsp.yml'
       - 'rust/koh-lsp/**'
       - 'rust/koh-asm/**'
@@ -76,6 +77,17 @@ jobs:
           "$package/koh-link$suffix" --version
           KOH_LSP_TEST_BINARY="$package/koh-lsp$suffix" cargo test -p koh-lsp --test stdio --locked
           echo "KOH_TEST_LSP_DIR=$package" >> "$GITHUB_ENV"
+      - name: Verify packaged dependency notices
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json, os
+          root = Path(os.environ["KOH_TEST_LSP_DIR"]) / "licenses/rust-lsp"
+          for package in json.loads((root / "manifest.json").read_text())["packages"]:
+              assert hashlib.sha256((root / package["notice_file"]).read_bytes()).hexdigest() == package["notice_sha256"], package["name"]
+          print("Exact YAML dependency notice hashes verified")
+          PY
       - name: Test actual VS Code client
         shell: bash
         working-directory: editors/vscode

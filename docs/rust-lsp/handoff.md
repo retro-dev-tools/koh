@@ -38,6 +38,10 @@ Runner fix pushed d435f86. Run44560211970 Linux/Windows fully pass; macOS actual
 LSP editor assertions pass but three existing filesystem resolver tests share
 the real home. Fixed test helper isolation with a failing macOS simulation;
 actual local editor48/48 passes. Push test-only fix and inspect platform rerun.
+Isolation fix pushed39a4ede; run44562541767 fully passes all three platforms.
+Final artifact byte audit caught Windows CRLF conversion of the two new YAML
+notices. Added -text attributes and packaged hash gate; checkout filter test
+passes. Push notice fix and audit the resulting artifacts before closing goal.
 Full CI44552197980 Linux ran2463 tests:2462 passed,1 SDK graphics test timed
 out after360 seconds,5 skipped. All60 LSP cases passed. The SDK test and run
 target are unchanged by this migration; its timeout needs separate investigation.

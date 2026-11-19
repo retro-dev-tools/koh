@@ -1,1 +1,2 @@
 licenses/rust-ui/texts/* -text
+licenses/rust-lsp/*LICENSE.txt -text

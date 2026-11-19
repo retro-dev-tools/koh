@@ -297,3 +297,14 @@ for each fixture. A local macOS simulation reproduced this before the fix
 (/tmp/koh-lsp-macos-resolver-red.log, exit1); full editor48/48 passes afterward
 (/tmp/koh-lsp-macos-resolver-green.log, exit0). Product resolver behavior is
 unchanged; the fix is confined to test isolation. Final platform rerun pending.
+
+Run44562541767 on39a4ede passed native, packaged stdio and full standalone
+editor suites on all platforms:61/60/61 native cases (Linux/Windows/macOS),
+4 packaged cases and47 editor cases each; one desktop-DAP-only case is pending
+by design. Completed logs and ZIPs were downloaded for artifact inspection.
+That final byte-level audit exposed Windows CRLF conversion of the two new
+YAML license texts, violating their manifest hashes. The new notice files now
+use -text in .gitattributes, matching the existing exact UI notice policy.
+Git's core.autocrlf=true checkout filter now preserves both exact archive hashes
+(/tmp/koh-lsp-notice-checkout-green.log, exit0). Native LSP CI verifies the
+packaged notice hashes before editor tests. Final artifact rerun pending.
