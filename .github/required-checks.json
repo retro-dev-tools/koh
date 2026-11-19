@@ -1,0 +1,10 @@
+{
+  "strict": true,
+  "contexts": [],
+  "checks": [
+    {
+      "context": "check (ubuntu-latest)",
+      "app_id": 15368
+    }
+  ]
+}

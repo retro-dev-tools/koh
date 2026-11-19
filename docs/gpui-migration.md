@@ -36,11 +36,11 @@ bounded to 512 KiB and checked for request ID, protocol version, hardware mode,
 image dimensions/alpha and inspector shapes. The parent cooperatively quits
 the child and waits for persistence before closing.
 
-On Linux, publish the engine with a compatible .NET SDK, then launch the preview:
+On Linux, publish the native engine, then launch the preview:
 
 ```sh
-dotnet publish src/Emulator/Koh.Emulator.App -c Release -r linux-x64 -m:1 -o target/gpui-engine
-KOH_ENGINE="$PWD/target/gpui-engine/Koh.Emulator.App" cargo run -p koh-ui -- samples/csharp/gb-2048-v2/2048v2.gb
+dotnet msbuild build.proj -t:PublishEmulatorApp
+KOH_ENGINE="$PWD/artifacts/emulator/linux-x64/koh-engine" cargo run -p koh-ui -- samples/csharp/gb-2048-v2/2048v2.gb
 ```
 
 Without `KOH_ENGINE`, the UI resolves the engine beside its executable. Empty

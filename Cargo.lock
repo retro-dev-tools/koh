@@ -3350,6 +3350,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "koh-debugger"
+version = "1.0.2"
+dependencies = [
+ "base64 0.22.1",
+ "koh-asm",
+ "koh-emulator",
+ "koh-link",
+ "koh-objects",
+ "serde_json",
+]
+
+[[package]]
+name = "koh-emulator"
+version = "1.0.2"
+dependencies = [
+ "koh-asm",
+ "koh-link",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "koh-engine"
+version = "1.0.2"
+dependencies = [
+ "base64 0.22.1",
+ "koh-asm",
+ "koh-debugger",
+ "koh-emulator",
+ "koh-link",
+ "libloading",
+ "png 0.18.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "koh-link"
 version = "1.0.2"
 dependencies = [
@@ -3366,6 +3402,17 @@ version = "1.0.2"
 dependencies = [
  "object",
  "serde",
+]
+
+[[package]]
+name = "koh-test-host"
+version = "1.0.2"
+dependencies = [
+ "koh-debugger",
+ "koh-emulator",
+ "koh-link",
+ "png 0.18.1",
+ "serde_json",
 ]
 
 [[package]]

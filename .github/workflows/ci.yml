@@ -1,91 +1,84 @@
 name: CI
-
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
   push:
-    branches: [master]
+    branches:
+      - master
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
+  group: ci-${{ github.event_name == 'pull_request' && 'pr' || 'full' }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 env:
   RUSTUP_TOOLCHAIN: stable
-
+  DOTNET_PROCESSOR_COUNT: '4'
+  CARGO_BUILD_JOBS: '4'
 jobs:
-  # Pull requests run only the areas their cumulative diff touches; master and manual runs run everything.
-  changes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      rust: ${{ steps.areas.outputs.rust }}
-      references: ${{ steps.areas.outputs.references }}
-      dotnet: ${{ steps.areas.outputs.dotnet }}
-      emulator: ${{ steps.areas.outputs.emulator }}
-      vscode: ${{ steps.areas.outputs.vscode }}
-      sample: ${{ steps.areas.outputs.sample }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-      - id: areas
-        run: |
-          if [[ "${{ github.event_name }}" == pull_request ]]; then
-            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"
-          else
-            : > "$RUNNER_TEMP/changed"
-          fi
-          bash scripts/ci-changes.sh < "$RUNNER_TEMP/changed" | tee -a "$GITHUB_OUTPUT"
-
-  native:
-    needs: changes
-    if: needs.changes.outputs.rust == 'true'
-    timeout-minutes: 90
+  check:
+    name: check (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","windows-latest","macos-latest"]') }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
-      - name: Install desktop build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config clang libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan-dev
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest@0.9.140
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.nuget/packages
             target
-          key: ${{ runner.os }}-native-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-native-${{ hashFiles('Cargo.lock', 'global.json', 'Directory.Packages.props') }}
           restore-keys: ${{ runner.os }}-native-
+      - name: Install desktop build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config clang libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan-dev xvfb libxtst6 mesa-vulkan-drivers fonts-dejavu-core bison flex libpng-dev
       - name: Check formatting
         if: runner.os == 'Linux'
         run: cargo +stable fmt --all -- --check
-      - name: Check
-        run: cargo +stable check --workspace --all-targets --all-features --locked
-      - name: Test
+      - name: Check native engine lints
+        run: cargo clippy -p koh-emulator -p koh-debugger -p koh-engine -p koh-test-host --all-targets --no-deps --locked -- -D warnings
+      - name: Check Rust targets
+        run: cargo check --workspace --all-targets --all-features --locked
+      - name: Test Rust workspace
         run: cargo +stable nextest run --workspace --all-features --locked --no-fail-fast
       - name: Test Rust documentation
         run: cargo +stable test --doc --workspace --all-features --locked
+      - name: Build and test managed projects
+        shell: bash
+        run: |
+          dotnet build Koh.Ci.slnf -c Release -m:1
+          dotnet test --solution Koh.Ci.slnf -c Release --no-build --max-parallel-test-modules 1
       - name: Build native executables
-        run: cargo +stable build --release --package koh-asm --package koh-link --package koh-compile --locked
+        run: cargo +stable build --release --package koh-asm --package koh-link --package koh-compile --package koh-engine --locked
       - name: Stage Rust runtime notices
         run: python scripts/stage-rust-notices.py artifacts/rust-runtime
       - name: Smoke-test native compiler artifacts
@@ -95,157 +88,29 @@ jobs:
         run: cargo +stable nextest run -p koh-compile --test sdk --locked -E 'test(sdk_dotnet_run)'
       - name: Publish native-backed language server
         run: dotnet publish src/Asm/Koh.Lsp -c Release --no-self-contained -o artifacts/language-server -m:1
-      - uses: actions/upload-artifact@v4
-        with:
-          name: koh-lsp-native-${{ runner.os }}
-          path: artifacts/language-server/
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: koh-native-${{ runner.os }}
-          path: |
-            target/release/koh-asm
-            target/release/koh-asm.exe
-            target/release/koh-link
-            target/release/koh-link.exe
-            target/release/koh-compile
-            target/release/koh-compile.exe
-            licenses/rust-assembler-dependencies.md
-            licenses/rust-assembler/
-            artifacts/rust-runtime/
-      # Only master writes caches; pull requests restore them.
-      - uses: actions/cache/save@v4
-        if: github.ref == 'refs/heads/master'
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-native-${{ hashFiles('Cargo.lock') }}
-
-  references:
-    needs: changes
-    if: needs.changes.outputs.references == 'true'
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest@0.9.140
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-      - name: Install RGBDS build dependencies
-        run: sudo apt-get update && sudo apt-get install -y bison flex libpng-dev pkg-config
-      - name: Build pinned RGBDS
+      - name: Publish desktop and native engine
         run: |
-          git clone --depth 1 --branch v1.0.1 https://github.com/gbdev/rgbds.git "$RUNNER_TEMP/rgbds"
-          make -C "$RUNNER_TEMP/rgbds" -j2
-          echo "$RUNNER_TEMP/rgbds" >> "$GITHUB_PATH"
-      - name: Test against RGBDS
-        env:
-          KOH_RGBDS_TEST: '1'
-        run: cargo +stable nextest run -p koh-asm -p koh-link --all-features --locked
-      - name: Compare ELF and independent RGBDS pipelines
-        run: python3 scripts/verify-rust-assembler.py --output "$RUNNER_TEMP/rust-assembler-verification"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: rust-assembler-verification
-          path: ${{ runner.temp }}/rust-assembler-verification
-          if-no-files-found: ignore
-
-  build-and-test:
-    needs: changes
-    if: needs.changes.outputs.dotnet == 'true'
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.nuget/packages
-            target
-          key: ${{ runner.os }}-dotnet-${{ hashFiles('Cargo.lock', 'global.json', 'Directory.Packages.props') }}
-          restore-keys: ${{ runner.os }}-dotnet-
-
-      - name: Restore solution
-        run: dotnet restore Koh.Ci.slnf
-
-      - name: Build solution
-        run: dotnet build Koh.Ci.slnf --no-restore --configuration Release
-
-      - name: Run tests
-        # Native compiler tests run in the native job.
-        run: dotnet test --solution Koh.Ci.slnf --no-build --configuration Release
-
-      - uses: actions/cache/save@v4
-        if: github.ref == 'refs/heads/master'
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.nuget/packages
-            target
-          key: ${{ runner.os }}-dotnet-${{ hashFiles('Cargo.lock', 'global.json', 'Directory.Packages.props') }}
-
-  # NativeAOT publishes of the emulator on each host runner. The AOT
-  # compiler can't cross-OS, so each target's binary is produced on
-  # its native runner. This job catches RID-specific build breakage
-  # (missing native assets, platform API gaps) before it reaches a
-  # user trying to ship.
-  emulator-aot-publish:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest,  rid: linux-x64 }
-          - { os: windows-latest, rid: win-x64 }
-          - { os: macos-latest,   rid: osx-arm64 }
-    runs-on: ${{ matrix.os }}
-    needs: changes
-    if: needs.changes.outputs.emulator == 'true'
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Install desktop build dependencies
-        if: runner.os == 'Linux'
+          dotnet msbuild build.proj -t:PublishEmulatorApp
+          rid=$(dotnet msbuild build.proj -nologo -getProperty:EmulatorRuntimeIdentifier)
+          echo "rid=$rid" >> "$GITHUB_OUTPUT"
+          ls -lh "artifacts/emulator/$rid"
+        id: desktop
+        shell: bash
+      - name: Test native audio resets
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config clang libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan-dev xvfb libxtst6 mesa-vulkan-drivers fonts-dejavu-core
-
-      - name: Publish desktop and NativeAOT engine
-        run: dotnet msbuild build.proj -t:PublishEmulatorApp
-
-      - name: Smoke-test headless NativeAOT emulator
+          pub="$PWD/artifacts/emulator/${{ steps.desktop.outputs.rid }}"
+          export PATH="$pub:$PATH"
+          export LD_LIBRARY_PATH="$pub${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export DYLD_LIBRARY_PATH="$pub${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+          ALSOFT_DRIVERS=null cargo test -p koh-engine --bin koh-engine openal_null_backend_warmup_reset_and_restart --locked -- --ignored
+          ALSOFT_DRIVERS=null cargo test -p koh-engine --test session audio_resume_reset_and_restore_remain_operational --locked -- --ignored
+      - name: Smoke-test headless native engine
         shell: bash
         run: |
           dotnet msbuild build.proj -t:BuildSample2048
-          pub=src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish
-          exe="$pub/koh-emulator"
+          pub=artifacts/emulator/${{ steps.desktop.outputs.rid }}
+          exe="$pub/koh-engine"
           if [[ "$RUNNER_OS" == "Windows" ]]; then exe="$exe.exe"; fi
           smoke_dir="$(mktemp -d)"
           "$exe" samples/asm/gb-2048/build/2048.gbc --frames=300 --screenshot="$smoke_dir/frame.png"
@@ -268,149 +133,78 @@ jobs:
                   compressed.extend(chunk)
               offset += size + 12
           assert len(zlib.decompress(compressed)) == 144 * (1 + 160 * 4)
-          print("Headless NativeAOT capture: 160x144 PNG")
+          print("Headless native capture: 160x144 PNG")
           PY
-
-      - name: Report publish size
-        shell: bash
-        run: |
-          pub=src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish
-          echo "── publish contents ──"
-          ls -lh "$pub"
-          echo "── total ──"
-          du -sh "$pub"
-
+      - name: Install image test dependency
+        run: python -m pip install Pillow==13.0.0
       - name: Verify packaged GPUI window
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          python scripts/test-verify-gpui.py
           dotnet build samples/csharp/gb-2048-v2/Gb2048V2.csproj -c Release -m:1
-          python scripts/verify-gpui.py src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish/koh-emulator samples/csharp/gb-2048-v2/2048v2.gb --output "$RUNNER_TEMP/gpui-native"
-
-      - uses: actions/setup-python@v5
-        if: runner.os != 'Linux'
-        with:
-          python-version: '3.13'
-
+          python scripts/verify-gpui.py artifacts/emulator/${{ steps.desktop.outputs.rid }}/koh-emulator samples/csharp/gb-2048-v2/2048v2.gb --output "$RUNNER_TEMP/gpui-native"
       - name: Verify native Windows/macOS window
         if: runner.os != 'Linux'
         shell: bash
         run: |
-          python -m pip install Pillow==13.0.0
           python scripts/test-verify-gpui-platform.py
           dotnet build samples/csharp/gb-2048-v2/Gb2048V2.csproj -c Release -m:1
-          exe=src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish/koh-emulator
+          exe=artifacts/emulator/${{ steps.desktop.outputs.rid }}/koh-emulator
           if [[ "$RUNNER_OS" == "Windows" ]]; then exe="$exe.exe"; fi
           python scripts/verify-gpui-platform.py "$exe" samples/csharp/gb-2048-v2/2048v2.gb --output "$RUNNER_TEMP/gpui-native"
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: gpui-native-window-${{ matrix.rid }}
-          path: ${{ runner.temp }}/gpui-native
-          if-no-files-found: ignore
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: desktop-${{ matrix.rid }}
-          path: src/Emulator/Koh.Emulator.App/bin/Release/net10.0/${{ matrix.rid }}/publish/
-          if-no-files-found: error
-          retention-days: 7
-
-  # VS Code extension tests run under a headless VS Code instance via
-  # @vscode/test-cli. Linux needs xvfb-run because VS Code's test host
-  # always opens a window even in "headless" mode; Windows and macOS
-  # runners have a session that VS Code is happy to render into.
-  extension-tests:
-    needs: changes
-    if: needs.changes.outputs.vscode == 'true'
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: editors/vscode/package-lock.json
-
-      - name: Install deps
-        working-directory: editors/vscode
-        run: npm ci
-
-      - name: Run tests (xvfb on Linux)
-        if: runner.os == 'Linux'
-        working-directory: editors/vscode
-        run: xvfb-run -a npm test
-
-      - name: Run tests
-        if: runner.os != 'Linux'
-        working-directory: editors/vscode
-        run: npm test
-
-  benchmark-native:
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.dotnet == 'true'
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Build benchmarks
-        run: dotnet build tools/benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj --configuration Release
-
-      - name: Verify benchmarks discover
-        # Benchmark discovery
+      - name: Test VS Code and real native debugging
+        shell: bash
         run: |
+          fixture="$RUNNER_TEMP/native-dap-fixture"
+          cargo run -p koh-debugger --example fixture --locked -- "$fixture"
+          desktop="$PWD/artifacts/emulator/${{ steps.desktop.outputs.rid }}/koh-emulator"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            desktop="$(cygpath -m "$desktop.exe")"
+            fixture="$(cygpath -m "$fixture")"
+          fi
+          export KOH_TEST_DESKTOP="$desktop"
+          export KOH_TEST_DAP_ROM="$fixture/fixture.gb"
+          export KOH_TEST_DAP_ELF="$fixture/fixture.elf"
+          export ALSOFT_DRIVERS=null
+          cd editors/vscode
+          npm ci
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            xvfb-run -a npm test
+          else
+            npm test
+          fi
+      - name: Compare pinned RGBDS and ELF pipelines
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          git clone --depth 1 --branch v1.0.1 https://github.com/gbdev/rgbds.git "$RUNNER_TEMP/rgbds"
+          make -C "$RUNNER_TEMP/rgbds" -j2
+          export PATH="$RUNNER_TEMP/rgbds:$PATH"
+          KOH_RGBDS_TEST=1 cargo nextest run -p koh-asm -p koh-link --all-features --locked
+          python scripts/verify-rust-assembler.py --output "$RUNNER_TEMP/rust-assembler-verification"
+      - name: Verify benchmarks discover
+        run: |
+          dotnet build tools/benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj -c Release -m:1
           dotnet run --project tools/benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase2*'
           dotnet run --project tools/benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Phase3*'
           dotnet run --project tools/benchmarks/Koh.Benchmarks --configuration Release --no-build -- --list flat --filter '*Native*'
-
-  build-sample-2048:
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.sample == 'true'
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Linux'
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          dotnet-version: '10.0.x'
-      - name: Build sample
-        run: dotnet msbuild build.proj -t:BuildSample2048
-      - name: Upload ROM
-        uses: actions/upload-artifact@v4
-        with:
-          name: 2048.gbc
-          path: samples/asm/gb-2048/build/2048.gbc
-
-  # The single merge gate: skipped jobs pass, failed or cancelled ones do not.
-  ci-passed:
-    if: always()
-    needs:
-      - changes
-      - native
-      - references
-      - build-and-test
-      - emulator-aot-publish
-      - extension-tests
-      - benchmark-native
-      - build-sample-2048
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Check job results
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: |
-          echo '${{ toJSON(needs) }}'
-          exit 1
+          name: validation-${{ runner.os }}
+          path: |
+            artifacts/
+            target/release/koh-asm*
+            target/release/koh-link*
+            target/release/koh-compile*
+            target/release/koh-engine*
+            licenses/rust-assembler/
+            licenses/rust-assembler-dependencies.md
+            samples/asm/gb-2048/build/2048.gbc
+            ${{ runner.temp }}/gpui-native/
+            ${{ runner.temp }}/rust-assembler-verification/
+          if-no-files-found: ignore
+          retention-days: 7

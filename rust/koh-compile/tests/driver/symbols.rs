@@ -273,8 +273,8 @@ fn source_document<'a>(lines: &'a [koh_link::LinkedLine], source: &Path, line: u
 
 pub(super) fn debugger_replies(debugger: &Host, requests: &[String]) -> Vec<serde_json::Value> {
     use std::{io::Write, process::Stdio};
-    let mut child = super::dotnet()
-        .arg(&debugger.dll)
+    let mut child = debugger
+        .command()
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -434,7 +434,8 @@ fn debugger_stops_on_native_csharp_source_and_inspects_machine_state(
         std::os::unix::fs::symlink(host.directory.path(), &alias).unwrap();
         Host {
             directory: tempfile::tempdir_in(alias).unwrap(),
-            dll: host.dll.clone(),
+            program: host.program.clone(),
+            native: host.native.clone(),
         }
     };
     #[cfg(unix)]

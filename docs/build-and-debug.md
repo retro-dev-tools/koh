@@ -32,8 +32,9 @@ On Windows use `scripts/run-emulator.ps1`. For a headless check, run the engine
 directly with PNG output:
 
 ```sh
-dotnet run --project src/Emulator/Koh.Emulator.App -- samples/asm/gb-2048/build/2048.gbc --screenshot=assembly-title.png --frames=300
-dotnet run --project src/Emulator/Koh.Emulator.App -- samples/csharp/gb-2048-v2/2048v2.gb --screenshot=csharp-title.png --frames=300
+dotnet msbuild build.proj -t:PublishEmulatorApp
+artifacts/emulator/linux-x64/koh-engine samples/asm/gb-2048/build/2048.gbc --screenshot=assembly-title.png --frames=300
+artifacts/emulator/linux-x64/koh-engine samples/csharp/gb-2048-v2/2048v2.gb --screenshot=csharp-title.png --frames=300
 ```
 
 PNG capture does not open a window or initialize audio or graphics. To host a
@@ -57,9 +58,9 @@ root in that host. Publish the native emulator:
 dotnet msbuild build.proj -t:PublishEmulatorApp
 ```
 
-NativeAOT requires the native compiler/linker toolchain for the host. Configure
+The Rust desktop and engine require the native compiler/linker toolchain. Configure
 `koh.emulator.exePath` in VS Code to the absolute path of the published executable
-under `src/Emulator/Koh.Emulator.App/bin/Release/net10.0/<host-rid>/publish/`.
+under `artifacts/emulator/<host-rid>/`.
 Use `koh-emulator` (`koh-emulator.exe` on Windows).
 
 Create `.vscode/launch.json` in the repository root:

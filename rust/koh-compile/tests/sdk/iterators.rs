@@ -84,8 +84,8 @@ public static unsafe class Program {
         .find(|s| s.name == "__koh_exit")
         .unwrap();
     let host = support::build_host();
-    let result = support::dotnet()
-        .arg(&host.dll)
+    let result = host
+        .command()
         .args([
             "--native-heap",
             &format!("{:x}:{:x}", stop.bank.unwrap_or(0), stop.value),

@@ -3,9 +3,8 @@
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
-$tfm = 'net10.0'
 $rid = 'win-x64'
-$publishDir = Join-Path $repoRoot "src/Emulator/Koh.Emulator.App/bin/Release/$tfm/$rid/publish"
+$publishDir = Join-Path $repoRoot "artifacts/emulator/$rid"
 $exe = Join-Path $publishDir 'koh-emulator.exe'
 
 Push-Location $repoRoot

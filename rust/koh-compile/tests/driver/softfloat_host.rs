@@ -973,11 +973,7 @@ fn software_runtime_matches_independent_numeric_oracles(
         _ => unreachable!(),
     }
     assert_eq!(queries.len(), count);
-    let output = support::dotnet()
-        .arg(&runtime.dll)
-        .args(&queries)
-        .output()
-        .unwrap();
+    let output = runtime.command().args(&queries).output().unwrap();
     assert!(
         output.status.success(),
         "{}{}",

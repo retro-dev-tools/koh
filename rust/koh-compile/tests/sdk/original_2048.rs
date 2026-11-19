@@ -108,8 +108,8 @@ fn original_2048_sdk_boots_and_plays(#[case] configuration: &str, #[case] cgb: b
     let script = directory.path().join("input.txt");
     std::fs::write(&script, actions).unwrap();
     let host = support::build_fixture_host("GameHost");
-    let result = support::dotnet()
-        .arg(&host.dll)
+    let result = host
+        .command()
         .arg(&rom)
         .arg(format!("{:x}", symbol("__koh_abort")))
         .arg(script)

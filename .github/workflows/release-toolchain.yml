@@ -68,7 +68,7 @@ jobs:
           if [[ "${{ matrix.rid }}" == win-* ]]; then compiler_suffix=.exe; fi
           compiler_path="$PWD/staging/bin/koh-compile$compiler_suffix"
           linker_path="$PWD/staging/bin/koh-link$compiler_suffix"
-          emulator_path="$PWD/staging/bin/Koh.Emulator.App$compiler_suffix"
+          emulator_path="$PWD/staging/bin/koh-engine$compiler_suffix"
           smoke_rom="$RUNNER_TEMP/koh-compiler-package-smoke.gb"
           if [[ "${{ matrix.rid }}" == win-* ]]; then
             compiler_path="$(cygpath -m "$compiler_path")"

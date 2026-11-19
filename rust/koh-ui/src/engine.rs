@@ -301,7 +301,7 @@ pub fn executable() -> io::Result<PathBuf> {
         return Ok(path.into());
     }
     Ok(std::env::current_exe()?
-        .with_file_name(format!("Koh.Emulator.App{}", std::env::consts::EXE_SUFFIX)))
+        .with_file_name(format!("koh-engine{}", std::env::consts::EXE_SUFFIX)))
 }
 
 #[cfg(test)]

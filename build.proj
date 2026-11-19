@@ -14,7 +14,7 @@
 
   <PropertyGroup>
     <EmulatorRuntimeIdentifier Condition="'$(EmulatorRuntimeIdentifier)' == ''">$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</EmulatorRuntimeIdentifier>
-    <EmulatorPublishDir Condition="'$(EmulatorPublishDir)' == ''">$(MSBuildThisFileDirectory)src/Emulator/Koh.Emulator.App/bin/Release/net10.0/$(EmulatorRuntimeIdentifier)/publish</EmulatorPublishDir>
+    <EmulatorPublishDir Condition="'$(EmulatorPublishDir)' == ''">$(MSBuildThisFileDirectory)artifacts/emulator/$(EmulatorRuntimeIdentifier)</EmulatorPublishDir>
     <EmulatorExecutableName>koh-emulator</EmulatorExecutableName>
     <EmulatorExecutableName Condition="$(EmulatorRuntimeIdentifier.StartsWith('win-'))">koh-emulator.exe</EmulatorExecutableName>
   </PropertyGroup>
@@ -38,28 +38,38 @@
   <Target Name="PublishDev" DependsOnTargets="PublishEmulatorApp">
     <Exec Command="dotnet publish src/Asm/Koh.Lsp -c Debug -o editors/vscode/server" />
     <ItemGroup>
+      <RetiredDevEngineOutputs Include="editors/vscode/server/Koh.Emulator.App*;editors/vscode/server/Koh.Emulator.dll;editors/vscode/server/Koh.Debugger.dll;editors/vscode/server/Koh.Boot.dll;editors/vscode/server/Silk.NET.OpenAL.dll;editors/vscode/server/Silk.NET.Core.dll" />
       <DesktopPublishFiles Include="$(EmulatorPublishDir)/**/*" Exclude="$(EmulatorPublishDir)/**/*.pdb" />
     </ItemGroup>
+    <Delete Files="@(RetiredDevEngineOutputs)" />
     <Copy SourceFiles="@(DesktopPublishFiles)" DestinationFiles="@(DesktopPublishFiles->'$(MSBuildThisFileDirectory)editors/vscode/server/%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
 
   <Target Name="BuildRustDesktop">
+    <Exec Command="dotnet restore src/Asm/Koh.Native/Koh.Native.csproj -r $(EmulatorRuntimeIdentifier)" />
     <MSBuild Projects="src/Asm/Koh.Native/Koh.Native.csproj" Targets="GetNativeUiPath" Properties="Configuration=Release;RuntimeIdentifier=$(EmulatorRuntimeIdentifier)">
       <Output TaskParameter="TargetOutputs" PropertyName="RustDesktop" />
+    </MSBuild>
+    <MSBuild Projects="src/Asm/Koh.Native/Koh.Native.csproj" Targets="GetNativeEnginePath;GetNativeAudioFiles" Properties="Configuration=Release;RuntimeIdentifier=$(EmulatorRuntimeIdentifier)">
+      <Output TaskParameter="TargetOutputs" ItemName="NativeEngineFiles" />
     </MSBuild>
   </Target>
 
   <Target Name="PublishEmulatorApp" DependsOnTargets="BuildRustDesktop">
-    <Exec Command="dotnet publish src/Emulator/Koh.Emulator.App -c Release -r $(EmulatorRuntimeIdentifier) -o &quot;$(EmulatorPublishDir)&quot;" />
     <ItemGroup>
       <RetiredDesktopOutputs Include="$(EmulatorPublishDir)/KohUI*.dll;$(EmulatorPublishDir)/KohUI*.pdb;$(EmulatorPublishDir)/SDL3-CS.dll;$(EmulatorPublishDir)/SDL3.dll;$(EmulatorPublishDir)/libSDL3*.so*;$(EmulatorPublishDir)/libSDL3*.dylib;$(EmulatorPublishDir)/licenses/SDL3*.txt" />
+      <RetiredDesktopOutputs Include="$(EmulatorPublishDir)/Koh.Emulator.App*;$(EmulatorPublishDir)/Koh.Emulator.dll;$(EmulatorPublishDir)/Koh.Debugger.dll;$(EmulatorPublishDir)/Koh.Boot.dll;$(EmulatorPublishDir)/Silk.NET.OpenAL.dll;$(EmulatorPublishDir)/Silk.NET.Core.dll" />
     </ItemGroup>
     <Delete Files="@(RetiredDesktopOutputs)" />
     <Copy SourceFiles="$(RustDesktop)" DestinationFolder="$(EmulatorPublishDir)" />
+    <Copy SourceFiles="@(NativeEngineFiles)" DestinationFolder="$(EmulatorPublishDir)" />
     <ItemGroup>
       <RustUiNotices Include="$(MSBuildThisFileDirectory)licenses/rust-ui/**/*" />
+      <RustAssemblerNotices Include="$(MSBuildThisFileDirectory)licenses/rust-assembler/**/*" />
     </ItemGroup>
     <Copy SourceFiles="@(RustUiNotices)" DestinationFiles="@(RustUiNotices->'$(EmulatorPublishDir)/licenses/rust-ui/%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Copy SourceFiles="@(RustAssemblerNotices)" DestinationFiles="@(RustAssemblerNotices->'$(EmulatorPublishDir)/licenses/rust-assembler/%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)licenses/rust-assembler-dependencies.md" DestinationFolder="$(EmulatorPublishDir)/licenses" />
     <Exec Command="python &quot;$(MSBuildThisFileDirectory)scripts/stage-rust-notices.py&quot; &quot;$(EmulatorPublishDir)/licenses/rust-runtime&quot;" />
   </Target>
 

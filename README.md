@@ -23,7 +23,7 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 | VS Code extension | VS Code integration for Koh projects |
 | `Koh.Sdk` | MSBuild integration that compiles C# games to Game Boy ROMs |
 | `koh-emulator` | Rust + GPUI Kit desktop emulator |
-| `Koh.Emulator.App` | Windowless engine, debug adapter and headless captures |
+| `koh-engine` | Rust windowless engine, debug adapter and headless captures |
 
 ## Features
 
@@ -204,13 +204,13 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 
 ```text
 rust/         koh-asm, koh-link, koh-compile (CIL compiler), koh-objects (ELF ABI),
-              koh-ui (GPUI Kit desktop)
+              koh-ui (GPUI Kit desktop), koh-emulator, koh-debugger, koh-engine
 src/
   Common/     Koh.Common (diagnostics, source text), Koh.Opcodes (SM83 opcode table),
               Koh.Objects (compiler output concepts and debug records)
   Asm/        Koh.Native (native bridge), Koh.Lsp (language server)
   Compiler/   Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
-  Emulator/   Koh.Emulator, Koh.Debugger, Koh.Boot (boot ROMs), Koh.Verify, Koh.Emulator.App
+  Emulator/   Koh.Emulator, Koh.Boot, Koh.Verify (retained development tools)
 tests/        mirrors src/ by area; tests/fixtures holds external test ROMs
 tools/        Koh.Superopt, benchmarks/
 samples/      asm/, csharp/, ui/

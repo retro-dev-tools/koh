@@ -6,6 +6,8 @@ import * as net from 'net';
 import os from 'os';
 import * as path from 'path';
 import type { ChildProcess, SpawnOptions } from 'child_process';
+import { spawn } from 'child_process';
+import * as fs from 'fs';
 import { KohDapAdapterFactory, Spawner } from '../debug/KohDapAdapterFactory';
 import { DAP_LISTENING_MARKER } from '../debug/waitForDapReady';
 import { Logger } from '../core/Logger';
@@ -228,12 +230,12 @@ suite('KohDapAdapterFactory', () => {
         const session = fakeSession({
             type: 'koh', request: 'launch', name: 'x',
             program: '/roms/foo.gb',
-            emulatorPath: '/custom/Koh.Emulator.App',
+            emulatorPath: '/custom/koh-engine',
         });
         const resultPromise = factory.createDebugAdapterDescriptor(session);
 
         assert.strictEqual(calls.length, 1);
-        assert.strictEqual(calls[0].command, '/custom/Koh.Emulator.App');
+        assert.strictEqual(calls[0].command, '/custom/koh-engine');
 
         calls[0].stdout.write(`${DAP_LISTENING_MARKER} x\n`);
         await resultPromise;
@@ -321,5 +323,122 @@ suite('KohDapAdapterFactory', () => {
         calls[0].emitExit(127);
 
         await assert.rejects(resultPromise, /exited \(code=127\)/);
+    });
+
+    test('real desktop factory debugs native source and closes on disconnect', async function () {
+        this.timeout(60_000);
+        const desktop = process.env.KOH_TEST_DESKTOP;
+        if (!desktop) { this.skip(); return; }
+        const rom = process.env.KOH_TEST_DAP_ROM;
+        const elf = process.env.KOH_TEST_DAP_ELF;
+        assert.ok(rom && elf, 'KOH_TEST_DAP_ROM and KOH_TEST_DAP_ELF are required');
+        for (const file of [desktop, rom, elf]) assert.ok(fs.existsSync(file), file);
+        assert.match(path.basename(desktop), /^koh-emulator(?:\.exe)?$/);
+        let child: ChildProcess | undefined;
+        let exited: Promise<number | null> | undefined;
+        let diagnostics = '';
+        const spawner: Spawner = (command, args, options) => {
+            assert.strictEqual(path.resolve(command), path.resolve(desktop));
+            child = spawn(command, args, options);
+            child.stderr?.on('data', data => { diagnostics = (diagnostics + String(data)).slice(-32768); });
+            exited = new Promise(resolve => child!.once('exit', resolve));
+            return child;
+        };
+        const factory = new KohDapAdapterFactory(log, fakeResolver({
+            version: 'native-test', binDir: path.dirname(desktop), source: 'managedInstall',
+        }), spawner);
+        let socket: net.Socket | undefined;
+        try {
+            const session = fakeSession({ type: 'koh', request: 'launch', name: 'native-test', program: rom });
+            (session as { id: string }).id = 'native-real-desktop';
+            const descriptor = await factory.createDebugAdapterDescriptor(session) as vscode.DebugAdapterNamedPipeServer;
+            socket = net.createConnection(descriptor.path);
+            let transportError: Error | undefined;
+            socket.on('error', error => { transportError = error; });
+            socket.setTimeout(20_000, () => socket!.destroy(new Error('DAP transport timeout')));
+            let pending = Buffer.alloc(0);
+            const messages: any[] = [];
+            socket.on('data', data => {
+                try {
+                    pending = Buffer.concat([pending, typeof data === 'string' ? Buffer.from(data) : data]);
+                    assert.ok(pending.length <= 1024 * 1024, 'oversized DAP reply');
+                    while (true) {
+                        const end = pending.indexOf('\r\n\r\n');
+                        if (end < 0) break;
+                        const match = /Content-Length:\s*(\d+)/i.exec(pending.subarray(0, end).toString('ascii'));
+                        assert.ok(match, 'missing DAP Content-Length');
+                        const length = Number(match[1]);
+                        if (pending.length < end + 4 + length) break;
+                        messages.push(JSON.parse(pending.subarray(end + 4, end + 4 + length).toString('utf8')));
+                        pending = pending.subarray(end + 4 + length);
+                    }
+                } catch (error) { transportError = error as Error; }
+            });
+            const take = async (predicate: (message: any) => boolean) => {
+                const deadline = Date.now() + 20_000;
+                while (true) {
+                    const index = messages.findIndex(predicate);
+                    if (index >= 0) return messages.splice(index, 1)[0];
+                    if (transportError) throw transportError;
+                    assert.ok(Date.now() < deadline, `DAP message timeout\n${diagnostics}`);
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+            };
+            let sequence = 0;
+            const request = async (command: string, args: object = {}) => {
+                const seq = ++sequence;
+                const body = Buffer.from(JSON.stringify({ seq, type: 'request', command, arguments: args }));
+                socket!.write(`Content-Length: ${body.length}\r\n\r\n`);
+                socket!.write(body);
+                const response = await take(message => message.type === 'response' && message.request_seq === seq);
+                assert.strictEqual(response.success, true, JSON.stringify(response));
+                return response;
+            };
+            await request('initialize', { adapterID: 'koh' });
+            await request('launch', { stopOnEntry: true, debugInfo: elf });
+            await request('configurationDone');
+            await take(message => message.event === 'stopped' && message.body.reason === 'entry');
+            const source = process.env.KOH_TEST_DAP_SOURCE ?? 'fixture.asm';
+            const line = Number(process.env.KOH_TEST_DAP_LINE ?? '5');
+            const breakpoint = await request('setBreakpoints', { source: { path: source }, breakpoints: [{ line }] });
+            assert.strictEqual(breakpoint.body.breakpoints[0].verified, true);
+            await request('continue', { threadId: 1 });
+            await take(message => message.event === 'stopped' && message.body.reason === 'breakpoint');
+            const stack = await request('stackTrace', { threadId: 1 });
+            assert.strictEqual(stack.body.stackFrames[0].line, line);
+            assert.strictEqual(stack.body.stackFrames[0].source.path, source);
+            await request('stepIn', { threadId: 1 });
+            await take(message => message.event === 'stopped' && message.body.reason === 'step');
+            const stepped = await request('stackTrace', { threadId: 1 });
+            assert.notStrictEqual(stepped.body.stackFrames[0].instructionPointerReference, stack.body.stackFrames[0].instructionPointerReference);
+            assert.strictEqual(stepped.body.totalFrames, 2);
+            assert.strictEqual(stepped.body.stackFrames.length, 2);
+            assert.strictEqual(stepped.body.stackFrames[0].instructionPointerReference, '0x0200');
+            assert.strictEqual(stepped.body.stackFrames[1].instructionPointerReference, '0x0153');
+            assert.strictEqual(stepped.body.stackFrames[1].source.path, source);
+            assert.strictEqual(stepped.body.stackFrames[1].line, line + 1);
+            const watchInfo = await request('dataBreakpointInfo', { name: stepped.body.stackFrames[0].instructionPointerReference });
+            assert.strictEqual(watchInfo.body.dataId, '0x0200');
+            const watch = await request('setDataBreakpoints', { breakpoints: [{ dataId: watchInfo.body.dataId, accessType: 'read' }] });
+            assert.strictEqual(watch.body.breakpoints[0].verified, true);
+            await request('continue', { threadId: 1 });
+            await take(message => message.event === 'stopped' && message.body.reason === 'data breakpoint');
+            await request('setDataBreakpoints', { breakpoints: [] });
+            await request('writeMemory', { memoryReference: '0xC000', data: 'Ql8=' });
+            const memory = await request('readMemory', { memoryReference: '0xC000', count: 2 });
+            assert.strictEqual(memory.body.data, 'Ql8=');
+            await request('disconnect');
+            const deadline = Date.now() + 10_000;
+            while (child!.exitCode === null) {
+                assert.ok(Date.now() < deadline, `desktop survived DAP disconnect\n${diagnostics}`);
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            assert.strictEqual(await exited, 0, diagnostics);
+        } catch (error) {
+            throw new Error(`${error}\n${diagnostics}`);
+        } finally {
+            socket?.destroy();
+            factory.dispose();
+        }
     });
 });

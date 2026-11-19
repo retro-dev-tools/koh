@@ -1,4 +1,4 @@
-use super::{Host, dotnet, execute_mode, gameboy_images, host};
+use super::{Host, execute_mode, gameboy_images, host};
 use koh_compile::{
     cil::{Operand, decode},
     compile,
@@ -81,8 +81,8 @@ fn constrained_own_methods_require_the_exact_closed_receiver(
             let object = result.unwrap_or_else(|e| panic!("{entry} target={target:?}: {e}"));
             let assembly = directory.path().join("matching own method.dll");
             std::fs::write(&assembly, &bytes).unwrap();
-            let desktop = dotnet()
-                .arg(&managed.dll)
+            let desktop = managed
+                .command()
                 .arg(assembly)
                 .arg(entry.trim_start_matches("Program::"))
                 .output()

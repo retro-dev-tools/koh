@@ -963,8 +963,8 @@ fn real_loop_cost_baselines(
     let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
     let path = directory.path().join("loop.gb");
     std::fs::write(&path, rom_program(&[function], identity, &[], 0xd000)).unwrap();
-    let output = dotnet()
-        .arg(&host.dll)
+    let output = host
+        .command()
         .arg("--loop-cost")
         .arg(path)
         .output()
@@ -1954,12 +1954,7 @@ fn comparison_branches_preserve_predicates_and_all_consumers(host: &Host, #[case
         let f = compare_branch::function(bits, predicate, shape);
         let path = directory.path().join("compare.gb");
         std::fs::write(&path, rom(&f, &[a, b], 0xd000)).unwrap();
-        let output = dotnet()
-            .arg(&host.dll)
-            .arg("--cost")
-            .arg(path)
-            .output()
-            .unwrap();
+        let output = host.command().arg("--cost").arg(path).output().unwrap();
         assert!(
             output.status.success(),
             "{}",
@@ -3032,8 +3027,7 @@ fn run_roms_observed(
         .prefix("rom run ")
         .tempdir_in(host.directory.path())
         .unwrap();
-    let mut command = dotnet();
-    command.arg(&host.dll);
+    let mut command = host.command();
     if observed.is_some() {
         command.arg("--observe-memory");
     }
@@ -3857,12 +3851,7 @@ fn wide_shift_cycle_cost(
     let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
     let path = directory.path().join("shift.gb");
     std::fs::write(&path, rom(&f, &[value, count], 0xd000)).unwrap();
-    let output = dotnet()
-        .arg(&host.dll)
-        .arg("--cost")
-        .arg(path)
-        .output()
-        .unwrap();
+    let output = host.command().arg("--cost").arg(path).output().unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -3898,8 +3887,8 @@ fn wide_division_stack_boundary_preserves_reserved_memory(host: &Host, #[case] l
     );
     f.locals = vec![Type::I64; locals];
     let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
-    let mut command = dotnet();
-    command.arg(&host.dll).current_dir(directory.path());
+    let mut command = host.command();
+    command.current_dir(directory.path());
     let stacks: Vec<u16> = (0xc140..0xc300).step_by(2).collect();
     for &stack in &stacks {
         let path = directory.path().join(format!("{stack:04x}.gb"));
@@ -3991,12 +3980,7 @@ fn small_multiplication_cycle_cost(
     let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
     let path = directory.path().join("multiply.gb");
     std::fs::write(&path, rom(&f, &[left, right], 0xd000)).unwrap();
-    let output = dotnet()
-        .arg(&host.dll)
-        .arg("--cost")
-        .arg(path)
-        .output()
-        .unwrap();
+    let output = host.command().arg("--cost").arg(path).output().unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -4288,12 +4272,7 @@ fn small_division_cycle_cost(host: &Host, #[case] ty: Type) {
     let directory = tempfile::tempdir_in(host.directory.path()).unwrap();
     let path = directory.path().join("division.gb");
     std::fs::write(&path, rom(&f, &[30000, 31], 0xd000)).unwrap();
-    let output = dotnet()
-        .arg(&host.dll)
-        .arg("--cost")
-        .arg(path)
-        .output()
-        .unwrap();
+    let output = host.command().arg("--cost").arg(path).output().unwrap();
     assert!(
         output.status.success(),
         "{}",

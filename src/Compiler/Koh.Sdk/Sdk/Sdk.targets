@@ -17,10 +17,12 @@
     <KohCompilerExecutable Condition="'$(KohCompilerExecutable)' == ''">$([System.IO.Path]::GetDirectoryName('$(KohBuildTasksAssembly)'))/koh-compile$(KohNativeSuffix)</KohCompilerExecutable>
     <KohLinkExecutable Condition="'$(KohLinkExecutable)' == '' and '$(KOH_LINK)' != ''">$(KOH_LINK)</KohLinkExecutable>
     <KohLinkExecutable Condition="'$(KohLinkExecutable)' == ''">$([System.IO.Path]::GetDirectoryName('$(KohBuildTasksAssembly)'))/koh-link$(KohNativeSuffix)</KohLinkExecutable>
-    <KohEmulatorProject>$(KohRoot)src/Emulator/Koh.Emulator.App/Koh.Emulator.App.csproj</KohEmulatorProject>
+    <KohEmulatorRid>$([System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier)</KohEmulatorRid>
+    <_KohPublishLocalEmulator Condition="'$(KohEmulatorExecutable)' == ''">true</_KohPublishLocalEmulator>
+    <KohEmulatorExecutable Condition="'$(KohEmulatorExecutable)' == ''">$(KohRoot)artifacts/emulator/$(KohEmulatorRid)/koh-emulator$(KohNativeSuffix)</KohEmulatorExecutable>
     <KohAbsoluteRomPath>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(KohRomPath)'))</KohAbsoluteRomPath>
-    <RunCommand>dotnet</RunCommand>
-    <RunArguments>run --project "$(KohEmulatorProject)" --configuration "$(Configuration)" -- "$(KohAbsoluteRomPath)"</RunArguments>
+    <RunCommand>$(KohEmulatorExecutable)</RunCommand>
+    <RunArguments>"$(KohAbsoluteRomPath)"</RunArguments>
     <KohTileSheetsFile>$(IntermediateOutputPath)KohTileSheets.g.cs</KohTileSheetsFile>
     <KohRomPropsStampFile>$(IntermediateOutputPath)Koh.CompileKohRom.props.txt</KohRomPropsStampFile>
   </PropertyGroup>
@@ -32,6 +34,14 @@
 
   <UsingTask TaskName="Koh.Build.Tasks.CompileKohRom" AssemblyFile="$(KohBuildTasksAssembly)" />
   <UsingTask TaskName="Koh.Build.Tasks.GenerateKohTileSheets" AssemblyFile="$(KohBuildTasksAssembly)" />
+
+  <Target Name="KohPublishEmulator" BeforeTargets="ComputeRunArguments" Condition="'$(_KohPublishLocalEmulator)' == 'true'">
+    <MSBuild Projects="$(KohRoot)build.proj" Targets="PublishEmulatorApp" />
+  </Target>
+
+  <Target Name="Run" DependsOnTargets="ComputeRunArguments">
+    <Exec Command="&quot;$(RunCommand)&quot; $(RunArguments)" WorkingDirectory="$(RunWorkingDirectory)" />
+  </Target>
 
   <Target Name="KohGenerateTileSheets" DependsOnTargets="ResolveProjectReferences"
           Condition="'@(KohTileSheet)' != ''"

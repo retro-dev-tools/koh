@@ -1725,7 +1725,7 @@ fn full_graphics_showcase_boots_and_animates(
     assert!(linked.rom.len() > 0x8000, "exercise an actual banked game");
     let rom = directory.path().join("showcase.gb");
     std::fs::write(&rom, linked.rom).unwrap();
-    let result = dotnet().arg(&showcase_host.dll).arg(&rom).output().unwrap();
+    let result = showcase_host.command().arg(&rom).output().unwrap();
     assert!(
         result.status.success(),
         "{}{}",
@@ -1865,8 +1865,8 @@ fn full_graphics_showcase_boots_and_animates(
         })),
         "rendered checkerboard must match a documented palette and scroll phase"
     );
-    let timeline = dotnet()
-        .arg(&showcase_host.dll)
+    let timeline = showcase_host
+        .command()
         .arg(&rom)
         .arg("timeline")
         .output()
@@ -1894,7 +1894,7 @@ fn full_graphics_showcase_boots_and_animates(
         corrupt[0x104] = 0;
         let bad = directory.path().join("bad-logo.gb");
         std::fs::write(&bad, corrupt).unwrap();
-        let rejected = dotnet().arg(&showcase_host.dll).arg(bad).output().unwrap();
+        let rejected = showcase_host.command().arg(bad).output().unwrap();
         assert!(!rejected.status.success());
         assert!(String::from_utf8_lossy(&rejected.stderr).contains("Boot did not hand off"));
     }
@@ -2678,8 +2678,8 @@ fn oam_dma_runs_from_relocated_hram_and_preserves_banks(
                 .iter()
                 .find(|s| s.name == "__koh_exit")
                 .unwrap();
-            let output = dotnet()
-                .arg(&host.dll)
+            let output = host
+                .command()
                 .args([
                     "--native-oam",
                     &format!("{:x}:{:x}", stop.bank.unwrap_or(0), stop.value),
@@ -4761,8 +4761,8 @@ fn execute_mode(
     let path = directory.join("native game.gb");
     std::fs::write(&path, &linked.rom).unwrap();
     let exit = linked.symbols.iter().find(|s| s.name == stop).unwrap();
-    let output = dotnet()
-        .arg(&host.dll)
+    let output = host
+        .command()
         .args([
             mode,
             &format!("{:x}:{:x}", exit.bank.unwrap_or(0), exit.value),
