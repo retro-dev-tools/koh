@@ -7,11 +7,11 @@ Assessment date: 2026-11-14. Source baseline: `c2fddcf`, with pre-existing uncom
 Active user-requested LSP migration (2026-11-19): replace the managed language
 server with native Rust while retaining the `koh-asm --serve-json` worker.
 Configuration/workspace ownership, diagnostic notifications, hover, definition,
-references and rename now run through native stdio. Local native checks pass
-49/49 with strict Clippy;169 legacy cases have native replacements and one
-private adapter test is obsolete.33 classification/hint/signature cases and
-document-symbol/completion integration remain, followed by publishing, managed
-retirement and platform/editor acceptance. Production still uses the managed
+references, rename, semantic tokens, inlay hints, signatures, document symbols
+and completion now run through native stdio. Local native checks pass59/59
+with strict Clippy;206 legacy cases have native replacements and one private
+adapter test is obsolete. Publishing, managed retirement and platform/editor
+acceptance remain. Production still uses the managed
 server. See [LSP migration](docs/rust-lsp/design.md) and
 [current evidence](docs/rust-lsp/evidence.md).
 

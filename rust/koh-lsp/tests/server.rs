@@ -148,3 +148,207 @@ fn invalid_requests_return_errors_and_notifications_have_no_rpc_response() {
         -32600
     );
 }
+
+#[test]
+fn inlay_hints_preserve_values_ranges_and_declaration_exclusions() {
+    let fixture = Fixture::new();
+    let path = fixture.write("hints.asm", "");
+    let uri = to_uri(&path).unwrap();
+    for (text, expected) in [
+        (
+            "SECTION \"Main\",ROM0\nMY_CONST EQU 42\nld a,MY_CONST\nld b,MY_CONST",
+            vec![" = $002A (42)", " = $002A (42)"],
+        ),
+        (
+            "SECTION \"Main\",ROM0\nMY_CONST EQU 255\nld a,MY_CONST",
+            vec![" = $00FF (255)"],
+        ),
+        (
+            "SECTION \"Main\",ROM0\nLabel: nop\njp Label",
+            vec![" = $0000"],
+        ),
+        ("SECTION \"Main\",ROM0\nMY_CONST EQU 42", vec![]),
+        ("SECTION \"Main\",ROM0\nLabel: nop", vec![]),
+        ("SECTION \"Main\",ROM0\nhalt", vec![]),
+        ("SECTION \"Main\",ROM0\nld a,Unknown", vec![]),
+        ("MY_STR EQUS \"hello\"", vec![]),
+        ("MyMacro: MACRO\nnop\nENDM", vec![]),
+        (
+            "SECTION \"Main\",ROM0\nMyMacro: MACRO\nnop\nENDM\nMyMacro",
+            vec![],
+        ),
+    ] {
+        let mut server = Server::default();
+        server.handle(&json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"text":text}}}));
+        let hints = request(
+            &mut server,
+            "textDocument/inlayHint",
+            json!({"textDocument":{"uri":uri},"range":{"start":{"line":0,"character":0},"end":{"line":999,"character":0}}}),
+        );
+        let labels: Vec<_> = hints
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|hint| hint["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(labels, expected, "{text}");
+        if let Some(hint) = hints.as_array().unwrap().first() {
+            assert_eq!(hint["kind"], 1);
+            assert_eq!(hint["paddingLeft"], true);
+        }
+        let excluded = request(
+            &mut server,
+            "textDocument/inlayHint",
+            json!({"textDocument":{"uri":uri},"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}),
+        );
+        assert_eq!(excluded, json!([]));
+    }
+}
+
+#[test]
+fn macro_signatures_preserve_arity_active_parameter_and_null_cases() {
+    let fixture = Fixture::new();
+    let path = fixture.write("macros.asm", "");
+    let uri = to_uri(&path).unwrap();
+    for (text, line, character, arity, active) in [
+        (
+            "MyMacro: MACRO\nld a,\\1\nld b,\\2\nENDM\nMyMacro $42,$FF",
+            4,
+            8,
+            Some(2),
+            0,
+        ),
+        (
+            "MyMacro: MACRO\nld a,\\1\nld b,\\2\nENDM\nMyMacro $42,$FF",
+            4,
+            12,
+            Some(2),
+            1,
+        ),
+        ("MyMacro: MACRO\nnop\nENDM\nMyMacro", 3, 0, Some(0), 0),
+        ("SECTION \"Main\",ROM0\nUndefinedMacro $42", 1, 0, None, 0),
+        ("SECTION \"Main\",ROM0\nnop", 1, 0, None, 0),
+    ] {
+        let mut server = Server::default();
+        server.handle(&json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"text":text}}}));
+        let help = request(
+            &mut server,
+            "textDocument/signatureHelp",
+            json!({"textDocument":{"uri":uri},"position":{"line":line,"character":character}}),
+        );
+        if let Some(arity) = arity {
+            assert_eq!(
+                help["signatures"][0]["parameters"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                arity
+            );
+            assert_eq!(help["activeParameter"], active);
+            assert_eq!(help["activeSignature"], 0);
+            assert_eq!(help["signatures"][0]["activeParameter"], active);
+        } else {
+            assert_eq!(help, Value::Null);
+        }
+    }
+}
+
+#[test]
+fn document_symbols_completion_and_semantic_tokens_are_served() {
+    let fixture = Fixture::new();
+    let path = fixture.write("outline.asm", "");
+    let uri = to_uri(&path).unwrap();
+    let mut server = Server::default();
+    server.handle(&json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"text":"SECTION \"Main\",ROM0\nMY_CONST EQU 42\nLabel: nop\nld a,MY_CONST\n"}}}));
+    let params = json!({"textDocument":{"uri":uri}});
+    let outline = request(&mut server, "textDocument/documentSymbol", params.clone());
+    let names: Vec<_> = outline
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| (s["name"].as_str().unwrap(), s["kind"].as_u64().unwrap()))
+        .collect();
+    assert_eq!(names, vec![("Main", 2), ("MY_CONST", 14), ("Label", 12)]);
+    let completions = request(&mut server, "textDocument/completion", params.clone());
+    for name in ["nop", "SECTION", "hl", "MY_CONST", "Label"] {
+        assert!(
+            completions
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["label"] == name),
+            "{name}"
+        );
+    }
+    let tokens = request(&mut server, "textDocument/semanticTokens/full", params);
+    assert!(!tokens["data"].as_array().unwrap().is_empty());
+    let capabilities =
+        request(&mut server, "initialize", json!({"capabilities":{}}))["capabilities"].clone();
+    assert_eq!(capabilities["semanticTokensProvider"]["full"], true);
+    assert_eq!(
+        capabilities["semanticTokensProvider"]["legend"]["tokenTypes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        13
+    );
+    assert_eq!(capabilities["inlayHintProvider"], true);
+    assert_eq!(
+        capabilities["signatureHelpProvider"]["triggerCharacters"],
+        json!([","])
+    );
+}
+
+#[test]
+fn nested_macro_argument_commas_do_not_advance_the_active_parameter() {
+    let fixture = Fixture::new();
+    let path = fixture.write("nested.asm", "");
+    let uri = to_uri(&path).unwrap();
+    let source = "MyMacro: MACRO\ndb \\1,\\2\nENDM\nMyMacro STRCAT(\"A\",\"B\"),2,3\n";
+    let mut server = Server::default();
+    server.handle(&json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"text":source}}}));
+    for (marker, active) in [("\"B\"", 0), ("2,3", 1), ("3\n", 1)] {
+        let offset = source.find(marker).unwrap();
+        let position = koh_lsp::paths::position(source, source[..offset].encode_utf16().count());
+        let help = request(
+            &mut server,
+            "textDocument/signatureHelp",
+            json!({"textDocument":{"uri":uri},"position":position}),
+        );
+        assert_eq!(help["activeParameter"], active, "{marker}");
+    }
+}
+
+#[test]
+fn untitled_documents_preserve_client_uris_without_creating_files() {
+    let fixture = Fixture::new();
+    let root = to_uri(&fixture.0).unwrap();
+    let uri = "untitled:Untitled-1";
+    let mut server = Server::default();
+    request(
+        &mut server,
+        "initialize",
+        json!({"rootUri":root,"capabilities":{}}),
+    );
+    let notifications=server.handle(&json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":uri,"text":"SECTION \"Main\",ROM0\nTarget: nop\njp Target\n"}}}));
+    assert!(notifications.iter().any(|message| message["method"]
+        == "textDocument/publishDiagnostics"
+        && message["params"]["uri"] == uri));
+    let params = json!({"textDocument":{"uri":uri},"position":{"line":2,"character":4}});
+    assert_eq!(
+        request(&mut server, "textDocument/definition", params.clone())["uri"],
+        uri
+    );
+    let mut rename = params;
+    rename["newName"] = json!("Renamed");
+    assert_eq!(
+        request(&mut server, "textDocument/rename", rename)["changes"][uri]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let notifications=server.handle(&json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument":{"uri":uri}}}));
+    assert_eq!(notifications[0]["params"]["uri"], uri);
+    assert_eq!(std::fs::read_dir(&fixture.0).unwrap().count(), 0);
+}

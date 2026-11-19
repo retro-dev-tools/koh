@@ -19,6 +19,36 @@ pub struct Server {
 }
 
 impl Server {
+    fn path_for_uri(&self, uri: &str) -> io::Result<PathBuf> {
+        if let Some((key, _)) = self
+            .uris
+            .iter()
+            .find(|(_, existing)| existing.as_str() == uri)
+            && let Some(doc) = self.workspace.document(Path::new(key))
+        {
+            return Ok(PathBuf::from(&doc.path));
+        }
+        if uri
+            .split_once(':')
+            .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("untitled"))
+        {
+            use std::hash::{Hash, Hasher};
+            url::Url::parse(uri).map_err(|_| invalid("invalid untitled URI"))?;
+            let mut hash = std::collections::hash_map::DefaultHasher::new();
+            uri.hash(&mut hash);
+            let root = self
+                .workspace
+                .folder()
+                .map_or_else(std::env::current_dir, |folder| Ok(folder.to_path_buf()))?;
+            return Ok(root.join(format!(".__koh_untitled_{:016x}.asm", hash.finish())));
+        }
+        paths::from_uri(uri)
+    }
+
+    fn document_path(&self, params: &Value) -> io::Result<PathBuf> {
+        self.path_for_uri(required(&params["textDocument"], "uri")?)
+    }
+
     pub fn completion_code(&self) -> i32 {
         self.exit_code.unwrap_or(if self.shutdown { 0 } else { 1 })
     }
@@ -66,7 +96,12 @@ impl Server {
                 Ok(json!({"capabilities":{
                     "textDocumentSync":{"openClose":true,"change":1,"save":{"includeText":false}},
                     "hoverProvider":true,"definitionProvider":true,"referencesProvider":true,
-                    "renameProvider":{"prepareProvider":true}
+                    "renameProvider":{"prepareProvider":true},
+                    "documentSymbolProvider":true,
+                    "completionProvider":{"triggerCharacters":["."],"resolveProvider":false},
+                    "semanticTokensProvider":{"full":true,"legend":{"tokenTypes":crate::tokens::TOKEN_TYPES,"tokenModifiers":crate::tokens::TOKEN_MODIFIERS}},
+                    "inlayHintProvider":true,
+                    "signatureHelpProvider":{"triggerCharacters":[","]}
                 }}))
             }
             "initialized" | "$/cancelRequest" | "$/setTrace" => Ok(Value::Null),
@@ -77,14 +112,14 @@ impl Server {
             "textDocument/didOpen" => {
                 let uri = required(&params["textDocument"], "uri")?;
                 let text = required(&params["textDocument"], "text")?;
-                let path = paths::from_uri(uri)?;
+                let path = self.path_for_uri(uri)?;
                 self.uris.insert(key(&path.to_string_lossy()), uri.into());
                 self.workspace.open(&path, text)?;
                 self.publish(output)?;
                 Ok(Value::Null)
             }
             "textDocument/didChange" => {
-                let path = document_path(params)?;
+                let path = self.document_path(params)?;
                 let changes = params["contentChanges"]
                     .as_array()
                     .ok_or_else(|| invalid("missing contentChanges"))?;
@@ -98,7 +133,7 @@ impl Server {
                 Ok(Value::Null)
             }
             "textDocument/didClose" => {
-                let path = document_path(params)?;
+                let path = self.document_path(params)?;
                 self.workspace.close(&path)?;
                 output.push(json!({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":self.uri(&path)?,"diagnostics":[]}}));
                 self.uris.remove(&key(&path.to_string_lossy()));
@@ -106,7 +141,7 @@ impl Server {
                 Ok(Value::Null)
             }
             "textDocument/didSave" => {
-                let path = document_path(params)?;
+                let path = self.document_path(params)?;
                 if path
                     .file_name()
                     .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("koh.yaml"))
@@ -118,8 +153,43 @@ impl Server {
             }
             "textDocument/hover" => self.hover(params),
             "textDocument/definition" => self.definition(params),
+            "textDocument/documentSymbol" => Ok(crate::features::document_symbols(
+                &self.workspace,
+                &self.document_path(params)?,
+            )),
+            "textDocument/completion" => Ok(crate::features::completion(
+                &self.workspace,
+                &self.document_path(params)?,
+            )),
+            "textDocument/semanticTokens/full" => {
+                let path = self.document_path(params)?;
+                Ok(self.workspace.document(&path).map_or(
+                    Value::Null,
+                    |doc| json!({"data":crate::tokens::encode(&doc.text,&doc.syntax)}),
+                ))
+            }
+            "textDocument/inlayHint" => {
+                let path = self.document_path(params)?;
+                for point in ["start", "end"] {
+                    if params["range"][point]["line"].as_u64().is_none()
+                        || params["range"][point]["character"].as_u64().is_none()
+                    {
+                        return Err(invalid("missing or invalid inlay range"));
+                    }
+                }
+                Ok(crate::features::inlay_hints(
+                    &self.workspace,
+                    &path,
+                    &params["range"],
+                ))
+            }
+            "textDocument/signatureHelp" => Ok(crate::features::signature(
+                &self.workspace,
+                &self.document_path(params)?,
+                cursor(params)?,
+            )),
             "textDocument/references" => {
-                let path = document_path(params)?;
+                let path = self.document_path(params)?;
                 let Some(target) = self.resolve(params, &path)? else {
                     return Ok(json!([]));
                 };
@@ -135,7 +205,7 @@ impl Server {
                 Ok(json!(locations))
             }
             "textDocument/prepareRename" => {
-                let path = document_path(params)?;
+                let path = self.document_path(params)?;
                 let Some(target) = self.resolve(params, &path)? else {
                     return Ok(Value::Null);
                 };
@@ -146,7 +216,7 @@ impl Server {
                 )
             }
             "textDocument/rename" => {
-                let path = document_path(params)?;
+                let path = self.document_path(params)?;
                 let name = required(params, "newName")?;
                 let Some(target) = self.resolve(params, &path)? else {
                     return Ok(Value::Null);
@@ -204,7 +274,7 @@ impl Server {
     }
 
     fn hover(&mut self, params: &Value) -> io::Result<Value> {
-        let path = document_path(params)?;
+        let path = self.document_path(params)?;
         let position = cursor(params)?;
         let Some(doc) = self.workspace.document(&path) else {
             return Ok(Value::Null);
@@ -258,7 +328,7 @@ impl Server {
     }
 
     fn definition(&self, params: &Value) -> io::Result<Value> {
-        let path = document_path(params)?;
+        let path = self.document_path(params)?;
         let Some(target) = self.resolve(params, &path)? else {
             return Ok(Value::Null);
         };
@@ -300,10 +370,6 @@ fn required<'a>(value: &'a Value, field: &str) -> io::Result<&'a str> {
     value[field]
         .as_str()
         .ok_or_else(|| invalid(&format!("missing or invalid {field}")))
-}
-
-fn document_path(params: &Value) -> io::Result<PathBuf> {
-    paths::from_uri(required(&params["textDocument"], "uri")?)
 }
 
 fn cursor(params: &Value) -> io::Result<&Value> {

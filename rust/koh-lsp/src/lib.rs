@@ -1,9 +1,11 @@
 pub mod config;
+mod features;
 pub mod graph;
 mod instructions;
 pub mod paths;
 pub mod server;
 pub mod symbols;
+pub mod tokens;
 pub mod transport;
 pub mod worker;
 pub mod workspace;

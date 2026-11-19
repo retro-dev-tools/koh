@@ -51,7 +51,7 @@ fn unread_large_request_times_out_and_a_fresh_worker_can_start() {
 #[test]
 fn worker_eof_bad_version_and_timeout_fail_without_hanging() {
     for (script, kind) in [
-        ("exit 0", std::io::ErrorKind::UnexpectedEof),
+        ("read line; exit 0", std::io::ErrorKind::UnexpectedEof),
         (
             "read line; printf '%s\\n' '{\"version\":2}'",
             std::io::ErrorKind::InvalidData,
@@ -74,4 +74,17 @@ fn worker_eof_bad_version_and_timeout_fail_without_hanging() {
             kind
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn worker_exit_before_request_reports_a_transport_error() {
+    let mut command = Command::new("sh");
+    command.args(["-c", "exit 0"]);
+    let mut worker = Worker::start(command, Duration::from_secs(2)).unwrap();
+    let error = worker.request(&json!({"version":1})).unwrap_err();
+    assert!(matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::UnexpectedEof
+    ));
 }

@@ -133,8 +133,35 @@ Instruction/numeric hover RED `/tmp/koh-lsp-hover-red.log`; final suite passes.
 EOF after shutdown RED `/tmp/koh-lsp-eof-red.log`, GREEN
 `/tmp/koh-lsp-eof-green.log`.
 
-Current dispositions:169 mapped,1 obsolete,33 pending (semantic tokens, inlay
+Navigation increment dispositions:173 mapped,1 obsolete,33 pending (semantic tokens, inlay
 hints, macro signatures and classification completeness). Document symbols and
 completion also need native protocol coverage; they had no dedicated managed
 test methods. Native publishing, managed removal, Rust1.88 and platform/editor
 acceptance remain open. Only implemented methods are advertised so far.
+
+## Complete editor-method implementation
+
+`cargo test -p koh-lsp --locked`: exit `0`,59 passed, zero failed/ignored;
+`/tmp/koh-lsp-editor-full.log` re-read and summaries summed. Strict Clippy
+exit `0`; `/tmp/koh-lsp-editor-full-clippy.log` re-read.
+
+All original editor methods are implemented and advertised. Native checks now
+cover the13 semantic token categories/legend and delta encoding, all baseline
+syntax kinds, current worker keyword/kind coverage, multiline Unicode/CRLF
+comments, inlay values/ranges/context exclusions, macro arity/active parameters
+including nested commas and clamping, outline symbols and completion.
+Untitled documents preserve client URIs for diagnostics, definition and rename
+without writing files; their memory-only source identity remains stable.
+
+Remaining-method RED: `/tmp/koh-lsp-editor-methods-red.log` (method not found).
+Initial GREEN attempt exposed duplicate inlay hints from whitespace; filtering
+identifier tokens fixed it. `/tmp/koh-lsp-untitled-{red,green}.log` proves the
+extension's existing untitled selector now works. A flaky EOF fixture was split
+into acknowledged-request EOF and immediate-exit transport-error checks;
+immediate process closure may validly fail on either write or read.
+
+Final legacy inventory:207 rows,206 mapped replacements,1 obsolete private
+adapter, zero pending. The navigation increment had173 mappings (earlier notes
+mistakenly stated169); the table itself had all173 mappings.
+This is implementation/test parity, not packaged VS Code or platform proof.
+Tasks1–3 complete; Task4 publishing, retirement and acceptance remain open.

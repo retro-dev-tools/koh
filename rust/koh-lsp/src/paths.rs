@@ -59,7 +59,7 @@ pub fn same_file(left: &str, right: &str) -> bool {
     }
 }
 
-fn lines(text: &str) -> Vec<(usize, usize)> {
+pub(crate) fn lines(text: &str) -> Vec<(usize, usize)> {
     let units: Vec<_> = text.encode_utf16().collect();
     let mut lines = Vec::new();
     let mut start = 0;

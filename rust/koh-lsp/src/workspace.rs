@@ -113,6 +113,10 @@ impl Workspace {
         &self.projects
     }
 
+    pub fn folder(&self) -> Option<&Path> {
+        self.folder.as_deref()
+    }
+
     pub fn project_for(&self, path: &Path) -> Option<&Project> {
         let owner = self.owners.get(&key(&path.to_string_lossy()))?;
         self.projects

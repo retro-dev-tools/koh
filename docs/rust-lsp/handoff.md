@@ -15,21 +15,22 @@ deterministic shared ownership and root-first nested includes have native checks
 INCBIN always uses disk; source path identity comparisons normalize ../ without
 rewriting native provenance. Workspace recreates a worker after protocol failure.
 
-49/49 native tests pass, strict Clippy exit0. Completed logs in evidence.md.
-Managed oracle207/207 pass.169 disposition rows mapped,1 obsolete private adapter,
-33 classification/hint/signature cases pending. Native tests
+59/59 native tests pass, strict Clippy exit0. Completed logs in evidence.md.
+Managed oracle207/207 pass.206 disposition rows mapped,1 obsolete private adapter,
+zero pending. Native tests
 run without KOH_ASM using freshly built target/debug/koh-asm. Production remains
-managed. Native main now serves sync/diagnostics, hover, definition, references,
-prepare-rename/rename through Server. Real stdio child/worker tests pass.
+managed. Native main now serves all original methods through Server; real
+stdio child/worker checks cover sync/diagnostics/hover/lifecycle. Full editor
+requests also have direct protocol checks against real worker analyses.
 
 Task2 parity review complete. Editing unrelated configured files reuses cached
 project analysis; editing shared includes rebuilds both owners. READFILE,
 custom nested resolver mappings, warnings and native instruction/data bytes
 covered through the real worker for physical/virtual fixtures.
 
-Next: finish Task3 semantic tokens/classification, inlay hints, macro signatures,
-document symbols and completion. Then native
-packaging and managed retirement. Plan docs/superpowers/plans/2026-11-19-rust-lsp.md.
+Next: Task4 native publishing, managed server/test retirement and real VS Code
+acceptance, then Rust1.88/platform/package evidence and final review.
+Plan docs/superpowers/plans/2026-11-19-rust-lsp.md.
 Full scope and acceptance in design.md. No broad compiler/emulator redesign.
 
 Build assembler once with cargo build -p koh-asm --locked, then cargo test -p
@@ -45,5 +46,13 @@ New native modules: symbols.rs resolves native symbol IDs and occurrences;
 server.rs routes protocol, validates params, publishes diagnostic notifications;
 instructions.rs preserves all46 instruction hover descriptions. Main uses Server.
 Worker remains the only parser/semantic analyzer. Do not replace this with a
-direct assembler dependency. Current URI handling is file-only; review the
-extension's untitled selector before final editor acceptance. No live test known.
+direct assembler dependency. File/untitled URIs work, including URI preservation
+and no disk writes for untitled buffers. features.rs owns hints, signatures,
+outline/completion; tokens.rs owns explicit classification and bounded line
+splitting. Protocol-v1 kind fixture retained under tests/fixtures. No live test.
+
+Before Task4, inspect build.proj, NativeBuild.targets, ci.yml and release workflow.
+They still publish managed LSP. Reuse existing RID mapping for a native
+GetNativeLanguageServerPath/root publish target; ship koh-lsp plus koh-asm.
+Add actual extension LanguageClient integration. Retire only replaced managed
+server/tests; preserve other Koh.Native users. Do not push or merge.
