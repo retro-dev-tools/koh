@@ -43,7 +43,7 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    fn request(&mut self, request: &Value) -> io::Result<Value> {
+    pub(crate) fn request(&mut self, request: &Value) -> io::Result<Value> {
         if self.worker.is_none() {
             self.worker = Some(Worker::assembler()?);
         }

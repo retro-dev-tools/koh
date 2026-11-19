@@ -105,3 +105,36 @@ resolution-policy assertions retain its useful behavior. No feature removal.
 
 Tasks1–2 complete. Native stdio remains lifecycle-only until Task3 connects the
 workspace/editor methods. Production publishing is still managed.
+
+## Native navigation and rename increment
+
+`cargo test -p koh-lsp --locked`: exit `0`,49 passed, zero failed/ignored;
+`/tmp/koh-lsp-editor-navigation.log` re-read, per-binary summaries summed.
+Strict Clippy `-D warnings`: exit `0`,
+`/tmp/koh-lsp-editor-navigation-clippy.log` re-read.
+
+Native main now routes messages to the Rust workspace. Real child-process
+stdio checks cover initialize/open/diagnostics/hover/shutdown/exit, plus EOF
+after shutdown. Direct protocol tests cover unsaved edits/close diagnostics,
+hover text, definition ranges, references, prepare-rename and rename edits,
+invalid requests and method errors. Full feature acceptance remains open.
+
+Symbol tests cover local scopes, declaration/reference origins, constants and
+string constants, macro declarations/calls, exported and owner-local shadowing,
+root/include ownership, export directives, declaration exclusion and rename
+validation/collisions. Locations are selected by native symbol ID and spans.
+Instruction hover text is retained from the managed server; numeric hovers
+evaluate through the worker rather than introducing another expression parser.
+
+RED evidence: `/tmp/koh-lsp-symbols-red.log`, `/tmp/koh-lsp-server-red.log`;
+real executable initially failed the new stdio capability/hover assertion in
+`/tmp/koh-lsp-native-stdio-red.log`, then passed in its green log.
+Instruction/numeric hover RED `/tmp/koh-lsp-hover-red.log`; final suite passes.
+EOF after shutdown RED `/tmp/koh-lsp-eof-red.log`, GREEN
+`/tmp/koh-lsp-eof-green.log`.
+
+Current dispositions:169 mapped,1 obsolete,33 pending (semantic tokens, inlay
+hints, macro signatures and classification completeness). Document symbols and
+completion also need native protocol coverage; they had no dedicated managed
+test methods. Native publishing, managed removal, Rust1.88 and platform/editor
+acceptance remain open. Only implemented methods are advertised so far.
