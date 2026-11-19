@@ -1,5 +1,6 @@
 pub mod state;
 pub mod timer;
+pub mod cpu;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HardwareMode {
