@@ -131,7 +131,7 @@ If restore fails with `NU1902` or `NU1903`, a dependency audit has found a vulne
 
 ### Test
 
-See [CI validation](docs/ci-validation.md) for PR checks and the full merge gate.
+See [CI validation](docs/ci-validation.md) for which jobs run and the merge gate.
 
 ```sh
 dotnet msbuild build.proj -t:Test
