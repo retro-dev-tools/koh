@@ -178,6 +178,12 @@ suite('ToolchainResolver (filesystem)', () => {
         // No koh-lsp written.
         const resolver = new ToolchainResolver(log);
         resolver.writeCurrentPointer('0.1.3-beta');
-        assert.strictEqual(resolver.resolve(), null);
+        const savedPath = process.env.PATH;
+        try {
+            process.env.PATH = '';
+            assert.strictEqual(resolver.resolve(), null);
+        } finally {
+            process.env.PATH = savedPath;
+        }
     });
 });
