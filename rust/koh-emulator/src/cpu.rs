@@ -2,6 +2,10 @@ use crate::state::{StateReader, StateWriter};
 use std::io;
 
 pub trait CpuBus {
+    fn set_pc(&mut self, _pc: u16) {}
+    fn set_cpu_state(&mut self, pc: u16, _ime: bool, _tcycles: u64) {
+        self.set_pc(pc);
+    }
     fn read(&mut self, address: u16) -> u8;
     fn write(&mut self, address: u16, value: u8);
     fn internal_cycle(&mut self);
@@ -118,14 +122,17 @@ impl Cpu {
     }
     fn cycle(&mut self, b: &mut impl CpuBus) {
         self.total_tcycles = self.total_tcycles.wrapping_add(4);
+        b.set_cpu_state(self.registers.pc, self.ime, self.total_tcycles);
         b.internal_cycle();
     }
     fn read(&mut self, b: &mut impl CpuBus, a: u16) -> u8 {
         self.total_tcycles = self.total_tcycles.wrapping_add(4);
+        b.set_cpu_state(self.registers.pc, self.ime, self.total_tcycles);
         b.read(a)
     }
     fn write(&mut self, b: &mut impl CpuBus, a: u16, v: u8) {
         self.total_tcycles = self.total_tcycles.wrapping_add(4);
+        b.set_cpu_state(self.registers.pc, self.ime, self.total_tcycles);
         b.write(a, v);
     }
     fn immediate(&mut self, b: &mut impl CpuBus) -> u8 {
@@ -606,6 +613,65 @@ mod tests {
             self.switch
         }
     }
+    #[test]
+    fn memory_hooks_observe_current_pc_ime_and_cycle_boundary() {
+        #[derive(Default)]
+        struct ContextBus {
+            bus: Bus,
+            context: (u16, bool, u64),
+            observed: Vec<(u16, bool, u64)>,
+        }
+        impl CpuBus for ContextBus {
+            fn set_cpu_state(&mut self, pc: u16, ime: bool, tcycles: u64) {
+                self.context = (pc, ime, tcycles);
+            }
+            fn read(&mut self, address: u16) -> u8 {
+                self.observed.push(self.context);
+                self.bus.read(address)
+            }
+            fn write(&mut self, address: u16, value: u8) {
+                self.observed.push(self.context);
+                self.bus.write(address, value);
+            }
+            fn internal_cycle(&mut self) {
+                self.observed.push(self.context);
+                self.bus.internal_cycle();
+            }
+            fn pending_interrupts(&self) -> u8 {
+                self.bus.pending_interrupts()
+            }
+            fn clear_interrupt(&mut self, mask: u8) {
+                self.bus.clear_interrupt(mask);
+            }
+            fn stop(&mut self) -> bool {
+                self.bus.stop()
+            }
+        }
+        let mut c = Cpu::default();
+        let mut b = ContextBus::default();
+        c.registers.pc = 0x100;
+        c.registers.sp = 0xdffe;
+        b.bus.mem[0x100..0x106].copy_from_slice(&[0xfb, 0, 0xea, 0, 0xc0, 0xc5]);
+        for _ in 0..4 {
+            c.step(&mut b);
+        }
+        assert_eq!(
+            b.observed,
+            [
+                (0x100, false, 4),
+                (0x101, false, 8),
+                (0x102, true, 12),
+                (0x103, true, 16),
+                (0x104, true, 20),
+                (0x105, true, 24),
+                (0x105, true, 28),
+                (0x106, true, 32),
+                (0x106, true, 36),
+                (0x106, true, 40)
+            ]
+        );
+    }
+
     #[test]
     fn immediate_add_flags_and_cycles() {
         let mut c = Cpu::default();
