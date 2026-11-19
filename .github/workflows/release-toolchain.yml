@@ -1,201 +1,81 @@
 name: Release Toolchain
-
 on:
   push:
-    tags:
-      - 'tools-v*.*.*'
-
+    tags: ['tools-v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package-only version (no release is created)
+        required: true
+        type: string
 permissions:
-  contents: write
-
+  contents: read
+concurrency:
+  group: release-toolchain-${{ github.event_name }}-${{ github.ref }}
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && format('tools-v{0}', inputs.version) || github.ref_name }}
+  CARGO_BUILD_JOBS: '4'
+  DOTNET_PROCESSOR_COUNT: '4'
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-latest,  rid: linux-x64,  archive: tar.gz }
-          - { os: windows-latest, rid: win-x64,    archive: zip }
-          - { os: macos-latest,   rid: osx-arm64,  archive: tar.gz }
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          dotnet-version: '10.0.x'
-
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.13'
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
+        with:
+          tool: just@1.59.0
       - name: Install desktop build dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config clang libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan-dev
-
-      - name: Parse version from tag
-        id: ver
+      - run: just package "$RELEASE_TAG"
         shell: bash
-        run: |
-          tag="${{ github.ref_name }}"
-          version="${tag#tools-v}"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Publish toolchain binaries into staging/bin
-        shell: bash
-        run: |
-          bin=staging/bin
-          rm -rf staging
-          mkdir -p "$bin"
-          dotnet msbuild build.proj -t:PublishLanguageServer -p:LanguageServerRuntimeIdentifier=${{ matrix.rid }} "-p:LanguageServerPublishDir=$PWD/$bin"
-          dotnet msbuild build.proj -t:PublishEmulatorApp -p:EmulatorRuntimeIdentifier=${{ matrix.rid }} "-p:EmulatorPublishDir=$PWD/$bin"
-
-          case "${{ matrix.rid }}" in
-            linux-x64) compiler_target=x86_64-unknown-linux-gnu; compiler_suffix= ;;
-            win-x64) compiler_target=x86_64-pc-windows-msvc; compiler_suffix=.exe ;;
-            osx-arm64) compiler_target=aarch64-apple-darwin; compiler_suffix= ;;
-            *) exit 1 ;;
-          esac
-          rustup target add "$compiler_target"
-          cargo build --release --package koh-compile --locked --target "$compiler_target"
-          cp "target/$compiler_target/release/koh-compile$compiler_suffix" "$bin/"
-
-      - name: Smoke-test packaged native language server
-        shell: bash
-        run: |
-          server="$PWD/staging/bin/koh-lsp"
-          if [[ "${{ matrix.rid }}" == win-* ]]; then server="$(cygpath -m "$server.exe")"; fi
-          KOH_LSP_TEST_BINARY="$server" cargo test -p koh-lsp --test stdio --locked
-
-      - name: Smoke-test packaged C# tools
-        shell: bash
-        run: |
-          compiler_suffix=
-          if [[ "${{ matrix.rid }}" == win-* ]]; then compiler_suffix=.exe; fi
-          compiler_path="$PWD/staging/bin/koh-compile$compiler_suffix"
-          linker_path="$PWD/staging/bin/koh-link$compiler_suffix"
-          emulator_path="$PWD/staging/bin/koh-engine$compiler_suffix"
-          smoke_rom="$RUNNER_TEMP/koh-compiler-package-smoke.gb"
-          if [[ "${{ matrix.rid }}" == win-* ]]; then
-            compiler_path="$(cygpath -m "$compiler_path")"
-            linker_path="$(cygpath -m "$linker_path")"
-            emulator_path="$(cygpath -m "$emulator_path")"
-            smoke_rom="$(cygpath -m "$smoke_rom")"
-          fi
-          "$compiler_path" --version
-          "$linker_path" --version
-          dotnet build samples/csharp/gb-gfx-demo/GbGfxDemo.csproj -c Release -m:1 \
-            "-p:KohCompilerExecutable=$compiler_path" "-p:KohLinkExecutable=$linker_path" \
-            "-p:KohRomPath=$smoke_rom"
-          "$emulator_path" "$smoke_rom" --headless --frames=1200 \
-            "--screenshot=$RUNNER_TEMP/koh-compiler-package-smoke.png" \
-            "--mode3-report=$RUNNER_TEMP/koh-compiler-package-mode3.txt"
-          test -s "$RUNNER_TEMP/koh-compiler-package-smoke.png"
-          grep -Fq 'Mode-3 write violations: 0 total' "$RUNNER_TEMP/koh-compiler-package-mode3.txt"
-
-      - name: Pack raw archive
-        shell: bash
-        run: |
-          test -f staging/bin/licenses/rust-assembler-dependencies.md
-          test -d staging/bin/licenses/rust-assembler
-          test -f staging/bin/licenses/rust-runtime/COPYRIGHT-library.html
-          test -f staging/bin/licenses/rust-ui/manifest.json
-          test -f staging/bin/licenses/rust-lsp/manifest.json
-          desktop=staging/bin/koh-emulator
-          if [[ '${{ matrix.rid }}' == win-* ]]; then desktop="$desktop.exe"; fi
-          test -f "$desktop"
-          ver="${{ steps.ver.outputs.version }}"
-          case "${{ matrix.archive }}" in
-            zip)
-              out="koh-toolchain-$ver-${{ matrix.rid }}.zip"
-              python -c "import shutil, sys; shutil.make_archive(sys.argv[1][:-4], 'zip', sys.argv[2])" "$out" "staging/bin"
-              ;;
-            tar.gz)
-              out="koh-toolchain-$ver-${{ matrix.rid }}.tar.gz"
-              tar -czf "$out" -C staging/bin .
-              ;;
-          esac
-          ls -lh "$out"
-
-      - name: Build Windows installer (Inno Setup)
-        if: matrix.rid == 'win-x64'
-        shell: pwsh
-        run: |
-          $ver = "${{ steps.ver.outputs.version }}"
-          New-Item -ItemType Directory -Path installers\windows\payload -Force | Out-Null
-          Copy-Item -Recurse -Force staging\bin\* installers\windows\payload\
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$ver" installers\windows\koh-setup.iss
-          Get-ChildItem koh-setup-*.exe
-
-      - name: Stage Unix install.sh
-        if: matrix.rid == 'linux-x64'
-        shell: bash
-        run: |
-          ver="${{ steps.ver.outputs.version }}"
-          sed "s/__VERSION__/$ver/g" installers/unix/koh-install.sh.template > koh-install.sh
-          chmod +x koh-install.sh
-          head -3 koh-install.sh
-
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: toolchain-${{ matrix.rid }}
+          name: toolchain-${{ runner.os }}
           path: |
-            koh-toolchain-*.zip
-            koh-toolchain-*.tar.gz
-            koh-setup-*.exe
-            koh-install.sh
+            artifacts/package/koh-*
+            artifacts/package/SHA256SUMS-*
           if-no-files-found: error
-
   release:
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
+          pattern: toolchain-*
           path: artifacts
           merge-multiple: true
-
-      - name: Generate SHA256SUMS.txt
-        shell: bash
+      - name: Verify checksums and create draft
         working-directory: artifacts
-        run: |
-          # Leave filenames bare (no ./ prefix) so `sha256sum -c` works
-          # when run from a directory containing the assets.
-          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt \
-            | sed 's|^\./||' \
-            | sort \
-            | xargs -I{} sha256sum {} \
-            > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-
-      - name: Detect prerelease
-        id: pre
-        shell: bash
-        run: |
-          tag="${{ github.ref_name }}"
-          version="${tag#tools-v}"
-          # 0.x.x and tags with a pre-release suffix are flagged as prereleases.
-          if [[ "$version" =~ ^0\. ]] || [[ "$version" == *-* ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create GitHub release (draft)
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         shell: bash
-        # Releases are created as drafts — invisible to the public
-        # releases page and to anonymous GitHub API queries (which is
-        # what the extension's auto-updater uses). A maintainer tests
-        # the drafted assets via `gh release download <tag>` and
-        # promotes with `gh release edit <tag> --draft=false` (or
-        # `scripts/publish-release.sh <tag>`) once verified.
         run: |
-          tag="${{ github.ref_name }}"
-          version="${tag#tools-v}"
-          flags=(--repo "${{ github.repository }}" --draft --generate-notes --verify-tag --title "Toolchain $version")
-          if [[ "${{ steps.pre.outputs.prerelease }}" == "true" ]]; then
-            flags+=(--prerelease)
-          fi
-          mapfile -t assets < <(find artifacts -maxdepth 1 -type f | sort)
-          ls -lh "${assets[@]}"
-          gh release create "$tag" "${flags[@]}" "${assets[@]}"
+          cat SHA256SUMS-* > SHA256SUMS.txt
+          rm SHA256SUMS-*
+          sha256sum --check SHA256SUMS.txt
+          flags=(--draft --verify-tag --generate-notes)
+          version="${RELEASE_TAG#tools-v}"
+          if [[ "$version" == 0.* || "${version%%+*}" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" "${flags[@]}" ./*

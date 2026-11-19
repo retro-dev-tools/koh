@@ -62,11 +62,13 @@ fn sdk_dotnet_run_launches_the_graphics_rom_headlessly() {
         "-p:KohRomPath=graphics output.gb".into(),
         "-p:KohCgbCompatible=true".into(),
     ];
+    eprintln!("SDK graphics: build source to ROM");
     let built = build(&project, "Release", &properties);
     assert!(built.status.success(), "{}", report(&built));
     assert!(std::fs::read(&rom).unwrap().len() > 0x8000);
     let png = directory.path().join("game capture.png");
     let violations = directory.path().join("mode3 report.txt");
+    eprintln!("SDK graphics: dotnet run with default desktop publication");
     let result = support::dotnet()
         .arg("run")
         .arg("--project")

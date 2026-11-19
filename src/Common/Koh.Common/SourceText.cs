@@ -1,4 +1,3 @@
-
 namespace Koh.Common;
 
 public sealed class SourceText

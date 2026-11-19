@@ -24,11 +24,11 @@ after moving the checkout.
 For a window with graphics and audio:
 
 ```sh
-./scripts/run-emulator.sh samples/asm/gb-2048/build/2048.gbc
+just run samples/asm/gb-2048/build/2048.gbc
 ```
 
 The script publishes the Rust + GPUI Kit desktop and its windowless engine.
-On Windows use `scripts/run-emulator.ps1`. For a headless check, run the engine
+The command also works on Windows. For a headless check, run the engine
 directly with PNG output:
 
 ```sh

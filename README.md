@@ -131,7 +131,8 @@ If restore fails with `NU1902` or `NU1903`, a dependency audit has found a vulne
 
 ### Test
 
-See [CI validation](docs/ci-validation.md) for which jobs run and the merge gate.
+Run `just` for common tasks, or `just ci` for the same checks as GitHub Actions.
+See [build, test and release](docs/ci-validation.md) for prerequisites and packaging.
 
 ```sh
 dotnet msbuild build.proj -t:Test
@@ -139,23 +140,20 @@ dotnet msbuild build.proj -t:Test
 
 ### Common build targets
 
-Invoke as `dotnet msbuild build.proj -t:<Target>` (no external tool install).
+Invoke as `dotnet msbuild build.proj -t:<Target>`. `just test` runs all native and .NET tests.
 
 | Target                | Description                                                 |
 | --------------------- | ----------------------------------------------------------- |
 | `Test`                | Run the .NET component tests |
-| `TestAll`             | Run all native tests, Rust doctests and .NET component tests |
 | `BuildSample2048`     | Build the assembly 2048 sample ROM                          |
 | `Benchmark`           | Run benchmarks                                              |
 | `PublishDev`          | Publish the LSP server for local VS Code debugging          |
 | `PublishEmulatorApp`  | Publish the Rust desktop and NativeAOT engine together (`-p:EmulatorRuntimeIdentifier=<rid>` to override) |
-| `RunEmulator`         | Publish the emulator and launch the host executable         |
 
 Quick-launch the emulator:
 
-```powershell
-./scripts/run-emulator.ps1     # Windows PowerShell
-./scripts/run-emulator.sh      # bash / git-bash
+```sh
+just run
 ```
 
 ## VS Code
@@ -167,6 +165,10 @@ dotnet msbuild build.proj -t:PublishDev
 ```
 
 Then open `editors/vscode/` in VS Code and press `F5`.
+
+To install a development VSIX, run `just build`, `just extension ext-v0.1.5`,
+then `code --install-extension artifacts/extension/koh-asm-0.1.5.vsix --force`.
+Set `koh.toolchainPath` to the absolute `artifacts/bin` path in local VS Code settings.
 
 For workspace-based projects, place a `koh.yaml` file in the repository root:
 

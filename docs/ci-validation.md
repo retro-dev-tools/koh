@@ -1,59 +1,60 @@
-# CI validation
+# Build, test and release
 
-`CI` has one sequential `check` job and one platform matrix.
+Install stable Rust (rustfmt and clippy), cargo-nextest 0.9.140, .NET 10.0.115
+or a compatible newer .NET 10 SDK, Node 22, Python 3.11+ and
+[just 1.59+](https://just.systems/man/en/).
+Python must be available as `python`; the task file uses its standard library
+for platform handling, without Bash or PowerShell on Windows.
 
-| Event | Platforms |
-| --- | --- |
-| Ordinary PR | Linux |
-| Push to `master` | Linux, Windows, macOS |
-| Manual run | Linux, Windows, macOS |
+Run `just` to list tasks. Tasks with arguments: `just run [ROM/options...]`,
+`just package tools-v0.1.6-rc.1`, `just extension ext-v0.1.5`.
 
-Every selected platform checks Rust formatting/lints, workspace tests and docs,
-remaining .NET projects, release compiler/SDK execution, language-server
-publication, native desktop/engine packaging, audio resets, headless captures,
-native-window behavior and the real VS Code debugger path. Formatting runs on
-Linux; test/build coverage runs on every selected platform.
+MSBuild retains SDK integration, publishing and focused .NET targets.
+Cargo and npm remain usable directly for focused development.
+No package task publishes anything. Versions are passed as arguments, never
+interpolated into executable code. Toolchain bundle versions are independent
+of crate versions; extension tags must match both npm manifests.
 
-Linux additionally compares pinned RGBDS/ELF pipelines and checks
-benchmark discovery. Existing verification tools are unchanged. Tag-only
-toolchain and extension releases remain separate workflows.
+Full acceptance also needs Pillow 13.0.0 (`python -m pip install Pillow==13.0.0`).
+Linux needs the native packages listed in `ci.yml`, Xvfb, ShellCheck and
+actionlint 1.7.12 (`go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`).
+Put Go's bin directory on PATH. RGBDS 1.0.1 is built under artifacts for the
+independent assembler/linker comparisons. Windows needs MSVC build tools;
+Windows packaging also needs Inno Setup 6. macOS packages use the host architecture.
 
-There is no changed-path classifier or aggregate pass job. Each check reports
-its own actual result. New runs supersede older runs of the same mode on the
-same branch. PR checks cannot cancel master/manual validation. A
-shared per-platform cache avoids repeated dependency downloads/builds; GitHub
-keeps PR caches scoped to their PR refs. Diagnostic captures, packages and
-release tools are retained in `validation-<OS>` artifacts for seven days.
+CI runs the same full Linux, Windows and macOS tasks for every PR, master push
+and manual run. Named lint, build/test and integration steps isolate failures;
+platform-independent lint runs early, once on Linux. `just ci` selects the same
+phases for the host; `just verify` uses the outputs of `just build`/`just test`.
+MSRV covers core libraries/binaries; UI and test-host require
+newer Rust and run on stable. Nextest retains zero retries and bounded Roslyn
+concurrency. The tests include packaged LSP stdio, source-to-ROM execution,
+native audio resets, framebuffer PNGs, native windows and actual VS Code
+debugging. Linux also checks workflow/shell syntax, RGBDS parity and benchmark
+discovery. NuGet auditing, warnings-as-errors and npm production auditing remain
+enabled. Results and diagnostic captures are uploaded for seven days.
 
-Trigger full validation for a branch with:
+## Releases
 
-```sh
-gh workflow run ci.yml --ref <branch>
-```
+Tag pushes (`tools-v*` or `ext-v*`) package artifacts and create **drafts only**.
+Manual release workflows take a version and upload packages without creating a
+release. Run full CI on the same commit first. Download and test the packages;
+platform manifests contain SHA-256 checksums. The draft job combines the
+toolchain manifests and verifies every checksum before attaching assets.
+Archives include native dependency notices and source/toolchain build information.
 
-Windows excludes the two Unix-specific assembler filesystem cases,
-`include_provenance_preserves_the_logical_symlink_path` and
-`physical_include_keys_preserve_native_path_separators`. They are platform
-exclusions, not retried or ignored failures. Source-debugger tests run on all
-three platforms. The explicit Unix socket-path case is also Unix-only;
-Windows exercises named pipes instead.
+Publication remains blocked by the license/attribution review in ROADMAP.md.
+After review, a maintainer can download a draft with `gh release download <tag>`,
+verify `sha256sum -c SHA256SUMS.txt` (macOS: `shasum -a 256 -c SHA256SUMS.txt`),
+test the actual installers/editor update path, and deliberately publish using
+`gh release edit <tag> --draft=false`. Automation never publishes a public release.
 
-## Required-check transition
-
-Master protection currently requires seven legacy job names, including three
-`emulator-aot-publish` contexts. Those names do not exist in the simplified
-workflow. No branch-protection settings are changed before the coordinated merge.
-
-When merging this CI change, replace the legacy contexts with
-`check (ubuntu-latest)` using the prepared payload. It retains strict protection
-and the GitHub Actions app binding. Coordinate this change with the merge so
-other PRs are not left waiting for a check their workflow cannot emit:
-
-```sh
-gh api --method PATCH repos/retro-dev-tools/koh/branches/master/protection/required_status_checks --input .github/required-checks.json
-gh api repos/retro-dev-tools/koh/branches/master/protection/required_status_checks
-```
-
-Confirm the response contains only `check (ubuntu-latest)`, app `15368`, and
-`strict: true`. The additional Windows/macOS checks run on master/manual
-validation; the user selected Linux-only automatic PR validation.
+PR jobs use read-only tokens and no persisted checkout credentials. Only the
+draft job receives contents:write. Action refs remain pinned and Dependabot
+maintains them. Repository protection is managed separately: the intended
+required contexts are `check (ubuntu-latest)`, `check (windows-latest)`,
+`check (macos-latest)` and `msrv`. All four run on every PR without path filters
+or conditional job skips. An administrator must replace the seven obsolete
+contexts with these four, bind each to GitHub Actions (`app_id: 15368`), and retain
+`strict: true` (require an up-to-date branch) before merging. This refactoring
+changes no repository rules automatically.
