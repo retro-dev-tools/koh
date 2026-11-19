@@ -14,7 +14,12 @@ Next unit: finish full44447145986 at implementation58f3746. Mac publish job
 title+paused captures reviewed, whole native frame visible. Log
 /tmp/koh-ui-startup-macos-native-ci.log; captures
 /tmp/koh-gpui-startup-macos-native-window/. Windows frame guard + Linux publish
-and broader native suites remain live; do not restart on observation timeout.
+also PASS; all three desktop jobs green. Win exact2xLCD/foreground/DWM frame
+workarea/input/paused saves/native close PASS; title capture reviewed, frame
+fully visible at1024x768. Linux capture reviewed too, exactLCD/input/state/empty
+shortcuts/child close PASS. Logs /tmp/koh-ui-startup-{windows,linux}-native-ci.log;
+captures /tmp/koh-gpui-startup-{windows,linux}-native-window/.
+Three broader native suites remain live; do not restart on observation timeout.
 Managed554/554 both platforms, zero warnings/errors. QuickPR green.
 Keep goal9/10 until remaining gates are proven. Physical question pending.
 Full44442207871 at3b2634f: Linux + Windows publish/window jobs PASS; Windows

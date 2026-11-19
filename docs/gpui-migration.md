@@ -545,3 +545,19 @@ inactive empty shortcuts and clean child exit. Logs:
 `/tmp/koh-ui-startup-release-window.log`. The editor and root-published UI match
 SHA-256 `68e9ed54a9c3b45c5592a68c54f7d0808aa06efa9e514ea5946080d1c6c447f0`.
 No retired KohUI/SDL3 files were found in the refreshed editor package.
+
+The same full run's Windows job 135303782497 and Linux job 135303782558 also
+passed publishing, headless capture and native-window acceptance. Windows
+passed startup foreground ownership and the DWM visible-frame/work-area check,
+exact 2x LCD, Start, pause, byte-identical paused saves and native close. Capture
+review confirms its titlebar is wholly visible on the 1024x768 desktop. Linux
+passed exact LCD/integer scaling, Start, pause, save, inactive empty shortcuts
+and clean child exit; its capture is reviewed too. Logs:
+`/tmp/koh-ui-startup-windows-native-ci.log` and
+`/tmp/koh-ui-startup-linux-native-ci.log`. Captures are under
+`/tmp/koh-gpui-startup-windows-native-window/` and
+`/tmp/koh-gpui-startup-linux-native-window/`.
+
+All three desktop publish/window jobs are now green on implementation `58f3746`.
+The three broader native suites are still running. Physical listening and
+movement between monitors with different scaling remain unverified.
