@@ -35,7 +35,9 @@ Superseded validation on the same PR/ref is cancelled. PR numbers isolate
 forks with identical branch names; manual runs cannot cancel master pushes.
 Release runs queue instead of cancelling packaging. Builds are serial within
 each output directory. CI caches dependency downloads and expensive native
-builds; GitHub scopes PR caches to their PR refs. Release builds do not restore
+builds, keyed by compiler fingerprint and dependency manifests so a stable
+compiler update can refresh immutable caches. GitHub scopes PR caches to their
+PR refs. Release builds do not restore
 those caches. Validation packages, test results and diagnostic screenshots are
 retained for seven days in `validation-<OS>` artifacts; focused LSP packages
 use `native-lsp-<OS>`.

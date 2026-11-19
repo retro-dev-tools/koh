@@ -3,10 +3,16 @@
 Current work: `ci/maintainable-automation`, based on master `0814e2f`.
 Implementation and validation: docs/superpowers/plans/2026-11-19-ci-maintenance.md.
 Contributor/setup/release instructions: docs/ci-validation.md.
-No push, merge, branch-protection mutation or release publication authorized.
+Push, full hosted/package-only validation and a draft PR are authorized.
+No merge, branch-protection mutation, release tag or publication is authorized.
 The protection payload adds `msrv` alongside `check (ubuntu-latest)`; an admin
 must coordinate replacing seven obsolete contexts with integration.
 Licensing and development-only npm advisories remain release follow-ups.
+Baseline run44567744164 failed the cold SDK launch test on all three platforms;
+macOS also loaded system OpenAL for an OpenAL Soft-specific check. Existing
+desktop publication now precedes tests and the packaged audio search path is
+configured. Local SDK retest passes23.16s after desktop publication; full local
+editor tests48/48 and an extracted Linux archive source-to-ROM smoke pass.
 Local NuGet scratch locks stalled tools/builds; a fresh NUGET_SCRATCH directory
 allowed tool restore and audited build to finish. Do not disable auditing.
 Earlier migration handoffs below are historical; their hosted runs and dirty

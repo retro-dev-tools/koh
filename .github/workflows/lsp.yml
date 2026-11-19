@@ -47,6 +47,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        id: rust
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: 10.0.x
@@ -65,8 +66,8 @@ jobs:
             ~/.cargo/git
             ~/.nuget/packages
             target
-          key: ${{ runner.os }}-lsp-${{ hashFiles('Cargo.lock', 'global.json', 'Directory.Packages.props') }}
-          restore-keys: ${{ runner.os }}-lsp-
+          key: ${{ runner.os }}-lsp-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('Cargo.lock', 'global.json', 'Directory.Packages.props') }}
+          restore-keys: ${{ runner.os }}-lsp-${{ steps.rust.outputs.cachekey }}-
       - name: Install editor test display
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb libxtst6

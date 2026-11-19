@@ -78,6 +78,9 @@ added. Production tar/brace-expansion advisories were fixed within existing
 ranges; 20 development-only npm advisories still need separate triage.
 It also corrected SemVer build-metadata classification and the macOS installer's
 dependency on GNU sha256sum, without changing the installation layout.
+Native caches now include the pinned toolchain action's documented rustc
+fingerprint output; moving stable compilers can populate fresh immutable caches
+instead of repeatedly restoring an exact key containing obsolete build outputs.
 
 Hosted baseline run44567744164 at unchanged master0814e2f failed on all platforms,
 all with cache misses and a six-minute SDK headless-launch timeout. Linux2463
