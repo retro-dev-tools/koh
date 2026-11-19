@@ -6,6 +6,42 @@ Retain C# emulator/boot for existing development tools; no production fallback.
 Set aside untracked koh-verify and koh-superopt ports outside the worktree.
 DraftenginePR57 https://github.com/retro-dev-tools/koh/pull/57 stackedonUI56.
 
+Current native cutover, 2026-11-19:
+- Committed core machine/boot/state-file increment 3d4a56a. Fresh 91/91 core
+  tests: /tmp/koh-engine-core-final-current.log. Raw/STES formats stay separate.
+- Rust debugger committed ddbd1df (27/27 fresh), native compiler hosts d8b0317,
+  production host 7e451fb (22/22 including explicit reference/audio opt-ins).
+  Remote feat/rust-engine confirmed 7e451fb1fb533e841c104e32dbbc3197715412c8.
+- Full compiler nextest2063 cases live session65706, target/tmp/koh-engine-target,
+  log/tmp/koh-engine-compiler-regression.log; do not build that target concurrently.
+- Exact paused-loop assertions passed2/2 exit0 in
+  /tmp/koh-engine-paused-acceptance.log and committed a63f41e. CSV now40 mapped,
+  2 host partial,1 obsolete,181 retained-dev. CPU owns final lifecycle matrix.
+- SDK executable-space regression reproduced exit1, fixed with quoted Run
+  target; /tmp/koh-engine-sdk-spaces-green.log exit0. Default local runs always
+  publish incrementally; explicit executable override skips local publishing.
+- Native compiler fixture hosts passed 295 SM83 + 42 game + 37 source cases.
+  Six old execution fixtures retired; CLR ManagedHost/SoftFloatHost remain.
+  Final post-transport source37 passed /tmp/koh-native-host-symbols-cutover.log.
+- Root persistence write/rename failure tests pass; old state/SRAM preserved,
+  session remains usable and reports errors. Logs /tmp/koh-engine-persistence-
+  {unit,process-final}.log. No production persistence behavior change.
+- Root owns build.proj, NativeBuild.targets, SDK launch. Native publisher now
+  stages koh-engine, koh-emulator and existing native OpenAL resources under
+  artifacts/emulator/<rid>. First actual publish live unified session2955,
+  log /tmp/koh-engine-publish.log; must poll terminal and inspect artifacts.
+  build.proj changed while first evaluation was running: rerun target after
+  terminal to validate final restore/stale-output/notice-copy changes.
+- CPU worker owns host optional/reference/audio/Windows process tests and
+  UI/script/CI launch cutover. Fix explicit Unix DAP socket paths for VS Code.
+- Reviewer owns exact debugger assertion gaps and disposition CSV. Initial
+  audit:181 retained-dev,27 mapped,15 partial,1 obsolete; close gaps with tests.
+- Deferred tool ports preserved at /tmp/koh-engine-deferred-tools-20261119.
+  Workspace/lock no longer include koh-verify/koh-superopt; existing tools clean.
+- GPUI real-window/VS Code/native platform acceptance and legacy production
+  debugger/host retirement remain outstanding. Never claim cutover complete
+  from component tests or headless frame parity alone.
+
 2026-11-19 user authorized emulator -> debugger -> engine host migration after
 accepted GPUI work. Worktree /home/minorum/projekty/koh-rust-engine, branch
 feat/rust-engine, base e1336b0; PR56 remains open/draft and untouched. Design and
