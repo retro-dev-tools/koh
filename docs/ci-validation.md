@@ -1,52 +1,58 @@
 # CI validation
 
-One workflow, `CI` (`.github/workflows/ci.yml`), validates every PR push, every push to `master` and manual runs.
+`CI` has one sequential `check` job and one platform matrix.
 
-| Event | Jobs |
+| Event | Platforms |
 | --- | --- |
-| PR opened, updated, reopened or marked ready | `changes`, then only the jobs for the areas the cumulative PR diff touches; `ci-passed` |
-| Push to `master`, manual run | Every job |
-| `tools-v*.*.*` or `ext-v*.*.*` tag | Toolchain or extension release packaging |
+| Ordinary PR | Linux |
+| Push to `master` | Linux, Windows, macOS |
+| Manual run | Linux, Windows, macOS |
 
-`scripts/ci-changes.sh` maps changed paths to areas:
+Every selected platform checks Rust formatting/lints, workspace tests and docs,
+remaining .NET projects, release compiler/SDK execution, language-server
+publication, native desktop/engine packaging, audio resets, headless captures,
+native-window behavior and the real VS Code debugger path. Formatting runs on
+Linux; test/build coverage runs on every selected platform.
 
-| Area | Paths | Jobs |
-| --- | --- | --- |
-| rust | `rust/**`, `src/Asm/Koh.{Lsp,Native}/**`, `licenses/**` | `native` (Linux, Windows, macOS) |
-| references | `rust/koh-{asm,link,objects}/**` | `references` (RGBDS) |
-| dotnet | `src/**`, `tests/**`, `samples/**`, `tools/**`, `rust/**` | `build-and-test`, `benchmark-native` |
-| emulator | as dotnet, plus `licenses/**` and the GPUI verify scripts | `emulator-aot-publish` |
-| vscode | `editors/vscode/**` | `extension-tests` |
-| sample | `samples/asm/gb-2048/**`, `rust/koh-{asm,link,objects}/**` | `build-sample-2048` |
+Linux additionally compares pinned RGBDS/ELF pipelines and checks
+benchmark discovery. Existing verification tools are unchanged. Tag-only
+toolchain and extension releases remain separate workflows.
 
-Workflows, `Cargo.*`, `Directory.*`, `Koh.*`, `global.json`, `build.proj` and any path the script does not recognize select every area. Documentation (`docs/**`, `*.md`) and images select none. Test the mapping locally with `git diff --name-only origin/master... | bash scripts/ci-changes.sh`.
+There is no changed-path classifier or aggregate pass job. Each check reports
+its own actual result. New runs supersede older runs on the same branch. A
+shared per-platform cache avoids repeated dependency downloads/builds; GitHub
+keeps PR caches scoped to their PR refs. Diagnostic captures, packages and
+release tools are retained in `validation-<OS>` artifacts for seven days.
 
-`ci-passed` is the single merge gate: it fails when any job failed or was cancelled, and passes when jobs were skipped. New pushes cancel a PR's superseded run. Only `master` writes the Cargo/NuGet caches; PRs restore them. No test runs with retries.
+Trigger full validation for a branch with:
 
-Windows discovery has two fewer assembler tests: `include_provenance_preserves_the_logical_symlink_path` and `physical_include_keys_preserve_native_path_separators` are Unix-specific filesystem cases. They are compile-time platform exclusions, not ignored failures or omitted compiler targets. Source-debugger cases run on every platform; Unix cases additionally create an actual temporary-directory symlink to exercise physical PDB source identity.
+```sh
+gh workflow run ci.yml --ref <branch>
+```
 
-## Recorded native compiler checkpoint
+Windows excludes the two Unix-specific assembler filesystem cases,
+`include_provenance_preserves_the_logical_symlink_path` and
+`physical_include_keys_preserve_native_path_separators`. They are platform
+exclusions, not retried or ignored failures. Source-debugger tests run on all
+three platforms. The explicit Unix socket-path case is also Unix-only;
+Windows exercises named pipes instead.
 
-[Full validation44193814588](https://github.com/retro-dev-tools/koh/actions/runs/44193814588)
-ran on567a192. All three native jobs passed their complete platform-applicable
-workspace suites, separate doctests, release native builds, release graphics SDK
-run smoke check and native-backed language-server publication.
+## Required-check transition
 
-| Host | Native tests | Skipped | Test phase |
-| --- | ---: | ---: | ---: |
-| Linux | 1891/1891 | 0 | 1304.198s |
-| macOS | 1891/1891 | 0 | 1123.478s |
-| Windows | 1889/1889 | 0 | 2206.247s |
+Master protection currently requires seven legacy job names, including three
+`emulator-aot-publish` contexts. Those names do not exist in the simplified
+workflow. No branch-protection settings are changed while this PR is draft.
 
-The two Windows compile-time exclusions are the Unix assembler cases named above.
-The previously failing source-debugger cases and both2048 SDK debugger cases
-passed on Windows and macOS. Primary downloaded logs are
-`/tmp/koh-full-567a192-{linux,macos,windows}-native.log`.
+When merging this CI change, replace the legacy contexts with
+`check (ubuntu-latest)` using the prepared payload. It retains strict protection
+and the GitHub Actions app binding. Coordinate this change with the merge so
+other PRs are not left waiting for a check their workflow cannot emit:
 
-Both full .NET jobs failed114 legacy C# compiler tests each; downstream benchmark
-and emulator AOT jobs were skipped. Their primary logs are
-`/tmp/koh-full-567a192-{linux,windows}-dotnet.log`. The overall pipeline is not
-green. Final replacement/deletion and release/product gates remain required.
-Later mapper/rewrite commits change tests and documentation, not production
-compiler code, but their new test coverage still requires current-head full
-validation. These durations are regression-run evidence, not compiler benchmarks.
+```sh
+gh api --method PATCH repos/retro-dev-tools/koh/branches/master/protection/required_status_checks --input .github/required-checks.json
+gh api repos/retro-dev-tools/koh/branches/master/protection/required_status_checks
+```
+
+Confirm the response contains only `check (ubuntu-latest)`, app `15368`, and
+`strict: true`. The additional Windows/macOS checks run on master/manual
+validation; the user selected Linux-only automatic PR validation.

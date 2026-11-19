@@ -1,5 +1,51 @@
 # Current work: Rust execution engine
 
+Latest completed/active checkpoint:
+- User approved one Linux PR check, fullLinux/Windows/macOS master/manual.
+  CI nowone `check` matrix, sharedsetup/cache/artifacts; classifier and aggregate
+  removed. No .NETAOTjob remains. Alloriginaltest/build/package/reference/
+  benchmarkcoverage retained in selectedplatforms; Linuxreference/bench checks
+  still runonLinuxPR. actionlintv1.7.7 exit0 /tmp/koh-ci-actionlint-final.log;
+  independentread-onlyreview foundnoImportantissues.
+- Masterprotection remainsunchanged7legacycontexts. Prepared `.github/required-checks.json`
+  and docs/ci-validation.md explain coordinated merge-time switch to
+  `check (ubuntu-latest)`, stricttrue, app15368. DoNOTapplymid-draft.
+- Rebasedfullcompiler PASS2063/2063 zeroskips exit0
+  /tmp/koh-engine-rebased-compiler.log. Session56148 terminal. No rerunneeded
+  for subsequent hosttransport/CI-onlychanges (notcompiler/helperinputs).
+- Rebasedrootnativepublisher PASSexit0 /tmp/koh-engine-rebased-publish.log;
+  session73494 terminal. New-masterUIstillneedsfreshactualwindow/VSCode checks.
+- ActualCI773 Mac/Win DAP failures fixed in commit0dac821: Unixacceptedstream
+  explicitlyblocking; Windowspollingreader onlyreadsavailablebytes, so pending
+  inputcannotblockduplexresponses/events. Newpartial-frame/async-event case.
+  Linuxfocused7/7, fullengine27/27 withreference/audiooptins exit0:
+  /tmp/koh-engine-windows-duplex-linux-regression.log and
+  /tmp/koh-engine-duplex-engine-tests.log. Windows/MacGREENnotyetclaimed.
+- Rootnext: commit/pushCI, cancelobsolete773run44511207492, triggerfullmanual
+  3OS validation onnewhead; nofakepasses/retries. Localpackageactualchecks after
+  finalpublish. Verifier sources remainunchanged; mainbattle.png preserved.
+
+Current validation/cadence steering:
+- User selected one Linux check on ordinary PRs; full Linux/Windows/macOS on
+  master/manual. Root owns CI simplification and docs/protection transition.
+  Existing master requires7namedjobs including emulator-aot-publish3; do NOT
+  change master protection mid-draft. New layout must have an explicit required
+  check transition documented for merge, without fake compatibility passes.
+- Current rebased head773bd0b, base622770f. CI44511207492 found real DAP transport
+  failures on macOS and Windows; job logs /tmp/koh-engine-{macos,windows}-773-job.log.
+  macOS accepted nonblocking sockets inherited listener state; root added
+  set_nonblocking(false) before cloning/reading. Existing5DAP failures are RED.
+- CPU worker next owns Windows DAP producer repair and transport tests only
+  (rust/koh-engine/src/dap.rs, tests/support/dap_transport.rs and session tests).
+  Root's one-line Unix fix must remain. No CI/package changes by CPU worker.
+- Root local new-base fullcompiler stilllive session56148, /tmp/koh-engine-
+  rebased-compiler.log, target/tmp/koh-engine-target. Package build stilllive
+  session73494 /tmp/koh-engine-rebased-publish.log, native-msbuild target.
+  No other builds in those output directories; transport worker uses private
+  hosttarget. Focused new-base145 tests passed after supplying packaged OpenAL
+  inLD_LIBRARY_PATH (/tmp/koh-engine-rebased-native-final.log). Initial omitted
+  librarypath run failed honestly; no product audio fix inferred from it.
+
 Latest user steering: ALL verification tooling is out of scope pending deeper
 thinking. Existing Koh.Verify, sample verifier and rust-asm-verify stay unchanged.
 Retain C# emulator/boot for existing development tools; no production fallback.
