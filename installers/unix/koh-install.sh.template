@@ -51,7 +51,11 @@ if [ -z "$expected" ]; then
     echo "checksum for $archive not listed in SHA256SUMS.txt" >&2
     exit 1
 fi
-actual=$(sha256sum "$tmp/$archive" | awk '{print $1}')
+case "$os" in
+    Darwin*) actual=$(shasum -a 256 "$tmp/$archive") ;;
+    *) actual=$(sha256sum "$tmp/$archive") ;;
+esac
+actual=${actual%% *}
 if [ "$expected" != "$actual" ]; then
     echo "checksum mismatch: expected $expected got $actual" >&2
     exit 1

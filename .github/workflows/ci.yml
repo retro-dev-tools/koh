@@ -70,6 +70,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           actionlint -color
+          shellcheck installers/unix/koh-install.sh.template
           python scripts/test-release-preflight.py
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:

@@ -213,7 +213,7 @@ jobs:
           tag="$RELEASE_TAG"
           version="${tag#tools-v}"
           # 0.x.x and tags with a pre-release suffix are flagged as prereleases.
-          if [[ "$version" =~ ^0\. ]] || [[ "$version" == *-* ]]; then
+          if [[ "$version" =~ ^0\. ]] || [[ "${version%%+*}" == *-* ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"

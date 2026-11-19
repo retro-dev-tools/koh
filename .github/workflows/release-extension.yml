@@ -89,7 +89,7 @@ jobs:
         run: |
           tag="$RELEASE_TAG"
           version="${tag#ext-v}"
-          if [[ "$version" =~ ^0\. ]] || [[ "$version" == *-* ]]; then
+          if [[ "$version" =~ ^0\. ]] || [[ "${version%%+*}" == *-* ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
