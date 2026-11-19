@@ -4,6 +4,7 @@ use gimli::write::{
     UnitEntryId,
 };
 use gimli::{Encoding, Format, LittleEndian};
+use koh_objects::{ELF_FLAGS, ELF_NOTE, MAX_ELF_SIZE};
 use object::write::elf::{FileHeader, SectionHeader, Writer};
 use object::{Endianness, elf};
 
@@ -91,7 +92,7 @@ pub fn write(result: &LinkResult) -> Result<Vec<u8>, String> {
             .checked_mul(2)
             .and_then(|length| length.checked_add(256))
             .and_then(|length| budget.checked_add(length))
-            .filter(|budget| *budget <= 64 * 1024 * 1024)
+            .filter(|budget| *budget <= MAX_ELF_SIZE)
             .ok_or("DWARF exceeds 64 MiB output budget")?;
     }
     let encoding = Encoding {
@@ -222,10 +223,7 @@ pub fn write(result: &LinkResult) -> Result<Vec<u8>, String> {
     dwarf.unit.line_program = program;
     let mut sections = Sections::new(EndianVec::new(LittleEndian));
     dwarf.write(&mut sections).map_err(|e| e.to_string())?;
-    let mut data = vec![(
-        b".note.koh".to_vec(),
-        b"\x04\0\0\0\x08\0\0\0\x01\0\0\0Koh\0SM83\x01\0\0\0".to_vec(),
-    )];
+    let mut data = vec![(b".note.koh".to_vec(), ELF_NOTE.to_vec())];
     sections
         .for_each(|id, bytes| {
             if !bytes.slice().is_empty() {
@@ -249,7 +247,7 @@ fn elf_file(sections: &[(Vec<u8>, Vec<u8>)]) -> Result<Vec<u8>, String> {
                 e_type: elf::ET_EXEC,
                 e_machine: elf::EM_NONE,
                 e_entry: 0,
-                e_flags: elf::FileFlags(0x4b4f4801),
+                e_flags: elf::FileFlags(ELF_FLAGS),
             })
             .map_err(|e| e.to_string())?;
         let mut headers = Vec::new();

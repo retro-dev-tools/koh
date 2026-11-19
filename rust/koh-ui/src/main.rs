@@ -33,14 +33,41 @@ struct Desktop {
     memory_input: Entity<InputState>,
     memory_focus: FocusHandle,
     memory_error: Option<String>,
-    tiles: Option<Arc<RenderImage>>,
-    tiles_dirty: bool,
-    tiles_scale: u32,
-    tiles_height: u32,
-    lcd: Option<Arc<RenderImage>>,
-    lcd_scale: u32,
-    lcd_dirty: bool,
+    tiles: ScaledImage,
+    lcd: ScaledImage,
     _subscriptions: Vec<Subscription>,
+}
+
+#[derive(Default)]
+struct ScaledImage {
+    image: Option<Arc<RenderImage>>,
+    scale: u32,
+    dirty: bool,
+}
+
+impl ScaledImage {
+    fn refresh(
+        &mut self,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+        scale: u32,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if !self.dirty && self.scale == scale {
+            return;
+        }
+        let Some(pixels) = nearest_bgra(rgba, width, height, scale) else {
+            return;
+        };
+        let next = Arc::new(RenderImage::new(vec![image::Frame::new(pixels)]));
+        if let Some(previous) = self.image.replace(next) {
+            cx.drop_image(previous, Some(window));
+        }
+        self.scale = scale;
+        self.dirty = false;
+    }
 }
 
 impl Desktop {
@@ -99,19 +126,19 @@ impl Desktop {
                         let mut changed = false;
                         if let Some(snapshot) = update.snapshot {
                             let old = this.snapshot.as_ref();
-                            this.tiles_dirty |=
+                            this.tiles.dirty |=
                                 old.and_then(|s| s.vram.as_ref()) != snapshot.vram.as_ref();
                             if old.is_none() && snapshot.rom_path.is_some() {
                                 this.status = "ROM loaded".into();
                             }
-                            this.lcd_dirty |= old.is_none_or(|old| {
+                            this.lcd.dirty |= old.is_none_or(|old| {
                                 old.frame != snapshot.frame
                                     || old.rom_path != snapshot.rom_path
                                     || old.cpu.as_ref().map(|c| c.total_t_cycles)
                                         != snapshot.cpu.as_ref().map(|c| c.total_t_cycles)
                             });
+                            changed = this.snapshot.as_ref() != Some(&snapshot);
                             this.snapshot = Some(snapshot);
-                            changed = true;
                         }
                         if let Some(message) = update.message {
                             match message {
@@ -134,7 +161,7 @@ impl Desktop {
                                     }
                                     .into();
                                     if ["load", "reset", "restore"].contains(&command.as_str()) {
-                                        this.lcd_dirty = true;
+                                        this.lcd.dirty = true;
                                     }
                                 }
                                 Err(error) => {
@@ -172,13 +199,8 @@ impl Desktop {
             memory_input,
             memory_focus: cx.focus_handle(),
             memory_error: None,
-            tiles: None,
-            tiles_dirty: true,
-            tiles_scale: 0,
-            tiles_height: 0,
-            lcd: None,
-            lcd_scale: 0,
-            lcd_dirty: true,
+            tiles: ScaledImage::default(),
+            lcd: ScaledImage::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -418,16 +440,9 @@ impl Render for Desktop {
             .min(available_height * dpi / 144.)
             .floor() as u32)
             .max(1);
-        if (self.lcd_dirty || scale != self.lcd_scale)
-            && let Some(snapshot) = &self.snapshot
-            && let Some(image) = nearest_bgra(&snapshot.framebuffer, 160, 144, scale)
-        {
-            let next = Arc::new(RenderImage::new(vec![image::Frame::new(image)]));
-            if let Some(previous) = self.lcd.replace(next) {
-                cx.drop_image(previous, Some(window));
-            }
-            self.lcd_dirty = false;
-            self.lcd_scale = scale;
+        if let Some(snapshot) = &self.snapshot {
+            self.lcd
+                .refresh(&snapshot.framebuffer, 160, 144, scale, window, cx);
         }
         let lcd = if loaded {
             div()
@@ -438,7 +453,7 @@ impl Render for Desktop {
                     MouseButton::Left,
                     cx.listener(|this, _, window, cx| this.focus.focus(window, cx)),
                 )
-                .children(self.lcd.clone().map(|image| {
+                .children(self.lcd.image.clone().map(|image| {
                     img(image)
                         .w(px(160. * scale as f32 / dpi))
                         .h(px(144. * scale as f32 / dpi))

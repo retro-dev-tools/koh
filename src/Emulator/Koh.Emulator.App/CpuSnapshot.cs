@@ -6,10 +6,7 @@ namespace Koh.Emulator.App;
 public readonly record struct RgbColor(byte R, byte G, byte B);
 
 /// <summary>
-/// Immutable snapshot of the CPU's register state after a frame.
-/// Published by <see cref="EmulatorLoop"/> per-frame via a volatile
-/// reference write so the UI thread can read a consistent set without
-/// reaching into the live <see cref="GameBoySystem"/>.
+/// Immutable snapshot of the CPU's register state, taken on the emulator thread.
 /// </summary>
 public sealed record CpuSnapshot(
     ushort Pc,

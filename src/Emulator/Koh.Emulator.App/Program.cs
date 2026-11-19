@@ -58,92 +58,38 @@ if (engineSession)
         );
         return 1;
     }
-    using var sessionCancellation = new CancellationTokenSource();
-    Console.CancelKeyPress += (_, e) =>
+}
+else
+{
+    if (positional.Count != 1)
     {
-        e.Cancel = true;
-        sessionCancellation.Cancel();
-    };
-    AudioSink? sessionAudio = null;
-    if (!headless)
-    {
-        try
-        {
-            sessionAudio = new AudioSink();
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[koh-engine] audio unavailable: {ex.Message}");
-        }
-    }
-    using var sessionAudioLifetime = sessionAudio;
-    using var sessionLoop = new EmulatorLoop(sessionAudio);
-    var session = new EngineSession(sessionLoop, bootRoms);
-    try
-    {
-        if (positional.Count == 1)
-            sessionLoop.Execute(() => session.Load(positional[0], dapPipe is not null));
-        using var sessionDap = dapPipe is not null ? new DapServerHost(dapPipe, sessionLoop) : null;
-        if (sessionDap is not null)
-            _ = sessionDap.Completion.ContinueWith(
-                _ =>
-                {
-                    try
-                    {
-                        sessionCancellation.Cancel();
-                    }
-                    catch (ObjectDisposedException) { }
-                },
-                TaskScheduler.Default
-            );
-        using var input = new StreamReader(
-            Console.OpenStandardInput(),
-            new System.Text.UTF8Encoding(false, true)
+        Console.Error.WriteLine(
+            "Use koh-emulator for the desktop, or pass one ROM with --session, --dap, --screenshot or --mode3-report."
         );
-        return await session.RunAsync(
-            input,
-            Console.OpenStandardOutput(),
-            sessionCancellation.Token
+        return 1;
+    }
+    if (screenshotPath is not null || mode3ReportRequested)
+    {
+        return HeadlessRunner.Run(
+            positional[0],
+            screenshotPath,
+            frames,
+            inputScriptPath,
+            mode3ReportRequested,
+            mode3ReportPath,
+            bootRoms
         );
     }
-    catch (OperationCanceledException)
+    if (dapPipe is null)
     {
-        return 0;
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"[koh-engine] {ex.Message}");
+        Console.Error.WriteLine(
+            "Use koh-emulator for the desktop, or select --session, --dap, --screenshot or --mode3-report."
+        );
         return 1;
     }
 }
-if (positional.Count != 1)
-{
-    Console.Error.WriteLine(
-        "Use koh-emulator for the desktop, or pass one ROM with --session, --dap, --screenshot or --mode3-report."
-    );
-    return 1;
-}
-string romPath = positional[0];
-if (screenshotPath is not null || mode3ReportRequested)
-{
-    return HeadlessRunner.Run(
-        romPath,
-        screenshotPath,
-        frames,
-        inputScriptPath,
-        mode3ReportRequested,
-        mode3ReportPath,
-        bootRoms
-    );
-}
-if (dapPipe is null)
-{
-    Console.Error.WriteLine(
-        "Use koh-emulator for the desktop, or select --session, --dap, --screenshot or --mode3-report."
-    );
-    return 1;
-}
 
+string log = engineSession ? "[koh-engine]" : "[koh-dap]";
 using var cancellation = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) =>
 {
@@ -159,18 +105,39 @@ if (!headless)
     }
     catch (Exception ex)
     {
-        Console.Error.WriteLine($"[koh-dap] audio unavailable: {ex.Message}");
+        Console.Error.WriteLine($"{log} audio unavailable: {ex.Message}");
     }
 }
 using var audioLifetime = audio;
 using var loop = new EmulatorLoop(audio);
-var dapSession = new EngineSession(loop, bootRoms);
+var session = new EngineSession(loop, bootRoms);
 try
 {
-    loop.Execute(() => dapSession.Load(romPath, paused: true));
-    using var dapServer = new DapServerHost(dapPipe, loop);
-    await dapServer.Completion.WaitAsync(cancellation.Token);
-    return 0;
+    if (positional.Count == 1)
+        loop.Execute(() => session.Load(positional[0], paused: dapPipe is not null));
+    using var dap = dapPipe is not null ? new DapServerHost(dapPipe, loop) : null;
+    if (!engineSession)
+    {
+        await dap!.Completion.WaitAsync(cancellation.Token);
+        return 0;
+    }
+    if (dap is not null)
+        _ = dap.Completion.ContinueWith(
+            _ =>
+            {
+                try
+                {
+                    cancellation.Cancel();
+                }
+                catch (ObjectDisposedException) { }
+            },
+            TaskScheduler.Default
+        );
+    using var input = new StreamReader(
+        Console.OpenStandardInput(),
+        new System.Text.UTF8Encoding(false, true)
+    );
+    return await session.RunAsync(input, Console.OpenStandardOutput(), cancellation.Token);
 }
 catch (OperationCanceledException)
 {
@@ -178,6 +145,6 @@ catch (OperationCanceledException)
 }
 catch (Exception ex)
 {
-    Console.Error.WriteLine($"[koh-dap] {ex.Message}");
+    Console.Error.WriteLine($"{log} {ex.Message}");
     return 1;
 }

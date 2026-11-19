@@ -10,6 +10,10 @@ namespace Koh.Emulator.App;
 internal sealed class EngineSession(EmulatorLoop loop, BootRomResolver bootRoms)
 {
     private string? _romPath;
+    private byte[] _framebuffer = [];
+    private PaletteSnapshot? _palettes;
+    private VramSnapshot? _vram;
+    private MemorySnapshot? _memory;
 
     public void Load(string path, bool paused)
     {
@@ -178,6 +182,18 @@ internal sealed class EngineSession(EmulatorLoop loop, BootRomResolver bootRoms)
                 throw new InvalidDataException("Unknown engine command");
         }
         var sys = loop.CurrentSystem;
+        var frame = loop.CurrentFramebuffer;
+        if (_framebuffer.Length != frame.Length)
+            _framebuffer = new byte[frame.Length];
+        frame.CopyTo(_framebuffer, 0);
+        bool inspect = debug && sys is not null;
+        // Reused across replies: RunAsync serializes each reply before handling the next command.
+        if (inspect)
+        {
+            _palettes = PaletteSnapshot.From(sys!, _palettes);
+            _vram = VramSnapshot.From(sys!, _vram);
+            _memory = MemorySnapshot.From(sys!, address, _memory);
+        }
         return new EngineSnapshot(
             1,
             _romPath,
@@ -186,10 +202,10 @@ internal sealed class EngineSession(EmulatorLoop loop, BootRomResolver bootRoms)
             loop.FastForward,
             sys?.Mode.ToString(),
             sys is null ? null : CpuSnapshot.From(sys),
-            (byte[])loop.CurrentFramebuffer.Clone(),
-            debug && sys is not null ? PaletteSnapshot.From(sys) : null,
-            debug && sys is not null ? VramSnapshot.From(sys) : null,
-            debug && sys is not null ? MemorySnapshot.From(sys, address) : null
+            _framebuffer,
+            inspect ? _palettes : null,
+            inspect ? _vram : null,
+            inspect ? _memory : null
         );
     }
 

@@ -148,7 +148,7 @@ public sealed class EmulatorLoop : IDisposable
         Volatile.Write(ref _frameCount, 0);
         if (system is not null)
         {
-            PublishSnapshots(system);
+            PublishFrame(system);
             SystemInstalled?.Invoke(system);
         }
     }
@@ -294,7 +294,7 @@ public sealed class EmulatorLoop : IDisposable
             if (_system is null || !_paused)
                 return;
             _system.StepInstruction();
-            PublishSnapshots(_system);
+            PublishFrame(_system);
             PausedOnBreak?.Invoke(StopReason.InstructionComplete);
         });
 
@@ -348,7 +348,7 @@ public sealed class EmulatorLoop : IDisposable
                 // restored world — drop it so the new state's first
                 // samples aren't preceded by stale tail.
                 _sink?.Reset();
-                PublishSnapshots(sys);
+                PublishFrame(sys);
             }
             catch
             {
@@ -417,7 +417,7 @@ public sealed class EmulatorLoop : IDisposable
 
                 long frameStarted = Stopwatch.GetTimestamp();
                 var stop = sys.RunFrame();
-                PublishSnapshots(sys);
+                PublishFrame(sys);
                 Interlocked.Increment(ref _frameCount);
 
                 int available = sys.Apu.SampleBuffer.Available;
@@ -501,7 +501,7 @@ public sealed class EmulatorLoop : IDisposable
         return remaining < 0 ? 0 : remaining;
     }
 
-    private void PublishSnapshots(GameBoySystem system) =>
+    private void PublishFrame(GameBoySystem system) =>
         Volatile.Write(ref _publishedFrame, system.Ppu.Framebuffer.FrontArray);
 
     private static readonly byte[] s_emptyFrame = BuildGreyFrame();

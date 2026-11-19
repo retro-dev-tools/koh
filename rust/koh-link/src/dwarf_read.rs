@@ -1,7 +1,7 @@
 use crate::dwarf::{MACRO_EXPANSION, MAX_MACRO_DEPTH, SOURCE_RANGE};
 use crate::{LinkedLine, LinkedSymbol};
 use gimli::{AttributeValue, EndianSlice, LittleEndian};
-use koh_objects::{Provenance, SourceLocation};
+use koh_objects::{ELF_FLAGS, ELF_NOTE, MAX_ELF_SIZE, Provenance, SourceLocation};
 use object::read::elf::FileHeader as _;
 use object::{Endianness, Object as _, ObjectSection as _, elf};
 
@@ -20,7 +20,7 @@ impl Budget {
         self.0 = self
             .0
             .checked_add(bytes)
-            .filter(|n| *n <= 64 * 1024 * 1024)
+            .filter(|n| *n <= MAX_ELF_SIZE)
             .ok_or("DWARF decoded data exceeds 64 MiB budget")?;
         Ok(())
     }
@@ -141,7 +141,7 @@ enum ExpansionTarget {
 }
 
 pub fn read_dwarf(bytes: &[u8]) -> Result<DwarfDebugInfo, String> {
-    if bytes.len() > 64 * 1024 * 1024 {
+    if bytes.len() > MAX_ELF_SIZE {
         return Err("DWARF input exceeds 64 MiB".into());
     }
     let file = object::read::elf::ElfFile32::<Endianness>::parse(bytes).map_err(error)?;
@@ -150,7 +150,7 @@ pub fn read_dwarf(bytes: &[u8]) -> Result<DwarfDebugInfo, String> {
     if !file.is_little_endian()
         || header.e_type(endian) != elf::ET_EXEC
         || header.e_machine(endian) != elf::EM_NONE
-        || header.e_flags(endian).0 != 0x4b4f4801
+        || header.e_flags(endian).0 != ELF_FLAGS
         || header.e_entry(endian) != 0
         || header.e_phnum(endian) != 0
     {
@@ -168,9 +168,7 @@ pub fn read_dwarf(bytes: &[u8]) -> Result<DwarfDebugInfo, String> {
             return Err("Duplicate DWARF ELF section".into());
         }
     }
-    if sections.get(".note.koh").copied()
-        != Some(b"\x04\0\0\0\x08\0\0\0\x01\0\0\0Koh\0SM83\x01\0\0\0".as_slice())
-    {
+    if sections.get(".note.koh").copied() != Some(ELF_NOTE) {
         return Err("Missing or unsupported Koh SM83 note".into());
     }
     for name in [".debug_info", ".debug_abbrev"] {

@@ -1,9 +1,9 @@
 use crate::*;
 use object::write::elf::{FileHeader, SectionHeader, Sym, Writer};
 use object::{Endianness, Object as _, ObjectSection as _, ObjectSymbol as _, elf};
-const MAX_ELF_SIZE: usize = 64 * 1024 * 1024;
-const FLAGS: u32 = 0x4b4f4801;
-const NOTE: &[u8] = b"\x04\0\0\0\x08\0\0\0\x01\0\0\0Koh\0SM83\x01\0\0\0";
+pub const MAX_ELF_SIZE: usize = 64 * 1024 * 1024;
+pub const FLAGS: u32 = 0x4b4f4801;
+pub const NOTE: &[u8] = b"\x04\0\0\0\x08\0\0\0\x01\0\0\0Koh\0SM83\x01\0\0\0";
 
 #[derive(Default)]
 struct Bytes(Vec<u8>, bool);

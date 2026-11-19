@@ -5,7 +5,7 @@ use std::{
     ffi::OsString,
     io::{self, BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -21,7 +21,7 @@ pub enum Mode {
     Cgb,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Cpu {
     pub pc: u16,
@@ -38,14 +38,14 @@ pub struct Cpu {
     pub flag_c: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
     pub b: u8,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Palettes {
     pub is_cgb: bool,
@@ -64,7 +64,7 @@ pub struct Vram {
     pub height: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Memory {
     pub base_address: u16,
@@ -72,7 +72,7 @@ pub struct Memory {
     pub bytes: Vec<u8>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     protocol_version: u32,
@@ -176,7 +176,6 @@ pub struct Engine {
     sender: mpsc::Sender<Input>,
     latest: Arc<Mutex<Update>>,
     alive: Arc<AtomicBool>,
-    child: Arc<Mutex<Child>>,
     done: mpsc::Receiver<bool>,
 }
 
@@ -191,8 +190,6 @@ impl Engine {
             .spawn()?;
         let mut input = child.stdin.take().expect("piped engine stdin");
         let mut output = BufReader::new(child.stdout.take().expect("piped engine stdout"));
-        let child = Arc::new(Mutex::new(child));
-        let worker_child = child.clone();
         let latest = Arc::new(Mutex::new(Update::default()));
         let worker_latest = latest.clone();
         let alive = Arc::new(AtomicBool::new(true));
@@ -266,26 +263,12 @@ impl Engine {
             }
             drop(input);
             worker_alive.store(false, Ordering::Release);
-            loop {
-                match worker_child.lock().unwrap().try_wait() {
-                    Ok(Some(status)) => {
-                        let _ = done_sender.send(status.success());
-                        break;
-                    }
-                    Ok(None) => {}
-                    Err(_) => {
-                        let _ = done_sender.send(false);
-                        break;
-                    }
-                }
-                thread::sleep(Duration::from_millis(5));
-            }
+            let _ = done_sender.send(child.wait().is_ok_and(|status| status.success()));
         });
         Ok(Self {
             sender,
             latest,
             alive,
-            child,
             done,
         })
     }
@@ -307,8 +290,7 @@ impl Engine {
 impl Drop for Engine {
     fn drop(&mut self) {
         self.send(json!({"command": "quit"}));
-        if !self.done.recv().unwrap_or(false) {
-            let _ = self.child.lock().unwrap().wait();
+        if matches!(self.done.recv(), Ok(false)) {
             eprintln!("[koh-ui] engine exited unsuccessfully");
         }
     }
@@ -382,7 +364,6 @@ mod tests {
         let path = directory.join("game.gb");
         std::fs::write(&path, [0u8; 32768]).unwrap();
         let engine = Engine::spawn(Path::new(&executable), &["--headless".into()]).unwrap();
-        let child = engine.child.clone();
         engine.send(json!({"command": "load", "path": path, "paused": true}));
         engine.inspect(true, 0xfff0);
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
@@ -432,8 +413,9 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         }
         assert!(path.with_file_name("game.gb.state").exists());
+        engine.send(json!({"command": "quit"}));
+        assert!(engine.done.recv().unwrap());
         drop(engine);
-        assert!(child.lock().unwrap().try_wait().unwrap().unwrap().success());
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

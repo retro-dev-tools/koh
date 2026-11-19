@@ -151,25 +151,19 @@ impl Desktop {
     fn tile_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let dpi = window.scale_factor();
         let scale = (2. * dpi).floor().max(1.) as u32;
-        if (self.tiles_dirty || self.tiles_scale != scale)
-            && let Some(vram) = self.snapshot.as_ref().and_then(|s| s.vram.as_ref())
-            && let Some(pixels) = nearest_bgra(&vram.rgba, vram.width, vram.height, scale)
-        {
-            let image = Arc::new(RenderImage::new(vec![image::Frame::new(pixels)]));
-            if let Some(previous) = self.tiles.replace(image) {
-                cx.drop_image(previous, Some(window));
-            }
-            self.tiles_height = vram.height;
-            self.tiles_scale = scale;
-            self.tiles_dirty = false;
+        let vram = self.snapshot.as_ref().and_then(|s| s.vram.as_ref());
+        if let Some(vram) = vram {
+            self.tiles
+                .refresh(&vram.rgba, vram.width, vram.height, scale, window, cx);
         }
-        let ready = self.snapshot.as_ref().is_some_and(|s| s.vram.is_some());
+        let ready = vram.is_some();
+        let height = vram.map_or(0, |vram| vram.height);
         div()
             .id("tile-atlas")
             .role(Role::Image)
             .aria_label(if !ready {
                 "No ROM loaded"
-            } else if self.tiles_height == 384 {
+            } else if height == 384 {
                 "VRAM tiles: 384 per bank, bank 0 above bank 1"
             } else {
                 "VRAM tiles: 384 in bank 0"
@@ -184,15 +178,15 @@ impl Desktop {
                     .text_color(cx.theme().muted_foreground)
                     .child("384 tiles per bank · $8000–$97FF"),
             )
-            .child(div().text_sm().child(if self.tiles_height == 384 {
+            .child(div().text_sm().child(if height == 384 {
                 "Bank 0 above · Bank 1 below"
             } else {
                 "Bank 0"
             }))
-            .children(ready.then(|| self.tiles.clone()).flatten().map(|image| {
+            .children(ready.then(|| self.tiles.image.clone()).flatten().map(|image| {
                 img(image)
                     .w(px(128. * scale as f32 / dpi))
-                    .h(px(self.tiles_height as f32 * scale as f32 / dpi))
+                    .h(px(height as f32 * scale as f32 / dpi))
             }))
             .children((!ready).then(|| div().text_sm().child("Open a ROM to inspect tiles.")))
             .into_any_element()
