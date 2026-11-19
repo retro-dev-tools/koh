@@ -4,6 +4,15 @@ Assessment date: 2026-11-14. Source baseline: `c2fddcf`, with pre-existing uncom
 
 ## Product direction
 
+CI/CD maintenance (2026-11-19): preserve Linux PR/full three-platform validation;
+add core production MSRV checks, workflow/ShellCheck linting, managed formatting,
+and an extension production-dependency audit. Release workflows now support
+package-only manual runs, strict tag/version validation, scoped write tokens,
+immutable action refs and checksummed assets. Public publication still requires
+license/notice review. Integration must replace obsolete required-check names;
+see [CI/CD guide](docs/ci-validation.md). Hosted acceptance of this increment is
+pending; local validation is recorded in its implementation plan.
+
 Active user-requested LSP migration (2026-11-19): replace the managed language
 server with native Rust while retaining the `koh-asm --serve-json` worker.
 Configuration/workspace ownership, diagnostic notifications, hover, definition,

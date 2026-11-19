@@ -1,3 +1,17 @@
+# CI/CD maintenance handoff
+
+Current work: `ci/maintainable-automation`, based on master `0814e2f`.
+Implementation and validation: docs/superpowers/plans/2026-11-19-ci-maintenance.md.
+Contributor/setup/release instructions: docs/ci-validation.md.
+No push, merge, branch-protection mutation or release publication authorized.
+The protection payload adds `msrv` alongside `check (ubuntu-latest)`; an admin
+must coordinate replacing seven obsolete contexts with integration.
+Licensing and development-only npm advisories remain release follow-ups.
+Local NuGet scratch locks stalled tools/builds; a fresh NUGET_SCRATCH directory
+allowed tool restore and audited build to finish. Do not disable auditing.
+Earlier migration handoffs below are historical; their hosted runs and dirty
+state must be checked live before reuse.
+
 # Rust LSP review handoff
 
 Current work: native LSP migration in feat/rust-lsp. Fresh whole-branch review
