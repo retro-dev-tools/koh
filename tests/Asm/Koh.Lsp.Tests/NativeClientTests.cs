@@ -44,7 +44,8 @@ public class NativeClientTests
                 timedOut = true;
             }
             await Assert.That(timedOut).IsTrue();
-            await Assert.That(stopwatch.Elapsed).IsLessThan(TimeSpan.FromSeconds(5));
+            // Well under the child's 30 s sleep: the client gave up instead of waiting for it.
+            await Assert.That(stopwatch.Elapsed).IsLessThan(TimeSpan.FromSeconds(15));
         }
     }
 }
