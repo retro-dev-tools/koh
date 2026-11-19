@@ -16,12 +16,14 @@ pub fn hex(bytes: &[u8]) -> String {
     out
 }
 pub fn unhex(value: &str) -> Result<Vec<u8>> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err("Odd hex length".into());
     }
     value
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             u8::from_str_radix(std::str::from_utf8(pair).map_err(|e| e.to_string())?, 16)
                 .map_err(|e| e.to_string())

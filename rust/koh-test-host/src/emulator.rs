@@ -331,10 +331,10 @@ pub fn run(args: &[String]) -> Result {
                 if m.ppu.ly != 144 {
                     return Err("VBlank dispatched outside line144".into());
                 }
-                if let Some(&prior) = vblank_ticks.last() {
-                    if !(70200..=70248).contains(&(tick - prior)) {
-                        return Err(format!("Invalid VBlank period {}", tick - prior));
-                    }
+                if let Some(&prior) = vblank_ticks.last()
+                    && !(70200..=70248).contains(&(tick - prior))
+                {
+                    return Err(format!("Invalid VBlank period {}", tick - prior));
                 }
                 vblank_ticks.push(tick);
             }

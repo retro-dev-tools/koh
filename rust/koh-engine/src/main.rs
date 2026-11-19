@@ -6,6 +6,8 @@ mod persistence;
 mod platform;
 mod protocol;
 mod snapshot;
+#[cfg(test)]
+mod tests;
 
 use audio::Audio;
 use koh_debugger::{Action, Debugger};
