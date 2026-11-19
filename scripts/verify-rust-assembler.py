@@ -2,6 +2,7 @@
 """Verify native ELF linking against independent RGBDS 1.0.1 and emulator execution."""
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -9,7 +10,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "tools/rust-asm-verify/bin/Release/net10.0/koh-rust-asm-verify.dll"
+HELPER = ROOT / "target/release" / ("koh-test-host.exe" if os.name == "nt" else "koh-test-host")
 
 def run(args, *, expect=0):
     result = subprocess.run(list(map(str, args)), cwd=ROOT, text=True, capture_output=True)
@@ -153,7 +154,7 @@ def adapt_sample(directory):
     (directory / "gb2048-reference-adaptations.json").write_text(json.dumps(changes, indent=2))
     return destination / "main.asm"
 
-def compare_case(name, sources, directory, assembler, linker, reference_sources=None, execute=False, pin_sample=False):
+def compare_case(name, sources, directory, assembler, linker, reference_sources=None, execute=False, pin_sample=False, host=HELPER):
     native, reference = [], []
     for index, source in enumerate(sources):
         elf = directory / f"{name}-{index}.elf.o"
@@ -194,8 +195,8 @@ def compare_case(name, sources, directory, assembler, linker, reference_sources=
     if native_rom.read_bytes() != expected:
         raise AssertionError(f"{name}: complete raw ROM differs from RGBDS")
     if execute:
-        print(run(["dotnet", HELPER, "execute", native_rom]).stdout.strip())
-        print(run(["dotnet", HELPER, "execute", reference_rom]).stdout.strip())
+        print(run([host, "AssemblerVerify", "execute", native_rom]).stdout.strip())
+        print(run([host, "AssemblerVerify", "execute", reference_rom]).stdout.strip())
     return dict(name=name, bytes=len(expected), status="passed", placement="RGBDS layout pinned in temporary sources; floating image also built" if pin_sample else "unconstrained")
 
 def negative_cases(directory, assembler, linker):
@@ -232,21 +233,21 @@ def main():
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--rust", type=Path, default=ROOT / "target/release/koh-asm")
     parser.add_argument("--linker", type=Path, default=ROOT / "target/release/koh-link")
+    parser.add_argument("--host", type=Path, default=HELPER)
     parser.add_argument("--output", type=Path)
     options = parser.parse_args()
     for tool in ("rgbasm", "rgblink"):
         if run([tool, "--version"]).stdout.strip() != f"{tool} v1.0.1":
             parser.error(f"{tool} v1.0.1 is required")
     if not options.no_build:
-        run(["cargo", "build", "--release", "--locked", "-p", "koh-asm", "-p", "koh-link"])
-        run(["dotnet", "build", ROOT / "tools/rust-asm-verify/RustAsmVerify.csproj", "-c", "Release", "-m:1"])
+        run(["cargo", "build", "--release", "--locked", "-p", "koh-asm", "-p", "koh-link", "-p", "koh-test-host"])
     directory = (options.output or Path(tempfile.mkdtemp(prefix="koh-native-verify-"))).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     results = []
     for name, text in [("execution", EXECUTION), ("relocations", RELOCATIONS), ("macros", MACROS), ("opcodes", OPCODES)]:
         source = directory / f"{name}.asm"
         source.write_text(text)
-        results.append(compare_case(name, [source], directory, options.rust, options.linker, execute=name == "execution"))
+        results.append(compare_case(name, [source], directory, options.rust, options.linker, execute=name == "execution", host=options.host))
     results.append(compare_case("semantics", [ROOT / "tools/rust-asm-verify/fixtures/reference-semantics.asm"], directory, options.rust, options.linker))
     results.append(compare_case("gb2048", [ROOT / "samples/asm/gb-2048/src/main.asm"], directory, options.rust, options.linker, [adapt_sample(directory)], pin_sample=True))
     consumer, provider = directory / "consumer.asm", directory / "provider.asm"

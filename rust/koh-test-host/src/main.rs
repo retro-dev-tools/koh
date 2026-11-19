@@ -1,3 +1,4 @@
+mod assembler;
 mod common;
 mod debugger;
 mod emulator;
@@ -11,6 +12,7 @@ fn main() {
     }
     let name = args.remove(0);
     let result = match name.as_str() {
+        "AssemblerVerify" => assembler::run(&args),
         "EmulatorHost" => emulator::run(&args),
         "VBlankHost" => games::vblank(&args),
         "GameHost" => games::game(&args),

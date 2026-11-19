@@ -4,9 +4,11 @@ Assessment date: 2026-11-14. Source baseline: `c2fddcf`, with pre-existing uncom
 
 ## Product direction
 
-Managed-code retirement audit (2026-11-19): unused managed LSP semantic/syntax
-wrappers and support types are removed. Live verification/development tools
-retain their existing C# dependencies; their porting scope remains unresolved.
+Managed-code retirement (2026-11-19): PR62 now includes all nonessential C#;
+the user superseded the earlier verification/development-tool exclusions.
+Unused managed LSP wrappers are removed, and independent assembler execution
+verification now uses Rust. Remaining verification callers and managed libraries
+are tracked for replacement or decommissioning.
 See the [retirement ledger](docs/rust-migration-cleanup.md).
 
 CI/CD simplification (2026-11-19): one justfile owns local/CI tasks; full

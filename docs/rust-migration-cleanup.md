@@ -16,22 +16,24 @@ Repository callers of the removed APIs were checked before deletion. The retaine
 native bridge still parses inputs, resolves includes, assembles ELF and links ROMs
 for managed integration tests and benchmarks.
 
-## Remaining managed dependencies
+## Required C# and retirement scope
 
-| Area | Live reason |
+| Area | Disposition |
 | --- | --- |
 | `Koh.GameBoy`, samples and compiler fixtures | C# source language and compiler/runtime contracts |
 | `Koh.Build.Tasks`, `Koh.Sdk` | .NET SDK/MSBuild integration |
-| `Koh.Native`, `Koh.Common`, `Koh.Objects` | Managed assembler/linker integration tests and benchmarks |
-| `Koh.Opcodes` | Superoptimizer instruction alphabet and disassembler tests |
-| `Koh.Emulator`, `Koh.Boot` | Verification harness, superoptimizer, benchmarks and compatibility tests |
-| `Koh.Verify`, 2048 verifier, `tools/rust-asm-verify` | Existing verification workflows |
-| C# oracle capture sources | Reproducible compatibility fixtures for native tests |
+| `Koh.Native`, `Koh.Common`, `Koh.Objects` | Retire managed bridge and duplicate tests; retain native build glue |
+| Managed bridge/emulator benchmarks and `Koh.Superopt` | Decommission; retain native compiler measurement workloads |
+| `Koh.Opcodes` | Retire with managed superoptimizer and duplicate disassembler tests |
+| `Koh.Emulator`, `Koh.Boot` | Retire managed libraries after verification callers move; keep boot assembly |
+| `Koh.Verify`, 2048 verifier | Replace the live workflow with the native emulator |
+| `tools/rust-asm-verify` execution helper | Replaced by `koh-test-host AssemblerVerify execute <rom>` |
+| C# oracle capture sources | Retire managed-emulator capture programs; retain independent .NET semantic oracles |
 
-The [engine design](rust-engine/design.md) explicitly excludes verification-tool
-ports and retains their managed dependencies. Retiring those live tools requires
-resolving that scope before removing their dependencies. This audit does not
-claim the whole migration is complete.
+The user's 2026-11-19 clarification expands PR62 to all nonessential C# and
+supersedes the earlier [engine design](rust-engine/design.md) exclusions.
+The [retirement plan](superpowers/plans/2026-11-19-managed-retirement.md) tracks
+the remaining work. This audit does not claim the whole migration is complete.
 
 ## Local validation
 
@@ -41,3 +43,8 @@ using `dotnet test --solution Koh.Ci.slnf -c Release --no-build
 --max-parallel-test-modules 1`. CSharpier checked the retained bridge/common code.
 These checks ran in the original checkout before transfer to the cleanup branch;
 hosted validation of the draft PR remains required.
+
+The native assembler verifier passes four focused tests, including bounded
+execution failure and malformed input. Independent RGBDS 1.0.1 verification
+passes seven complete-ROM comparisons and 18 invalid-input pipelines through
+the native helper, with no .NET executable on PATH.
