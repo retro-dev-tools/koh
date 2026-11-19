@@ -4,7 +4,6 @@
 
   Quick reference:
     dotnet msbuild build.proj -t:Test      (.NET component tests)
-    dotnet msbuild build.proj -t:Benchmark
     dotnet msbuild build.proj -t:PublishDev
     dotnet msbuild build.proj -t:PublishEmulatorApp
 -->
@@ -19,10 +18,6 @@
 
   <Target Name="Test">
     <Exec Command="dotnet test --solution Koh.Fast.slnf" />
-  </Target>
-
-  <Target Name="Benchmark">
-    <Exec Command="dotnet run --project tools/benchmarks/Koh.Benchmarks/ --configuration Release" />
   </Target>
 
   <Target Name="PublishDev" DependsOnTargets="PublishEmulatorApp">

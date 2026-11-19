@@ -2,9 +2,7 @@
   <Folder Name="/Common/">
     <Project Path="src/Common/Koh.Common/Koh.Common.csproj" />
     <Project Path="src/Common/Koh.Objects/Koh.Objects.csproj" />
-    <Project Path="src/Common/Koh.Opcodes/Koh.Opcodes.csproj" />
     <Project Path="tests/Common/Koh.Objects.Tests/Koh.Objects.Tests.csproj" />
-    <Project Path="tests/Common/Koh.Opcodes.Tests/Koh.Opcodes.Tests.csproj" />
   </Folder>
   <Folder Name="/Asm/">
     <Project Path="src/Asm/Koh.Native/Koh.Native.csproj" />
@@ -21,11 +19,6 @@
     <Project Path="src/Emulator/Koh.Emulator/Koh.Emulator.csproj" />
     <Project Path="tests/Emulator/Koh.Boot.Tests/Koh.Boot.Tests.csproj" />
     <Project Path="tests/Emulator/Koh.Emulator.Tests/Koh.Emulator.Tests.csproj" />
-  </Folder>
-  <Folder Name="/Tools/">
-    <Project Path="tests/Tools/Koh.Superopt.Tests/Koh.Superopt.Tests.csproj" />
-    <Project Path="tools/Koh.Superopt/Koh.Superopt.csproj" />
-    <Project Path="tools/benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/Samples/">
     <Project Path="samples/csharp/gb-2048-cs/Gb2048CSharp.csproj" />

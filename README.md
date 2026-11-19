@@ -208,13 +208,13 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 rust/         koh-asm, koh-link, koh-compile (CIL compiler), koh-lsp (language server), koh-objects (ELF ABI),
               koh-ui (GPUI Kit desktop), koh-emulator, koh-debugger, koh-engine
 src/
-  Common/     Koh.Common (diagnostics, source text), Koh.Opcodes (SM83 opcode table),
+  Common/     Koh.Common (diagnostics, source text),
               Koh.Objects (compiler output concepts and debug records)
   Asm/        Koh.Native (native bridge and publish integration)
   Compiler/   Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
   Emulator/   Koh.Emulator, Koh.Boot (pending retirement); boot assembly
 tests/        mirrors src/ by area; tests/fixtures holds external test ROMs
-tools/        Koh.Superopt, benchmarks/
+tools/        verification/, benchmarks/compiler/ (native compiler measurements)
 samples/      asm/, csharp/, ui/
 editors/
   vscode/     VS Code extension

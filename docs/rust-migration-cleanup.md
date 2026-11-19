@@ -23,8 +23,8 @@ for managed integration tests and benchmarks.
 | `Koh.GameBoy`, samples and compiler fixtures | C# source language and compiler/runtime contracts |
 | `Koh.Build.Tasks`, `Koh.Sdk` | .NET SDK/MSBuild integration |
 | `Koh.Native`, `Koh.Common`, `Koh.Objects` | Retire managed bridge and duplicate tests; retain native build glue |
-| Managed bridge/emulator benchmarks and `Koh.Superopt` | Decommission; retain native compiler measurement workloads |
-| `Koh.Opcodes` | Retire with managed superoptimizer and duplicate disassembler tests |
+| Managed bridge/emulator benchmarks and `Koh.Superopt` | Decommissioned; native compiler measurement workloads remain |
+| `Koh.Opcodes` | Retired with managed superoptimizer; native debugger retains the 512-encoding oracle |
 | `Koh.Emulator`, `Koh.Boot` | Retire managed libraries after verification callers move; keep boot assembly |
 | `Koh.Verify`, 2048 verifier | Replaced by `koh-test-host Verify2048` and the Pillow presentation driver |
 | `tools/rust-asm-verify` execution helper | Replaced by `koh-test-host AssemblerVerify execute <rom>` |
@@ -54,3 +54,9 @@ reference. All 63 captured state/animation images match the managed framebuffer
 pixels exactly, including each frame of all four slides. The presentation driver
 has tests for pixel positions, PNG dimensions, GIF timing and malformed images.
 Contact-sheet labels use Pillow's font; framebuffer regions retain exact pixels.
+
+Managed benchmark discovery and the standalone experimental superoptimizer are
+decommissioned rather than advertised as native replacements. Neither was a
+production compiler dependency. The managed opcode decoder/tests and its stale
+capture program are retired; `koh-debugger` still checks all 512 encodings against
+the captured independent JSON oracle. Historical capture source remains in Git.

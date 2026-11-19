@@ -45,8 +45,9 @@ actual exit codes before claiming success. [CI commands](docs/ci-validation.md).
 
 `rust/koh-objects` is the canonical object model. C# `Koh.Objects`/`Koh.Common`
 serve live bridge/debugger consumers; they are not the compiler's IR or object
-serializer. `Koh.Opcodes` supplies the C# debugger disassembler and standalone
-tool instruction table. Do not copy deleted compiler models into these projects.
+serializer. The managed opcode table and standalone superoptimizer are retired;
+native debugger decoding retains its independent 512-encoding oracle.
+Do not copy deleted compiler models into these projects.
 
 `Koh.GameBoy` remains the game-facing reference/runtime library. The compiler
 reads its metadata contract and includes reachable CIL transitively. SDK build

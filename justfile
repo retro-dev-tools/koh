@@ -123,8 +123,6 @@ verify:
         os.environ["KOH_RGBDS_TEST"] = "1"
         run("cargo", "nextest", "run", "-p", "koh-asm", "-p", "koh-link", "--all-features", "--locked")
         run(sys.executable, "scripts/verify-rust-assembler.py", "--output", out / "assembler")
-        run("dotnet", "build", "tools/benchmarks/Koh.Benchmarks/Koh.Benchmarks.csproj", "-c", "Release", "-m:1")
-        run("dotnet", "run", "--project", "tools/benchmarks/Koh.Benchmarks", "-c", "Release", "--no-build", "--", "--list", "flat")
 
 # Match the host's CI phases; platform-independent lint runs on Linux.
 [linux]

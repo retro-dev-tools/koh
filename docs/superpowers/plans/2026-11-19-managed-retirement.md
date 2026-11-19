@@ -10,7 +10,7 @@ and native workflow gates. Execute inline; no merge or release.
   exercise valid ROMs, missing signatures and malformed input through tests and RGBDS.
 - [x] Port the 2048 verification workflow to the native emulator; preserve state
   assertions, screenshots and animation/contact-sheet artifacts.
-- [ ] Decommission managed bridge/emulator benchmarks and the experimental
+- [x] Decommission managed bridge/emulator benchmarks and the experimental
   superoptimizer, recording their disposition and removing their build/CI entry points.
   Keep native compiler measurement workloads and their required C# input fixtures.
 - [ ] Audit managed test coverage against native suites; port missing behavioral
