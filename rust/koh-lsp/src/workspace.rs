@@ -28,7 +28,7 @@ pub struct Project {
 
 impl Project {
     pub fn contains(&self, path: &Path) -> bool {
-        self.files.contains(&key(&path.to_string_lossy()))
+        normalize(path).is_ok_and(|path| self.files.contains(&key(&path.to_string_lossy())))
     }
 }
 
@@ -103,7 +103,8 @@ impl Workspace {
     }
 
     pub fn document(&self, path: &Path) -> Option<&Document> {
-        self.documents.get(&key(&path.to_string_lossy()))
+        self.documents
+            .get(&key(&normalize(path).ok()?.to_string_lossy()))
     }
 
     pub fn open_documents(&self) -> impl Iterator<Item = &Document> {
@@ -118,7 +119,9 @@ impl Workspace {
     }
 
     pub fn project_for(&self, path: &Path) -> Option<&Project> {
-        let owner = self.owners.get(&key(&path.to_string_lossy()))?;
+        let owner = self
+            .owners
+            .get(&key(&normalize(path).ok()?.to_string_lossy()))?;
         self.projects
             .iter()
             .find(|project| key(&project.entrypoint) == *owner)

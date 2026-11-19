@@ -263,3 +263,16 @@ Because that earlier failure skips later package/editor steps, a dedicated
 Native LSP workflow now runs native tests, root publishing, packaged stdio and
 actual VS Code acceptance independently on Linux, Windows and macOS. The full
 workspace checks remain intact. Independent hosted results are pending.
+
+Independent run44557708672: Linux job135678182248 passed native tests,
+root publish, packaged stdio4/4 and actual editor46/46 (one DAP-only test
+pending because this standalone gate does not stage the desktop debugger).
+Completed log /tmp/koh-lsp-acceptance-linux.log was downloaded and re-read.
+macOS135678181550 and Windows135678182167 failed workspace tests. macOS
+fixtures could share pid/timestamp directory names and delete each other's
+files; fixture names now also include an atomic sequence. Windows exposed
+mixed-separator lookups against normalized document/project keys. All three
+workspace lookup boundaries now normalize paths. A new logical-path-spelling
+test fails before the fix (/tmp/koh-lsp-path-spelling-red.log) and passes after.
+Native61/61 and strict Clippy exit0 after fixes
+(/tmp/koh-lsp-platform-fixes-{native,clippy}.log). Platform rerun is pending.

@@ -1,15 +1,21 @@
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 pub struct Fixture(pub PathBuf);
 impl Fixture {
     pub fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "koh-lsp-{}-{}",
+            "koh-lsp-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)

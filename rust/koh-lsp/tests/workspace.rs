@@ -59,7 +59,10 @@ fn included_only_open_file_uses_root_context_and_unsaved_overlay() {
     w.initialize(&f.0).unwrap();
     w.open(&leaf, "UnsavedEntry: load_value 2\n").unwrap();
     let project = w.project_for(&leaf).unwrap();
-    assert_eq!(project.entrypoint, game.to_string_lossy());
+    assert_eq!(
+        project.entrypoint,
+        koh_lsp::paths::normalize(&game).unwrap().to_string_lossy()
+    );
     assert_eq!(project.name, "game");
     assert_eq!(w.projects().len(), 1);
     assert!(symbols(&project.analysis).contains(&"UnsavedEntry"));
@@ -353,6 +356,19 @@ fn overlay_text_updates_case_insensitively_and_close_restores_disk_reads() {
     w.close(&upper).unwrap();
     assert_eq!(w.text(&path).unwrap(), "disk text");
     assert!(w.text(&f.0.join("missing.asm")).is_err());
+}
+
+#[test]
+fn normalized_path_spellings_share_documents_and_project_ownership() {
+    let f = Fixture::new();
+    let path = f.write("src/main.asm", "Disk: nop\n");
+    let alias = f.0.join("src/../src/./main.asm");
+    let mut w = Workspace::default();
+    w.initialize(&f.0).unwrap();
+    w.open(&path, "Unsaved: halt\n").unwrap();
+    assert!(w.document(&alias).is_some());
+    assert!(w.project_for(&alias).unwrap().contains(&alias));
+    assert_eq!(w.text(&alias).unwrap(), "Unsaved: halt\n");
 }
 
 #[test]
