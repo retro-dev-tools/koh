@@ -9,9 +9,14 @@ progress, preview commands and full parity/removal acceptance are in
 
 Draft PR56: https://github.com/retro-dev-tools/koh/pull/56 (keep draft and updated).
 Current progress9/10: KohUI removal and desktop package integration verified.
-Next unit: verify corrected startup activation and native frame placement on
-Windows/macOS via the next full CI head; keep goal9/10 until that + remaining
-gates are proven. Physical question remains pending.
+Next unit: finish full44447145986 at implementation58f3746. Mac publish job
+135303782548 PASSES AXFrontmost/global HID/exact2xLCD/paused-state/save/close;
+title+paused captures reviewed, whole native frame visible. Log
+/tmp/koh-ui-startup-macos-native-ci.log; captures
+/tmp/koh-gpui-startup-macos-native-window/. Windows frame guard + Linux publish
+and broader native suites remain live; do not restart on observation timeout.
+Managed554/554 both platforms, zero warnings/errors. QuickPR green.
+Keep goal9/10 until remaining gates are proven. Physical question pending.
 Full44442207871 at3b2634f: Linux + Windows publish/window jobs PASS; Windows
 metadata UTF8 fix confirmed, foreground/input/state/save/close all pass.
 Mac job135287624302 fails actual AXFrontmost assertion as expected; log
@@ -24,8 +29,12 @@ Local8Rust UI tests incl AOT engine,3locator cases,Clippy all pass. New native
 1024x768 client960x704 fits, exact LCD/native close pass; standard X11 rendering,
 input/pause/save/empty shortcuts/child close pass. Debug frontend + fresh AOT
 engine. Logs /tmp/koh-ui-startup-*.log, /tmp/koh-ui-startup-small.png.
-No new local release UI build yet; current /tmp/koh-gpui-package UI is pre-startup
-fix. New /tmp/koh-ui-startup-debug-package contains corrected debug UI + engine.
+Local PublishDev now exit0; root publish + editors/vscode/server contain corrected
+releaseUI SHA256 68e9ed54a9c3b45c5592a68c54f7d0808aa06efa9e514ea5946080d1c6c447f0.
+Published editor UI native oracle/input/pause/save/empty shortcuts/child exit PASS.
+Logs /tmp/koh-ui-startup-publishdev.log and startup-release-window.log.
+/tmp/koh-gpui-package UI remains pre-startup; don't use for final UI proof.
+/tmp/koh-ui-startup-debug-package contains corrected debug UI + engine.
 Physical audio/DPI
 question is pending through request_user_input_async (no reply yet).
 New PR check c245557 failed loading OpenAL before audio regression on Ubuntu.

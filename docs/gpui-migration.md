@@ -519,3 +519,29 @@ shortcuts. These runs used the debug frontend with the fresh NativeAOT engine.
 Logs: `/tmp/koh-ui-startup-tests.log`, `/tmp/koh-ui-startup-clippy.log`,
 `/tmp/koh-ui-startup-verifier-tests.log`, `/tmp/koh-ui-startup-small.log`,
 `/tmp/koh-ui-startup-standard-native.log`.
+
+### Corrected release acceptance
+
+Full run [44447145986](https://github.com/retro-dev-tools/koh/actions/runs/44447145986)
+tests implementation `58f3746`. The macOS publish job 135303782548 passed its
+headless capture, three image-locator tests and native-window acceptance:
+`PASS darwin: exact LCD oracle and 2x integer replication` and
+`PASS darwin: Start, pause, save and native close`. This run checks AXFrontmost
+before posting keyboard events through the global HID route. Both completed
+paused saves match byte for byte. Title and paused captures were reviewed:
+the window and native titlebar are fully visible. Primary log:
+`/tmp/koh-ui-startup-macos-native-ci.log`; downloaded captures:
+`/tmp/koh-gpui-startup-macos-native-window/`.
+
+Current-head managed jobs passed 554/554 on Linux and Windows, with zero build
+warnings/errors. Quick PR checks are green. Windows frame validation, Linux
+hosted publishing and the broader native suites are still running; this is not
+an overall full-run success claim.
+
+Local `PublishDev` finished with exit 0 and refreshed the editor server package.
+The published release UI passes exact LCD/integer scale, Start, pause, save,
+inactive empty shortcuts and clean child exit. Logs:
+`/tmp/koh-ui-startup-publishdev.log` and
+`/tmp/koh-ui-startup-release-window.log`. The editor and root-published UI match
+SHA-256 `68e9ed54a9c3b45c5592a68c54f7d0808aa06efa9e514ea5946080d1c6c447f0`.
+No retired KohUI/SDL3 files were found in the refreshed editor package.
