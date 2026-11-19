@@ -11,7 +11,7 @@ invalid tags and mismatched extension versions, and restrict write tokens to
 draft creation. Licensing remains a publication blocker requiring owner review.
 
 Scope: four workflows, action-update automation, release preflight/tests,
-portable Unix installer checksums,
+portable Unix installer checksums and SDK timeout diagnostics,
 and the existing CI guide. No runtime redesign, registry publication, paid
 services, branch-protection mutation, or actual release publication.
 
@@ -49,8 +49,8 @@ All results below were re-read from completed logs, with actual exit 0:
   publication succeeded; four stdio cases pass against its release binary.
 - Official Node 22.23.5/npm 10.9.9: clean install, production audit reports
   zero vulnerabilities, VSIX packages successfully, and actual VS Code tests
-  report 47 passing, one pending (desktop fixture not supplied). The real
-  packaged LSP integration runs. The profile fix was preceded by four failures
+  report 48 passing, zero pending with real packaged desktop/DAP and LSP
+  fixtures. The profile fix was preceded by four failures
   caused by a persistent local toolchain setting in the old test profile.
 - Three release preflight tests pass: SemVer/injection rejection and mismatched
   package/lock versions. Workflow permission/manual-event assertions pass;
@@ -59,6 +59,17 @@ All results below were re-read from completed logs, with actual exit 0:
   including a hyphen only in SemVer build metadata. Installer checksum branches
   use stock macOS shasum or Linux sha256sum; fixture execution verifies both,
   paths with spaces and missing-input rejection. ShellCheck passes the template.
+- Root desktop/engine publication succeeded. The GUI release link took 15m23s;
+  the formerly timed-out default SDK headless-launch case then passed in23.16s.
+  No assertions, deadline or retry policy changed.
+- Linux native session tests:15 passed,3 ignored; both explicit null-audio/reset
+  cases passed separately. These configure the packaged search path; Linux may
+  still select a system OpenAL SO by candidate order, so exact bundled-library
+  selection needs a separate loader review before claiming audio provenance.
+- The actual Linux release archive was built with the workflow's archive step:
+  449 files retain hashes/modes after extraction; binaries and notice hashes
+  verify. Extracted compiler/linker build C# graphics source to a ROM; extracted
+  engine runs1200 frames, writes a PNG and reports zero Mode-3 write violations.
 
 Self-review retained the existing build targets/platform cadence and targeted
 LSP workflow, removed redundant version parsing, and explicitly installed Python
@@ -68,11 +79,19 @@ ranges; 20 development-only npm advisories still need separate triage.
 It also corrected SemVer build-metadata classification and the macOS installer's
 dependency on GNU sha256sum, without changing the installation layout.
 
-Hosted baseline run 44567744164 at unchanged master 0814e2f was still executing
-native workspace tests on all three platforms at final inspection. It is not
-acceptance of this branch. New workflow dispatch/upload, macOS/Windows installer
-execution, complete toolchain archives and public release/update behavior have
-not been exercised here. No release, tag, protection change or push was made.
+Hosted baseline run44567744164 at unchanged master0814e2f failed on all platforms,
+all with cache misses and a six-minute SDK headless-launch timeout. Linux2463
+passed; Windows2459 passed; macOS2462 passed plus a missing-audio-endpoint failure.
+The default SDK run publishes the release desktop on first use. Existing
+publication was moved before workspace tests; two phase messages improve timeout
+diagnostics. macOS has system OpenAL fallback, which does not honor OpenAL Soft
+backend settings; tests now configure the packaged audio search path just as the
+existing explicit audio-reset checks do. Local checks pass; hosted confirmation
+of these fixes remains required.
+
+Push, full hosted validation, package-only release runs and a draft PR are now
+authorized. No merge, protection change, tag or publication is authorized.
+macOS/Windows installer execution and public update behavior remain unvalidated.
 
 Local environment gotcha: stale shared NuGet scratch locks stalled tools/builds.
 A fresh `NUGET_SCRATCH` directory allowed normal tool restore, audited restore,

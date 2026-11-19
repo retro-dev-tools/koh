@@ -98,8 +98,22 @@ jobs:
         run: cargo clippy -p koh-emulator -p koh-debugger -p koh-engine -p koh-test-host -p koh-lsp --all-targets --no-deps --locked -- -D warnings
       - name: Check Rust targets
         run: cargo check --workspace --all-targets --all-features --locked
+      - name: Publish desktop and native engine
+        run: |
+          dotnet msbuild build.proj -t:PublishEmulatorApp
+          rid=$(dotnet msbuild build.proj -nologo -getProperty:EmulatorRuntimeIdentifier)
+          echo "rid=$rid" >> "$GITHUB_OUTPUT"
+          ls -lh "artifacts/emulator/$rid"
+        id: desktop
+        shell: bash
       - name: Test Rust workspace
-        run: cargo +stable nextest run --workspace --all-features --locked --no-fail-fast
+        shell: bash
+        run: |
+          pub="$PWD/artifacts/emulator/${{ steps.desktop.outputs.rid }}"
+          export PATH="$pub:$PATH"
+          export LD_LIBRARY_PATH="$pub${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export DYLD_LIBRARY_PATH="$pub${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+          cargo +stable nextest run --workspace --all-features --locked --no-fail-fast
       - name: Test Rust documentation
         run: cargo +stable test --doc --workspace --all-features --locked
       - name: Build and test managed projects
@@ -129,14 +143,6 @@ jobs:
           fi
           "$linker" --version
           KOH_LSP_TEST_BINARY="$server" cargo test -p koh-lsp --test stdio --locked
-      - name: Publish desktop and native engine
-        run: |
-          dotnet msbuild build.proj -t:PublishEmulatorApp
-          rid=$(dotnet msbuild build.proj -nologo -getProperty:EmulatorRuntimeIdentifier)
-          echo "rid=$rid" >> "$GITHUB_OUTPUT"
-          ls -lh "artifacts/emulator/$rid"
-        id: desktop
-        shell: bash
       - name: Test native audio resets
         shell: bash
         run: |

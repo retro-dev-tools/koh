@@ -46,12 +46,23 @@ Windows excludes the two Unix assembler cases
 tests are Unix-only; Windows exercises named pipes. These are platform
 exclusions, not retries. Editor tests use a fresh temporary profile per run.
 
+The desktop/engine package is built before native tests. The SDK headless-launch
+case uses default `dotnet run`, which publishes the desktop on first use; cold
+release compilation belongs in the build phase, outside the test's six-minute
+deadline. The assertions, deadline and zero-retry policy are preserved.
+Native tests use the packaged OpenAL loader path, including macOS: its system
+OpenAL framework does not implement OpenAL Soft's backend-selection settings.
+The default native run has five ignored opt-in cases; CI explicitly runs the two
+null-audio/reset cases later. The remaining reference/client cases require their
+documented fixture variables and are not implied by a default green test run.
+
 ## Local validation and diagnostics
 
 Prerequisites: stable Rust with rustfmt/clippy, cargo-nextest 0.9.140,
 .NET SDK 10.0.115 or compatible newer .NET 10, Node 22, Python 3.13,
 actionlint 1.7.12 and ShellCheck. The exact Ubuntu native development packages are in
 `ci.yml`; headless editor tests also need Xvfb.
+The commands below use Bash (Git Bash on Windows).
 
 ```sh
 actionlint
@@ -62,6 +73,12 @@ dotnet tool restore
 dotnet csharpier check .
 cargo clippy -p koh-emulator -p koh-debugger -p koh-engine -p koh-test-host -p koh-lsp --all-targets --no-deps --locked -- -D warnings
 cargo check --workspace --all-targets --all-features --locked
+dotnet msbuild build.proj -t:PublishEmulatorApp
+rid=$(dotnet msbuild build.proj -nologo -getProperty:EmulatorRuntimeIdentifier)
+pub="$PWD/artifacts/emulator/$rid"
+export PATH="$pub:$PATH"
+export LD_LIBRARY_PATH="$pub${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export DYLD_LIBRARY_PATH="$pub${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 cargo nextest run --workspace --all-features --locked --no-fail-fast
 cargo test --doc --workspace --all-features --locked
 dotnet build Koh.Ci.slnf -c Release -m:1
