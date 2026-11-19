@@ -20,7 +20,7 @@ SHA-256 at capture:
 | Artifact | SHA-256 |
 | --- | --- |
 | cpu.jsonl | 9d92136865b793993a5ad6dba39dbc7fe36b9c54ad7c74f2a10d69c0e8df6e3a |
-| oracle-capture.cs | 8ba61f66f6ccabd86962c88f5dd88e2ea1d63f0d59b028aa7f1f9b89bf60b3c5 |
+| oracle-capture.cs | 4f2d73992af3154aae37f9e9162015dfe0813c0e0c45cf15aa5d95e537f7a253 |
 | CpuRegisters.cs | 83aeb9946e1e28563436ff3c37f949f139f1e7e6ac05a3039deb23e629136dcc |
 | InstructionTable.cs | 4dce8d60aa125d779f3a10bf2d695998c1f2b0abdb851c89fd7f68955527b3bd |
 | Interrupts.cs | e6a3315221e31ab516c17d2e558af2c69e7603a54c55cd1b3c084a4d917b4e93 |

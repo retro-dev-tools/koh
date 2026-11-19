@@ -1,6 +1,9 @@
 pub mod state;
 pub mod timer;
 pub mod cpu;
+pub mod cartridge;
+pub mod ppu;
+pub mod apu;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HardwareMode {
