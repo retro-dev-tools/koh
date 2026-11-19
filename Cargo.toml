@@ -1,5 +1,5 @@
 [workspace]
-members = ["rust/koh-asm", "rust/koh-objects", "rust/koh-link", "rust/koh-compile", "rust/koh-ui", "rust/koh-emulator", "rust/koh-debugger", "rust/koh-test-host"]
+members = ["rust/koh-asm", "rust/koh-objects", "rust/koh-link", "rust/koh-compile", "rust/koh-ui", "rust/koh-emulator", "rust/koh-debugger", "rust/koh-engine", "rust/koh-test-host"]
 resolver = "3"
 
 [workspace.package]

@@ -3371,6 +3371,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "koh-engine"
+version = "1.0.2"
+dependencies = [
+ "base64 0.22.1",
+ "koh-asm",
+ "koh-debugger",
+ "koh-emulator",
+ "koh-link",
+ "libloading",
+ "png 0.18.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "koh-link"
 version = "1.0.2"
 dependencies = [
