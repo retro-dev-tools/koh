@@ -1,3 +1,16 @@
+# Managed retirement handoff
+
+Active PR62: retire all nonessential C# under the user's expanded scope.
+Branch `chore/remove-unused-managed-code`; worktree `koh-managed-cleanup`.
+Plan: docs/superpowers/plans/2026-11-19-managed-retirement.md.
+Earlier tool exclusions below are superseded. Verifiers are native; managed-only
+benchmark/mining tools are decommissioned. Managed emulator/boot and bridge
+libraries/tests are retired, with real boot handoff checks now native.
+Remaining work: audit required SDK source, finish native/platform acceptance,
+and inspect current PR checks. No merge or release is authorized.
+
+The following handoffs are historical; verify their state before reuse.
+
 # CI/CD maintenance handoff
 
 Current work: simplify PR #60 on `ci/maintainable-automation`, master `0814e2f`.

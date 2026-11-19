@@ -6,9 +6,10 @@ Assessment date: 2026-11-14. Source baseline: `c2fddcf`, with pre-existing uncom
 
 Managed-code retirement (2026-11-19): PR62 now includes all nonessential C#;
 the user superseded the earlier verification/development-tool exclusions.
-Unused managed LSP wrappers are removed, and independent assembler execution
-verification now uses Rust. Remaining verification callers and managed libraries
-are tracked for replacement or decommissioning.
+Unused managed LSP wrappers, managed emulator/boot/verification libraries,
+managed bridge/common/object/opcode code and their reference tests are removed.
+Assembler and 2048 verification use Rust; managed-only benchmark/mining tools
+are decommissioned. Final native/platform acceptance remains required.
 See the [retirement ledger](docs/rust-migration-cleanup.md).
 
 CI/CD simplification (2026-11-19): one justfile owns local/CI tasks; full
@@ -40,8 +41,8 @@ Native publishing and actual packaged GPUI/VS Code acceptance
 pass locally; the remaining managed suite passes 504/504 with zero skips.
 Full hosted platform acceptance remains in progress; see
 [engine migration](docs/rust-engine/design.md).
-Verification tooling is excluded pending separate design. Keep existing C#
-emulator/boot dependencies for unchanged verification and development tools;
+The original engine scope excluded verification tooling and retained C#
+development dependencies; PR62 supersedes that boundary and retires them.
 the Rust production engine has no managed fallback. UI PR56 is merged; engine
 PR57 is rebased onto master `622770f` at the user's request and was subsequently
 marked ready externally. No engine merge or release is authorized.

@@ -12,9 +12,9 @@ integration remain supported.
 - The virtual source resolver, text-change API and banked-address record.
 - The unused `Microsoft.Extensions.Logging.Debug` central package version.
 
-Repository callers of the removed APIs were checked before deletion. The retained
-native bridge still parses inputs, resolves includes, assembles ELF and links ROMs
-for managed integration tests and benchmarks.
+Repository callers of the removed APIs were checked before deletion. The native
+bridge's C# source and all managed common/object libraries are now retired;
+native tests exercise parse, includes, ELF assembly and ROM linking directly.
 
 ## Required C# and retirement scope
 
@@ -22,13 +22,13 @@ for managed integration tests and benchmarks.
 | --- | --- |
 | `Koh.GameBoy`, samples and compiler fixtures | C# source language and compiler/runtime contracts |
 | `Koh.Build.Tasks`, `Koh.Sdk` | .NET SDK/MSBuild integration |
-| `Koh.Native`, `Koh.Common`, `Koh.Objects` | Retire managed bridge and duplicate tests; retain native build glue |
+| `Koh.Native`, `Koh.Common`, `Koh.Objects` | C# source and reference tests retired; native build/NuGet glue remains |
 | Managed bridge/emulator benchmarks and `Koh.Superopt` | Decommissioned; native compiler measurement workloads remain |
 | `Koh.Opcodes` | Retired with managed superoptimizer; native debugger retains the 512-encoding oracle |
-| `Koh.Emulator`, `Koh.Boot` | Retire managed libraries after verification callers move; keep boot assembly |
+| `Koh.Emulator`, `Koh.Boot` | Managed libraries/tests retired; boot assembly remains input to the native build |
 | `Koh.Verify`, 2048 verifier | Replaced by `koh-test-host Verify2048` and the Pillow presentation driver |
 | `tools/rust-asm-verify` execution helper | Replaced by `koh-test-host AssemblerVerify execute <rom>` |
-| C# oracle capture sources | Retire managed-emulator capture programs; retain independent .NET semantic oracles |
+| C# oracle capture sources | Managed-emulator capture programs retired; independent .NET semantic oracles remain |
 
 The user's 2026-11-19 clarification expands PR62 to all nonessential C# and
 supersedes the earlier [engine design](rust-engine/design.md) exclusions.
@@ -60,3 +60,21 @@ decommissioned rather than advertised as native replacements. Neither was a
 production compiler dependency. The managed opcode decoder/tests and its stale
 capture program are retired; `koh-debugger` still checks all 512 encodings against
 the captured independent JSON oracle. Historical capture source remains in Git.
+
+## Managed test retirement
+
+The 257 tests still present after development-tool retirement exercised the
+managed reference emulator/boot and the managed object/assembler/linker bridge.
+Those test projects are decommissioned with their implementations; they are not
+counted as passing native tests. Native component tests, captured compatibility
+oracles, ELF/protocol/CLI checks and Roslyn/ROM integration remain the gates.
+
+Real boot contracts were explicitly moved to `rust/koh-emulator/tests/boot.rs`:
+image shape/family, instruction-level canonical register handoff, actual logo
+execution, VRAM/palettes/APU state, animation duration, wrong-family rejection and
+corrupted-logo/checksum lockup. The four tests cover both hardware families and
+CGB handling of a DMG cartridge, without fabricated post-boot state.
+
+The engine disposition CSV records retired reference cases and their native
+component owners. Those component pointers do not assert a one-to-one test port;
+the original reference source remains available at the recorded baseline commit.

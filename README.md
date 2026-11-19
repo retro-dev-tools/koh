@@ -64,7 +64,7 @@ Koh is built to stay close to existing RGBDS-style workflows while providing com
 The .NET SDK/Roslyn builds game DLLs and optional Portable PDBs. The Rust compiler
 resolves reachable game/runtime references, verifies typed IR and emits ELF32/SM83
 for the native linker. Ordinary game `dotnet build` runs this pipeline through
-Koh.Sdk; the existing C# emulator/debugger runs the ROM and consumes DWARF.
+Koh.Sdk; the Rust emulator/debugger runs the ROM and consumes DWARF.
 See the [supported language contract](docs/rust-compiler/supported-subset.md),
 [runtime boundaries](docs/rust-compiler/runtime-boundaries.md),
 [ABI](docs/rust-compiler/sm83-abi.md) and [validation record](docs/rust-compiler/progress.md).
@@ -140,11 +140,11 @@ dotnet msbuild build.proj -t:Test
 
 ### Common build targets
 
-Invoke as `dotnet msbuild build.proj -t:<Target>`. `just test` runs all native and .NET tests.
+Invoke as `dotnet msbuild build.proj -t:<Target>`. `just test` builds .NET inputs and runs native tests and doctests.
 
 | Target                | Description                                                 |
 | --------------------- | ----------------------------------------------------------- |
-| `Test`                | Run the .NET component tests |
+| `Test`                | Run native tests and Rust doctests |
 | `BuildSample2048`     | Build the assembly 2048 sample ROM                          |
 | `Benchmark`           | Run benchmarks                                              |
 | `PublishDev`          | Publish the LSP server for local VS Code debugging          |
@@ -208,12 +208,10 @@ Build the GB sample with `dotnet msbuild build.proj -t:BuildSample2048`.
 rust/         koh-asm, koh-link, koh-compile (CIL compiler), koh-lsp (language server), koh-objects (ELF ABI),
               koh-ui (GPUI Kit desktop), koh-emulator, koh-debugger, koh-engine
 src/
-  Common/     Koh.Common (diagnostics, source text),
-              Koh.Objects (compiler output concepts and debug records)
-  Asm/        Koh.Native (native bridge and publish integration)
+  Asm/        Koh.Native (native build/publish and NuGet asset integration)
   Compiler/   Koh.GameBoy (runtime), Koh.Build.Tasks, Koh.Sdk
-  Emulator/   Koh.Emulator, Koh.Boot (pending retirement); boot assembly
-tests/        mirrors src/ by area; tests/fixtures holds external test ROMs
+  Emulator/   boot assembly consumed by the Rust emulator build
+tests/        shared assembly/reference fixtures; test code lives in Rust crates
 tools/        verification/, benchmarks/compiler/ (native compiler measurements)
 samples/      asm/, csharp/, ui/
 editors/

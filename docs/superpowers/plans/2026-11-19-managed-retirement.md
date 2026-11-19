@@ -13,12 +13,13 @@ and native workflow gates. Execute inline; no merge or release.
 - [x] Decommission managed bridge/emulator benchmarks and the experimental
   superoptimizer, recording their disposition and removing their build/CI entry points.
   Keep native compiler measurement workloads and their required C# input fixtures.
-- [ ] Audit managed test coverage against native suites; port missing behavioral
+- [x] Audit managed test coverage against native suites; port missing behavioral
   cases, then retire the managed tests and compatibility libraries.
-- [ ] Remove C# emulator/boot/verification, opcode/object/common and native bridge
+- [x] Remove C# emulator/boot/verification, opcode/object/common and native bridge
   source once callers are gone; preserve boot assembly and native build glue.
 - [ ] Update solutions, build targets, CI tasks, package versions and current docs.
   List every retained C# file category and its required .NET consumer.
+- [ ] Move tile-sheet conversion/PNG decoding to Rust; retain only its MSBuild wrapper.
 - [ ] Run native suites, independent RGBDS verification, source-to-ROM builds,
   packaged editor/desktop checks and final PR CI. Re-read completed logs.
 

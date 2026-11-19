@@ -50,7 +50,7 @@ build:
     shutil.copy2(target / f"release/koh-compile{suffix}", bin)
     run("dotnet", "build", "Koh.Ci.slnf", "-c", "Release", "-m:1")
 
-# Build and test native and managed components.
+# Build .NET inputs and test native components.
 [script("python")]
 test: build
     import os, pathlib, subprocess
@@ -65,7 +65,6 @@ test: build
     run("cargo", "clippy", "-p", "koh-emulator", "-p", "koh-debugger", "-p", "koh-engine", "-p", "koh-test-host", "-p", "koh-lsp", "--all-targets", "--no-deps", "--locked", "--", "-D", "warnings")
     run("cargo", "nextest", "run", "--workspace", "--all-features", "--locked", "--no-fail-fast")
     run("cargo", "test", "--doc", "--workspace", "--all-features", "--locked")
-    run("dotnet", "test", "--solution", "Koh.Ci.slnf", "-c", "Release", "--no-build", "--max-parallel-test-modules", "1")
 
 # Verify built packages, native windows, audio and real editor/debugger use.
 [script("python")]

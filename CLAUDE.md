@@ -5,7 +5,7 @@ Read [AGENTS.md](AGENTS.md) for repository conventions and working-tree safety.
 ## Toolchain
 
 Koh combines native Rust assembler/linker/compiler tools with C# game authoring,
-the .NET SDK, the C# emulator/debugger engine and the Rust + GPUI Kit desktop. Roslyn compiles ordinary
+the .NET SDK, the Rust emulator/debugger engine and the Rust + GPUI Kit desktop. Roslyn compiles ordinary
 C# to DLL/PDB; `koh-compile` lowers the supported CIL subset to canonical
 ELF32/SM83; `koh-link` owns placement, relocation, headers and ROM/DWARF output.
 There is one production compiler. No C# compiler implementation or fallback
@@ -21,9 +21,9 @@ dotnet msbuild build.proj -t:Test
 ```
 
 Use the .NET10 SDK selected by `global.json`. Native compiler tests use rstest
-and drive real Roslyn fixtures and external C# emulator/debugger processes.
-Remaining .NET tests use TUnit and belong to live .NET components. The committed
-nextest configuration caps expensive fixture concurrency and uses zero retries.
+and drive real Roslyn fixtures and native emulator/debugger processes.
+Managed reference tests are retired. The committed nextest configuration caps
+expensive fixture concurrency and uses zero retries.
 Do not run two builds in the same output directory. Read completed logs and
 actual exit codes before claiming success. [CI commands](docs/ci-validation.md).
 
@@ -43,11 +43,10 @@ actual exit codes before claiming success. [CI commands](docs/ci-validation.md).
   [progress](docs/rust-compiler/progress.md): historical source traceability,
   independent observations and pending acceptance. Discovery is not execution.
 
-`rust/koh-objects` is the canonical object model. C# `Koh.Objects`/`Koh.Common`
-serve live bridge/debugger consumers; they are not the compiler's IR or object
-serializer. The managed opcode table and standalone superoptimizer are retired;
-native debugger decoding retains its independent 512-encoding oracle.
-Do not copy deleted compiler models into these projects.
+`rust/koh-objects` is the canonical object model. The managed bridge, object,
+diagnostic, opcode and emulator libraries are retired. `Koh.Native.csproj`
+contains build/publish targets and native NuGet assets, with no C# source.
+Native debugger decoding retains its independent 512-encoding oracle.
 
 `Koh.GameBoy` remains the game-facing reference/runtime library. The compiler
 reads its metadata contract and includes reachable CIL transitively. SDK build

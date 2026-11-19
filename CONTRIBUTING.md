@@ -26,7 +26,7 @@ dotnet msbuild build.proj -t:Test
 ```
 
 Compiler tests are Rust targets, including Roslyn-built DLL/PDB fixtures and
-external execution in the existing C# emulator. Install cargo-nextest and run:
+external execution in the native emulator. Install cargo-nextest and run:
 
 ```sh
 cargo nextest run --workspace --all-features --locked
@@ -35,8 +35,9 @@ cargo test --workspace --all-features --doc --locked
 
 The committed nextest configuration limits Roslyn/emulator concurrency and uses
 zero retries. `just ci` runs full acceptance on Linux, Windows and macOS in CI.
-Remaining .NET tests belong to live emulator, debugger, LSP, object/SDK bridge
-and standalone tool components. `just test` runs both test ecosystems.
+The managed reference libraries and their test projects are retired. SDK, game
+library and compiler input contracts are checked by the native integration tests.
+`just test` builds .NET inputs and runs native tests and doctests.
 
 Desktop publication requires Rust 1.92+, Python 3.11+ and the [GPUI native dependencies](docs/gpui-migration.md).
 `dotnet msbuild build.proj -t:PublishEmulatorApp` publishes the Rust UI and
@@ -57,7 +58,7 @@ Check C# formatting with `dotnet csharpier check <changed-file-or-directory>`. A
 
 ## Regression coverage
 
-Place tests under the matching area in `tests/`. A behavior fix should include a focused regression that fails before the fix. For RGBDS compatibility, include the smallest assembly reproducer and the reference tool's version and output. For emulator fixes, distinguish automated emulator results from tests on physical hardware.
+Place tests in the owning Rust crate. A behavior fix should include a focused regression that fails before the fix. For RGBDS compatibility, include the smallest assembly reproducer and the reference tool's version and output. For emulator fixes, distinguish automated emulator results from tests on physical hardware.
 
 Do not commit downloaded ROMs, toolchains, generated build output, VSIX files, or test caches. JRPG acceptance captures go under the test binary directory at `TestResults/gb-jrpg/<run-id>/`. The sample's tracked screenshots are curated documentation assets; copy reviewed captures there only when deliberately updating the documentation. Check `git status` after tests and preserve pre-existing edits.
 
