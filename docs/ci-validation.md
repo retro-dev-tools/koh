@@ -19,7 +19,8 @@ benchmark discovery. Existing verification tools are unchanged. Tag-only
 toolchain and extension releases remain separate workflows.
 
 There is no changed-path classifier or aggregate pass job. Each check reports
-its own actual result. New runs supersede older runs on the same branch. A
+its own actual result. New runs supersede older runs of the same mode on the
+same branch. PR checks cannot cancel master/manual validation. A
 shared per-platform cache avoids repeated dependency downloads/builds; GitHub
 keeps PR caches scoped to their PR refs. Diagnostic captures, packages and
 release tools are retained in `validation-<OS>` artifacts for seven days.
