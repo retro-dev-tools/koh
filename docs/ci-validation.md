@@ -42,7 +42,7 @@ Windows exercises named pipes instead.
 
 Master protection currently requires seven legacy job names, including three
 `emulator-aot-publish` contexts. Those names do not exist in the simplified
-workflow. No branch-protection settings are changed while this PR is draft.
+workflow. No branch-protection settings are changed before the coordinated merge.
 
 When merging this CI change, replace the legacy contexts with
 `check (ubuntu-latest)` using the prepared payload. It retains strict protection

@@ -6,7 +6,8 @@ Replace the production emulator, debugger and engine host with Rust while
 preserving the accepted GPUI desktop, ROM behavior, source debugging, headless
 commands, persistence and shutdown. The user authorized this next migration on
 2026-11-19. The LSP, C# game-authoring library and MSBuild integration remain
-separate. Keep the engine PR draft; do not merge or release it.
+separate. The engine PR was opened as a draft and subsequently marked ready
+externally. Do not merge or release it.
 
 User clarification: all verification tooling is out of scope pending deeper
 design. Leave `Koh.Verify`, the 2048 verifier and `tools/rust-asm-verify`
@@ -134,8 +135,8 @@ while any C# project remains. No root LICENSE ownership claim is invented.
 
 ## Progress
 
-`[####------] 4/10` plan checkpoints: baseline/state foundation, CPU, PPU and APU
-components verified. Bus/full-machine integration, boot/persistence, engine,
-debugger, removal/integration and final acceptance remain open. Detailed source
-method dispositions are in `test-disposition.csv`; `review` entries have grouped
-Rust/oracle coverage but are not closed until their assertions are checked.
+`[#########-] 9/10` plan checkpoints: implementation, production cutover and
+local acceptance are complete. Full hosted platform acceptance remains open.
+Detailed source-method dispositions are in `test-disposition.csv`: 181 methods
+retained for development tools, 42 mapped replacements and one obsolete private
+arithmetic scaffold; no partial mappings.

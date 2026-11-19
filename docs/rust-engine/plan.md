@@ -111,7 +111,7 @@ Files: `rust/koh-engine/src/{main,options,protocol,snapshot,persistence,audio,he
 - [x] Exercise process validation, no-audio fallback, state/input and SRAM endings.
 - [x] Preserve exact paused command/save/restore assertions.
 - [x] Commit the host and paused-command increments.
-- [ ] Close the remaining exact windowless source-test assertion gaps.
+- [x] Close the remaining exact windowless source-test assertion gaps.
 
 Evidence: `7e451fb`, `a63f41e`;
 `/tmp/koh-engine-paused-acceptance.log`: 2 passed, 0 failed.
@@ -131,7 +131,7 @@ oracle fixtures; engine DAP transport/hosting.
   the private arithmetic scaffold.
 - [x] Exercise generated DWARF source debugging and DAP process lifecycle.
 - [x] Commit debugger implementation and record reviewed assertion coverage.
-- [ ] Exercise actual GPUI plus the real VS Code extension against this engine.
+- [x] Exercise actual GPUI plus the real VS Code extension against this engine.
 
 Evidence: `ddbd1df`; `/tmp/koh-engine-debugger-review-green.log`:
 27 passed, 0 failed; host matrix covers original six lifecycle parameter cases.
@@ -146,15 +146,19 @@ SDK launch targets and native compiler execution hosts.
 
 - [x] Commit native compiler execution hosts and fixture caller migration.
 - [x] Retain C# emulator/boot for excluded development tools.
-- [ ] Finish and validate production consumer/build/publish/SDK cutover.
-- [ ] Remove old C# debugger/host projects only after replacement callers pass.
-- [ ] Close every in-scope source-test disposition and inspect package contents.
-- [ ] Validate final source-to-ROM, package and UI/DAP behavior serially.
+- [x] Finish and validate production consumer/build/publish/SDK cutover locally.
+- [x] Remove old C# debugger/host projects only after replacement callers pass.
+- [x] Close every in-scope source-test disposition and inspect package contents.
+- [x] Validate rebased source-to-ROM, package and UI/DAP behavior serially on Linux.
 
-Evidence: `d8b0317` supplies native fixture hosts. Production integration is
-under active validation. The full compiler regression log has not reached a
-terminal summary and is not counted as a pass. Existing managed verifier,
-superoptimizer and benchmark callers must remain unchanged.
+Evidence: `/tmp/koh-engine-rebased-compiler.log` has a terminal summary:
+2063 tests run, 2063 passed, 0 skipped. It includes the SDK native headless
+launch. `/tmp/koh-engine-review-ppu-publish.log` records the native publish;
+`/tmp/koh-engine-review-ppu-vscode.log` records 45 passing actual extension tests,
+and `/tmp/koh-engine-review-ppu-window.log` records the packaged window pass.
+These package checks include the PPU save-state review fix; hosted
+acceptance on `78e84e5` remains open. Existing managed verifier, superoptimizer
+and benchmark callers remain unchanged.
 
 ## Task 10: Full acceptance and review
 
@@ -162,8 +166,8 @@ superoptimizer and benchmark callers must remain unchanged.
 - [ ] Exercise native packages on Linux, Windows and macOS.
 - [ ] Verify real game input/pixels/audio, source debugging and shutdown in GPUI.
 - [ ] Complete notices, package-content and all ten compatibility-gate review.
-- [ ] Update the separate draft PR with exact commits, evidence and limitations.
-- [ ] Keep draft; no merge/release; claim completion only after acceptance.
+- [x] Update PR57 with exact commits, evidence and limitations.
+- [ ] Claim completion only after acceptance; no merge/release.
 
 Component/process Linux evidence above does not close these remaining product
 and platform gates. Earlier accepted C#-engine GPUI results are not proof for
