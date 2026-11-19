@@ -792,8 +792,9 @@ mod tests {
                 m.tick_mcycle();
             }
             assert!(!m.oam_dma.is_bus_locking);
-            for i in 0..160 {
-                assert_eq!(m.oam[i], (i as u8).wrapping_add(1));
+            assert_eq!(m.oam.len(), 160);
+            for (i, byte) in m.oam.iter().enumerate() {
+                assert_eq!(*byte, (i as u8).wrapping_add(1));
             }
         }
     }
